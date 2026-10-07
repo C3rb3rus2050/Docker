@@ -1,0 +1,3 @@
+bleak>=0.22
+aiomqtt>=2.0
+aiohttp>=3.9
