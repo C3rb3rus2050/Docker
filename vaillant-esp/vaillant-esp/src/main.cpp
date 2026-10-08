@@ -14,9 +14,9 @@
  *
  *  MQTT (Basis home/vaillant/esp1/):
  *   Node-RED -> ESP
- *     heaterOn/Off (on/off)       Therme an/aus (Ergebnis der Regelung in Node-RED)
- *     Vorlauftemp (1–9)           Vorlaufstufe (Ergebnis der Regelung in Node-RED)
- *     Reboot (1 | 0)              1 = Node-RED lebt, 0 = Neustart
+ *     heaterOn/Off (on/off)       Therme an/aus (Ergebnis der Regelung in Node-RED, retained)
+ *     Vorlauftemp (1–9)           Vorlaufstufe (Ergebnis der Regelung in Node-RED, retained)
+ *     Reboot (1 | 0)              1 = Node-RED lebt (einziges Lebenszeichen), 0 = Neustart
  *     cmd/setpoint (10–28)        Soll aus dem Dashboard
  *     cmd/vorlauf (1–9)           Vorlaufstufe aus dem Dashboard
  *     cmd/enabled (on/off)        Heizung AN/AUS aus dem Dashboard
@@ -69,8 +69,8 @@ unsigned long settingsChanged = 0;
 // ===================== Vorgaben von Node-RED =======
 bool remoteHeaterOn = false;
 int  remoteStage = DEFAULT_STAGE;
-bool remoteSeen = false;           // seit dem Start schon etwas von Node-RED gehört?
-unsigned long lastRemote = 0;      // letzte Nachricht von Node-RED
+bool remoteSeen = false;           // seit dem Start schon ein Lebenszeichen von Node-RED?
+unsigned long lastRemote = 0;      // letztes Lebenszeichen von Node-RED (Reboot = 1)
 String targetTempString  = "--";
 String currentTempString = "--";
 String statusString      = "--";
@@ -256,10 +256,11 @@ void onMqtt(char* topic, byte* payload, unsigned int length) {
   if (!t.startsWith(MQTT_BASE)) return;
   String sub = t.substring(strlen(MQTT_BASE));
 
+  // heaterOn/Off und Vorlauftemp sind retained: der Broker liefert sie bei jeder Verbindung
+  // erneut, auch wenn Node-RED nicht läuft. Als Lebenszeichen zählt deshalb nur Reboot = 1.
   if (sub == "heaterOn/Off") {
     bool on;
     if (parseOnOff(msg, on)) remoteHeaterOn = on;
-    markRemote();
     statusDirty = true;
   } else if (sub == "Vorlauftemp") {
     int s = msg.toInt();
@@ -267,7 +268,6 @@ void onMqtt(char* topic, byte* payload, unsigned int length) {
       remoteStage = s;
       statusDirty = true;
     }
-    markRemote();
   } else if (sub == "Reboot") {
     if (msg == "1") {
       markRemote();                           // Node-RED lebt
@@ -328,6 +328,9 @@ void mqttLoop() {
   const char* subs[] = {"heaterOn/Off", "Vorlauftemp", "Reboot", "cmd/setpoint", "cmd/vorlauf",
                         "cmd/enabled", "automode", "targetTemp", "current-temperature/get", "HeizungStatus"};
   for (const char* s : subs) mqtt.subscribe(topicFor(s).c_str(), 1);
+  // Sofort melden, damit Node-RED mit Reboot = 1 antwortet und nicht erst nach STATUS_INTERVAL
+  publish("Watchdog", "Alive");
+  lastStatus = millis();
   statusDirty = true;
 }
 
@@ -504,14 +507,17 @@ void controlLoop() {
       stage = remoteStage;
       break;
     case MODE_FALLBACK:
-      // Soll und Vorlaufstufe kommen direkt aus den Einstellungen (Taster)
+      // Soll und Vorlaufstufe kommen direkt aus den Einstellungen (Taster).
+      // Bei "Heizung AUS" bleibt nur der Frostschutz.
       if (FALLBACK_USE_SENSOR && sensorOk) {
-        float sp = settings.setpoint;
+        float sp = settings.enabled ? settings.setpoint : FALLBACK_FROST_TEMP;
         if (roomTemp < sp - FALLBACK_HYSTERESIS) fallbackHeat = true;
         else if (roomTemp > sp + FALLBACK_HYSTERESIS) fallbackHeat = false;
         heat = fallbackHeat;
       } else {
-        heat = true;  // ohne Fühler weiterheizen, die Heizkörper-Thermostate begrenzen
+        // ohne Fühler weiterheizen, die Heizkörper-Thermostate begrenzen;
+        // bei "Heizung AUS" ohne Fühler bleibt die Therme aus
+        heat = settings.enabled;
       }
       stage = settings.stage;
       break;
@@ -521,8 +527,8 @@ void controlLoop() {
       break;
   }
 
-  // "Heizung AUS" gilt immer, auch im Notbetrieb
-  if (!settings.enabled) heat = false;
+  // "Heizung AUS" gilt immer; im Notbetrieb bleibt der Frostschutz (siehe oben)
+  if (!settings.enabled && mode != MODE_FALLBACK) heat = false;
 
   if (heat != heaterOut || stage != stageOut) statusDirty = true;
   heaterOut = heat;
@@ -609,7 +615,7 @@ void displayLoop() {
 
   display.setTextSize(1);
   display.setCursor(0, 45);
-  if (!settings.enabled) display.print("Heizung: AUS");
+  if (!settings.enabled) display.print(heaterOut ? "Frostschutz" : "Heizung: AUS");
   else {
     display.print("Heater: ");
     display.print(heaterOut ? "Ein" : "Aus");

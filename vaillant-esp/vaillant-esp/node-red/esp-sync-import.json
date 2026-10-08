@@ -822,6 +822,116 @@
     "wires": []
   },
   {
+    "id": "092cf3e1cb975fcb",
+    "type": "inject",
+    "z": "aba84bec2c2e6cd0",
+    "name": "",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "1",
+    "topic": "",
+    "payload": "false",
+    "payloadType": "bool",
+    "x": 270,
+    "y": 360,
+    "wires": [
+      [
+        "b829804c13024c5a",
+        "ecaa7d3f46b50fd3"
+      ]
+    ],
+    "d": true
+  },
+  {
+    "id": "52c05382bcb977c3",
+    "type": "inject",
+    "z": "aba84bec2c2e6cd0",
+    "name": "",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "0.5",
+    "topic": "",
+    "payload": "true",
+    "payloadType": "bool",
+    "x": 270,
+    "y": 400,
+    "wires": [
+      [
+        "b829804c13024c5a",
+        "ecaa7d3f46b50fd3"
+      ]
+    ],
+    "d": true
+  },
+  {
+    "id": "f87f2e63c26826ca",
+    "type": "inject",
+    "z": "aba84bec2c2e6cd0",
+    "name": "",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "0,5",
+    "topic": "",
+    "payload": "8",
+    "payloadType": "num",
+    "x": 310,
+    "y": 1660,
+    "wires": [
+      [
+        "ceff669ab06c0527"
+      ]
+    ],
+    "d": true
+  },
+  {
+    "id": "b2387307ba8df2bb",
+    "type": "inject",
+    "z": "aba84bec2c2e6cd0",
+    "name": "",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "5",
+    "topic": "setTarget",
+    "payload": "21",
+    "payloadType": "num",
+    "x": 350,
+    "y": 1380,
+    "wires": [
+      [
+        "510604c4c3752aa3"
+      ]
+    ],
+    "d": true
+  },
+  {
     "id": "temp_in",
     "type": "inject",
     "z": "a1b2c3d4e5",

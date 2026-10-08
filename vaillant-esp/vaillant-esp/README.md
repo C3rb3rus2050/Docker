@@ -12,12 +12,16 @@
   bleibt immer bedienbar. Im Notbetrieb gilt keine Sperre. Schaltet man auf Handbetrieb zurück,
   erscheinen wieder die zuletzt von Hand eingestellten Werte.
 - **Sicherer Start:** Nach einem Neustart bleibt die Therme aus, bis Node-RED sich meldet
-  (höchstens 3 Minuten). Früher startete sie sofort mit Stufe 8 (~75 °C).
+  (höchstens 3 Minuten). Früher startete sie sofort mit Stufe 8 (~75 °C). Als Lebenszeichen
+  zählt nur `Reboot = 1` vom Watchdog-Flow; die gespeicherten (retained) Werte `heaterOn/Off`
+  und `Vorlauftemp` übernimmt der ESP, sie halten ihn aber nicht in der Fernsteuerung.
 - **Notbetrieb:** 15 Minuten ohne Lebenszeichen von Node-RED → der ESP regelt selbst nach dem
   Thermistor an A0. Beim Wechsel hebt er Soll und Vorlaufstufe einmalig auf mindestens 18 °C bzw.
   Stufe 4 an; danach sind beide mit den Tastern frei einstellbar (10–28 °C, Stufe 1–9).
   Ist der Fühler gestört, heizt er durchgehend weiter (die Heizkörper-Thermostate begrenzen).
-  „Heizung AUS“ gilt auch im Notbetrieb. Im Display steht dann „NOT“ und die gemessene Temperatur.
+  „Heizung AUS“ gilt auch im Notbetrieb, bis auf den Frostschutz: unter `FALLBACK_FROST_TEMP`
+  (12 °C) heizt der ESP trotzdem, denn das AUS kann auch vom Zeitplan stammen. Ohne Fühler gibt
+  es bei „Heizung AUS“ keinen Frostschutz. Im Display steht „NOT“ und die gemessene Temperatur.
 - **Nichts blockiert:** Ohne WLAN, MQTT, Internet, Display oder RTC läuft der ESP trotzdem weiter.
   Kein Selbst-Neustart mehr, wenn Node-RED schweigt.
 - **Zeit:** Sommer-/Winterzeit automatisch.
@@ -51,6 +55,10 @@ Was der Import macht:
 - `heaterOn/Off` und `Vorlauftemp` werden mit **retain** gesendet, damit der ESP nach einem
   Neustart sofort den aktuellen Zustand bekommt
 - der Test-Inject „Außentemperatur (Test)“ mit −1 °C wird deaktiviert
+- die Start-Injects im Tab *Heizung* für Soll (21 °C), Vorlaufstufe (8) und Heizung AN/AUS werden
+  deaktiviert. Der ESP ist führend und meldet seine Werte beim Start von Node-RED selbst; die
+  Injects hätten sie bei jedem Neustart überschrieben. Bis der ESP geflasht ist, startet Node-RED
+  deshalb ohne diese Vorgaben (Soll 20 °C, Heizung freigegeben).
 - die Schalter „Heizung AN/AUS“ und „Automatik Betrieb“ zeigen danach richtig herum an: AN
   bedeutet Heizung freigegeben bzw. Automatik aktiv. Bisher waren beide verdreht, die Regelung
   dahinter bleibt unverändert.

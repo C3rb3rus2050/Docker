@@ -64,6 +64,9 @@
 // danach sind sie mit den Tastern frei einstellbar.
 #define FALLBACK_SETPOINT_MIN 18.0f
 #define FALLBACK_HYSTERESIS 0.5f
+// Bei "Heizung AUS" heizt der Notbetrieb nur noch unter dieser Raumtemperatur (Frostschutz).
+// "Heizung AUS" kann auch vom Zeitplan stammen, deshalb nicht ganz abschalten.
+#define FALLBACK_FROST_TEMP 12.0f
 #define FALLBACK_STAGE_MIN  4                    // ~40 °C
 #define WIFI_REBOOT_TIMEOUT (30UL * 60UL * 1000UL) // ohne WLAN so lange warten, dann Neustart
 #define STATUS_INTERVAL     60000UL              // Status und "Alive" an MQTT

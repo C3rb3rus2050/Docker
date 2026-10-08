@@ -190,6 +190,13 @@ for t in ("TempUp", "TempDown", "VorlaufUp", "VorlaufDown", "heater"):
 # Zustand für den ESP behalten (retain)
 for i in ("7ecca48d346980a5", "faa1afea11c4c221"):   # heaterOn/Off, Vorlauftemp
     mod(i)["retain"] = "true"
+# Start-Injects für Soll, Vorlauf und Heizung AN/AUS abschalten: der ESP ist führend und
+# meldet seine Werte beim Start über state/* (retained). Sonst würde jeder Node-RED-Start
+# die Werte im ESP überschreiben. Die Injects am Automatik-Schalter bleiben aktiv.
+for n in fl:
+    if n["type"] == "inject" and n.get("z") == HZ and n.get("once") and \
+            {SOLL_UI, VORLAUF_UI, HEIZUNG_SW} & {w for o in n.get("wires", []) for w in o}:
+        mod(n["id"])["d"] = True
 # Test-Inject -1 °C in der Stufenregelung abschalten
 mod("temp_in")["d"] = True
 
