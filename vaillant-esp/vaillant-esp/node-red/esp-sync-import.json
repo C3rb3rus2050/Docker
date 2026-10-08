@@ -956,5 +956,23 @@
       ]
     ],
     "d": true
+  },
+  {
+    "id": "8f0746dc46bcf9ac",
+    "type": "mqtt out",
+    "z": "aba84bec2c2e6cd0",
+    "name": "Mittelwert",
+    "topic": "home/vaillant/esp1/current-temperature/get",
+    "qos": "2",
+    "retain": "true",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "cf0cd411e9941005",
+    "x": 680,
+    "y": 440,
+    "wires": []
   }
 ]

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Erzeugt node-red/esp-sync-import.json aus einem Node-RED-Export (flows.json).
 
-Aufruf: python3 build_import.py flows.json esp-sync-import.json
+Aufruf: python3 build_import.py flows.json esp-sync-import.json [flows-komplett.json]
+
+Mit dem dritten Argument entsteht zusätzlich der komplette Flow (Export plus Änderungen).
 """
 import copy
 import json
@@ -188,7 +190,9 @@ for t in ("TempUp", "TempDown", "VorlaufUp", "VorlaufDown", "heater"):
         if n["type"] == "mqtt in" and n.get("topic") == "home/vaillant/esp1/" + t:
             mod(n["id"])["d"] = True
 # Zustand für den ESP behalten (retain)
-for i in ("7ecca48d346980a5", "faa1afea11c4c221"):   # heaterOn/Off, Vorlauftemp
+# current-temperature/get (Anzeige "Room:") kommt nur, wenn ein Raumsensor meldet; ohne retain
+# zeigt der ESP nach einem Neustart bis dahin einen veralteten Wert vom Broker
+for i in ("7ecca48d346980a5", "faa1afea11c4c221", "8f0746dc46bcf9ac"):   # heaterOn/Off, Vorlauftemp, Raumtemperatur
     mod(i)["retain"] = "true"
 # Start-Injects für Soll, Vorlauf und Heizung AN/AUS abschalten: der ESP ist führend und
 # meldet seine Werte beim Start über state/* (retained). Sonst würde jeder Node-RED-Start
@@ -203,3 +207,13 @@ mod("temp_in")["d"] = True
 out = new + list(changed.values())
 json.dump(out, open(sys.argv[2], "w"), indent=2, ensure_ascii=False)
 print(f"{len(new)} neue Knoten, {len(changed)} geänderte Knoten")
+
+if len(sys.argv) > 3:
+    # Kompletter Flow: geänderte Knoten an ihrer Stelle ersetzen, den neuen Tab hinter die
+    # vorhandenen Tabs setzen, die übrigen neuen Knoten ans Ende
+    full = [changed.get(n["id"], n) for n in fl]
+    last_tab = max(i for i, n in enumerate(full) if n["type"] == "tab")
+    full[last_tab + 1:last_tab + 1] = [n for n in new if n["type"] == "tab"]
+    full += [n for n in new if n["type"] != "tab"]
+    json.dump(full, open(sys.argv[3], "w"), indent=4, ensure_ascii=False)
+    print(f"{len(full)} Knoten im kompletten Flow")

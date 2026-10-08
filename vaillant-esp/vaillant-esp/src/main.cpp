@@ -616,10 +616,8 @@ void displayLoop() {
   display.setTextSize(1);
   display.setCursor(0, 45);
   if (!settings.enabled) display.print(heaterOut ? "Frostschutz" : "Heizung: AUS");
-  else {
-    display.print("Heater: ");
-    display.print(heaterOut ? "Ein" : "Aus");
-  }
+  // Freigegeben: "heizt", wenn die Therme läuft, sonst "bereit" (Raum ist warm genug)
+  else display.print(heaterOut ? "AN - heizt" : "AN - bereit");
   display.setCursor(80, 45);
   display.print("Set:");
   // Im Automatikbetrieb das von Node-RED berechnete Ziel zeigen

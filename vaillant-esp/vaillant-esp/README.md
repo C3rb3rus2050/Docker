@@ -54,6 +54,9 @@ Was der Import macht:
   deaktiviert, nicht gelöscht
 - `heaterOn/Off` und `Vorlauftemp` werden mit **retain** gesendet, damit der ESP nach einem
   Neustart sofort den aktuellen Zustand bekommt
+- auch `current-temperature/get` (Anzeige „Room:“) wird mit **retain** gesendet. Node-RED schickt
+  den Wert nur, wenn ein Raumsensor meldet; ohne retain zeigt der ESP nach einem Neustart bis
+  dahin einen veralteten Wert
 - der Test-Inject „Außentemperatur (Test)“ mit −1 °C wird deaktiviert
 - die Start-Injects im Tab *Heizung* für Soll (21 °C), Vorlaufstufe (8) und Heizung AN/AUS werden
   deaktiviert. Der ESP ist führend und meldet seine Werte beim Start von Node-RED selbst; die
@@ -63,6 +66,10 @@ Was der Import macht:
   bedeutet Heizung freigegeben bzw. Automatik aktiv. Bisher waren beide verdreht, die Regelung
   dahinter bleibt unverändert.
 - `build_import.py` erzeugt die Importdatei aus einem neuen Export, falls du vorher etwas änderst
+
+Gibt man `build_import.py` einen dritten Dateinamen mit, schreibt es zusätzlich den kompletten
+Flow (Export plus dieselben Änderungen). Diese Datei enthält das ganze Node-RED und gehört nicht
+ins Repo.
 
 **Reihenfolge:** zuerst Node-RED importieren, dann den ESP flashen.
 
