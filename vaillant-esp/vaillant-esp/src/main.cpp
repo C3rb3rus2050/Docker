@@ -686,6 +686,7 @@ void setup() {
   setupTime();
 
   WiFi.mode(WIFI_STA);
+  WiFi.setSleepMode(WIFI_NONE_SLEEP);   // im Schlafmodus gehen Pakete verloren, OTA bricht dann ab
   WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
   WiFi.hostname(WIFI_HOSTNAME);
