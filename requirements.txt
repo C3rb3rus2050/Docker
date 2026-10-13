@@ -1,0 +1,10 @@
+# Laufzeit-Abhängigkeiten (bewusst minimal gehalten)
+playwright>=1.45,<2
+pypdf>=4.0,<7
+
+# Tests
+pytest>=8.0
+
+# Optional (nur bei aktivierter lokaler OCR, zusätzlich Tesseract-OCR installieren):
+# pytesseract>=0.3.10
+# pypdfium2>=4.0

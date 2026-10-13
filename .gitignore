@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+build/
+dist/
+
+# Lokale Konfiguration und sensible Laufzeitdaten – NIEMALS committen
+config.toml
+browser-profile/
+browser_profiles/
+*.sqlite3
+*.db
+logs/
+reports/
+downloads/
+BrokerDocumentCollector/
