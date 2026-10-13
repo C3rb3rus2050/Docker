@@ -332,6 +332,7 @@ def build_workbook(repo: Repository, store: DocumentStore, res: TaxResult, rules
         Col("Valuta", "value_date", "date", 12), Col("Stückzahl", "quantity", "num", 11), Col("Kurs", "price", "num", 11),
         Col("Währung", "currency", width=8), Col("Betrag (Original)", "amount", "num", 14),
         Col("Gebühren (Original)", "fees", "num", 12), Col("Devisenkurs (je EUR)", "fx_rate", "num", 12),
+        Col("Kursquelle", "fx_source", width=28),
         Col("Betrag EUR", "EUR-Betrag", "eur", 14, True), Col("Gebühren EUR", "fees_eur", "eur", 12, True),
         Col("Quellensteuer EUR", "withholding_tax_eur", "eur", 13, True), Col("Quellenstaat", "withholding_country", width=9),
         Col("KESt AT EUR", "kest_at_eur", "eur", 12, True), Col("Ertragsart", "income_category", width=16),

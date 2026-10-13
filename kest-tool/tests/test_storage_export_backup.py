@@ -148,7 +148,7 @@ def test_excel_sums_match_database(repo, depot, ctx):
     # Summenzeile als nachvollziehbare Formel
     ws = wb["Alle Transaktionen"]
     total_row = 4 + len(tx_rows) + 1
-    assert str(ws.cell(row=total_row, column=16).value).startswith("=SUBTOTAL(9,P5:P")
+    assert str(ws.cell(row=total_row, column=17).value).startswith("=SUBTOTAL(9,Q5:Q")
     # Übersicht = Steuerberechnung
     summary = {r["Kennzahl"]: r["Gesamt (inkl. vorläufig)"] for r in _sheet_table(wb["Steuerübersicht"], 5)}
     for k in ("Dividenden", "Realisierte Verluste", "Ausschüttungsgleiche Erträge", "Steuer 27,5 %",

@@ -215,6 +215,9 @@ def transactions() -> None:
     repo = c.repo
     y = C.year_selector()
     st.title("Transaktionen")
+    n_fx = C.missing_fx_count()
+    if n_fx and st.button(f"Devisenkurse für {n_fx} Fremdwährungsbuchung(en) von der EZB ergänzen"):
+        C.fill_fx(None, allow_download=True)
     deps = C.depot_options()
     cols = st.columns(3)
     only_year = cols[0].checkbox(f"Nur {y}", value=True)
@@ -223,7 +226,8 @@ def transactions() -> None:
     rows = repo.transactions(y if only_year else None, deps.get(depot_f), isin_f.strip().upper() or None)
     C.df([{"ID": t["id"], "Datum": t["trade_date"], "Broker": t["broker_name"], "Depot": t["depot_name"],
            "Art": t["tx_type"], "ISIN": t["isin"], "Name": t["security_name"], "Stück": t["quantity"],
-           "Kurs": t["price"], "Währung": t["currency"], "Betrag": t["amount"], "Betrag EUR": t["amount_eur"],
+           "Kurs": t["price"], "Währung": t["currency"], "Betrag": t["amount"], "Devisenkurs": t["fx_rate"],
+           "Kursquelle": t.get("fx_source"), "Betrag EUR": t["amount_eur"],
            "Gebühren EUR": t["fees_eur"], "QSt EUR": t["withholding_tax_eur"], "Land": t["withholding_country"],
            "KESt": t["kest_at_eur"], "Ertragsart": t["income_category"],
            "Ertragsart belegt": bool(t["income_category_verified"]), "Quelle": t["source_type"],

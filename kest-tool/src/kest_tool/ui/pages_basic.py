@@ -32,6 +32,7 @@ def dashboard() -> None:
     force = st.button("Neu berechnen")
     if force:
         C.tax_result(y, force=True)
+    C.auto_fill_fx(y)
     C.status_panel(y, "dash")
     res = C.tax_result(y)
     if res:
@@ -184,9 +185,44 @@ def settings_page() -> None:
             C.reset_context()
             st.success("Gespeichert")
             st.rerun()
+    st.subheader("Devisenkurse (EZB-Referenzkurse)")
+    from ..fx import ECB_URL, FxError, FxService
+    fxs = FxService(c.store.base)
+    info = fxs.cache_info()
+    if info["vorhanden"]:
+        st.write(f"Lokaler Kursbestand bis **{info['stand']}**, {info['waehrungen']} Währungen, geladen am "
+                 f"{info['geladen']}.")
+    else:
+        st.write("Noch keine Kurse geladen.")
+    st.caption(f"Quelle: {ECB_URL} (öffentlich; es werden keine eigenen Daten übertragen). Kurse aus Belegen haben "
+               "Vorrang und werden nie überschrieben. Ob der EZB-Referenzkurs steuerlich maßgeblich ist, ist nicht "
+               "verifiziert – betroffene Positionen bleiben „vorläufig“.")
+    auto = st.checkbox("Fehlende Kurse automatisch von der EZB laden", value=bool(c.settings.get("fx.auto_fetch", True)))
+    if auto != bool(c.settings.get("fx.auto_fetch", True)):
+        c.settings.save_local({"fx": {"auto_fetch": auto}})
+        st.rerun()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("Kurse jetzt von der EZB aktualisieren"):
+            try:
+                r = fxs.download()
+                st.success(f"Geladen: Stand {r.last_date}, {len(r.currencies)} Währungen")
+            except FxError as exc:
+                st.error(str(exc))
+        if st.button("Fehlende Kurse in allen Buchungen ergänzen"):
+            C.fill_fx(None, allow_download=auto)
+    with col2:
+        up_fx = st.file_uploader("Kursdatei manuell importieren (eurofxref-hist.zip oder .csv)", type=["zip", "csv"],
+                                 key="fx_up")
+        if up_fx and st.button("Kursdatei übernehmen"):
+            try:
+                r = fxs.import_bytes(up_fx.getvalue())
+                st.success(f"Importiert: Stand {r.last_date}, {len(r.currencies)} Währungen")
+            except (FxError, ValueError) as exc:
+                st.error(f"Datei nicht verwendbar: {exc}")
     st.subheader("Datenschutz")
-    st.write("Externe Dienste: **deaktiviert**. Es werden keine Dokumente oder Finanzdaten an externe KI-, OCR- oder "
-             "Cloud-Dienste übertragen. Keine Broker-Zugangsdaten werden gespeichert. Streamlit-Telemetrie ist in "
+    st.write("Es werden keine Dokumente oder Finanzdaten an externe KI-, OCR- oder Cloud-Dienste übertragen. Einziger "
+             "Internetzugriff: Download der öffentlichen EZB-Kursdatei (abschaltbar, siehe oben). Keine Broker-Zugangsdaten werden gespeichert. Streamlit-Telemetrie ist in "
              "`.streamlit/config.toml` abgeschaltet, die Oberfläche lauscht nur auf 127.0.0.1.")
     st.subheader("Backup und Wiederherstellung")
     col1, col2 = st.columns(2)

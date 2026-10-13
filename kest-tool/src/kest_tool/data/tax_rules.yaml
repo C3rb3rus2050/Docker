@@ -205,9 +205,9 @@ rules:
     legal_basis: "nicht verifiziert"
     sources: []
     status: {2022: nicht_verifiziert, 2023: nicht_verifiziert, 2024: nicht_verifiziert, 2025: nicht_verifiziert, 2026: nicht_verifiziert}
-    logic: "Es wird ausschließlich der im Beleg/vom Benutzer angegebene Kurs verwendet; ohne Kurs kein EUR-Betrag. Positionen in Fremdwährung sind vorläufig."
-    limitations: "Keine automatische Kursbeschaffung."
-    tests: [test_tax_engine.py::test_missing_data_detected]
+    logic: "Vorrang: Kurs aus Beleg bzw. Benutzereingabe. Fehlt er, wird auf Wunsch der EZB-Referenzkurs des Buchungstags (sonst letzter Bankarbeitstag davor, max. 7 Tage) ergänzt und als Quelle vermerkt. Ohne Kurs kein EUR-Betrag. Positionen in Fremdwährung sind vorläufig."
+    limitations: "Nicht geprüft, ob der EZB-Referenzkurs oder ein anderer Kurs (z. B. Devisenmittelkurs der Bank) steuerlich maßgeblich ist."
+    tests: [test_tax_engine.py::test_missing_data_detected, test_fx.py::test_fill_missing_fx_and_compute]
 
 # Doppelbesteuerungsabkommen – Quellensteuer-Höchstsätze für Dividenden natürlicher Personen
 # verified: true nur mit offizieller Quelle. Nicht verifizierte Länder → anrechenbarer Betrag „ungeklärt“.

@@ -14,7 +14,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# Spalten, die in späteren Versionen ergänzt wurden (für bestehende Datenbanken)
+MIGRATIONS: list[tuple[str, str, str]] = [
+    ("transactions", "fx_source", "TEXT"),
+]
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
@@ -139,6 +144,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     amount REAL,                     -- Bruttobetrag in Originalwährung (positiv)
     fees REAL DEFAULT 0,             -- Gebühren in Originalwährung (positiv)
     fx_rate REAL,                    -- Einheiten Fremdwährung je 1 EUR
+    fx_source TEXT,                  -- Herkunft des Kurses (Beleg, manuell, EZB-Referenzkurs …)
     amount_eur REAL,
     fees_eur REAL DEFAULT 0,
     withholding_tax REAL DEFAULT 0,  -- ausländische Quellensteuer (Originalwährung)
@@ -287,11 +293,17 @@ class Database:
     def init_schema(self) -> None:
         with self._lock:
             self.conn.executescript(SCHEMA)
+            for table, column, ctype in MIGRATIONS:
+                cols = {r[1] for r in self.conn.execute(f"PRAGMA table_info({table})")}
+                if column not in cols:
+                    self.conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ctype}")
             cur = self.conn.execute("SELECT value FROM meta WHERE key='schema_version'")
             row = cur.fetchone()
             if row is None:
                 self.conn.execute("INSERT INTO meta(key, value) VALUES('schema_version', ?)", (str(SCHEMA_VERSION),))
                 self.conn.execute("INSERT OR IGNORE INTO meta(key, value) VALUES('created_at', ?)", (now_iso(),))
+            else:
+                self.conn.execute("UPDATE meta SET value=? WHERE key='schema_version'", (str(SCHEMA_VERSION),))
             self.conn.commit()
 
     @contextmanager

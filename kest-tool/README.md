@@ -124,6 +124,21 @@ Widersprüche) werden beim PDF- und Ordnerimport automatisch zu Buchungen. Berei
 ausgelesen. Das Depot ergibt sich aus dem erkannten Broker, wenn dieser genau ein Depot hat, sonst gilt das gewählte
 Standarddepot. Unvollständige Dokumente bleiben mit Grund im Status „pruefen“.
 
+**Devisenkurse:** Fehlen bei Fremdwährungsbuchungen die Kurse, ergänzt das Tool sie automatisch mit den
+**Euro-Referenzkursen der EZB** (<https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip>). Das passiert beim
+Öffnen des Dashboards, nach Importen und auf Knopfdruck (Dashboard, Transaktionen, Einstellungen).
+
+- Ist für das Buchungsdatum kein Kurs veröffentlicht (Wochenende, Feiertag), gilt der letzte Bankarbeitstag davor,
+  höchstens 7 Tage zurück.
+- Kurse aus dem Beleg haben immer Vorrang und werden nie überschrieben.
+- Jeder ergänzte Kurs wird mit Quelle und Kursdatum gespeichert, im Änderungsprotokoll vermerkt und im Excel-Export
+  in der Spalte „Kursquelle“ ausgewiesen.
+- Heruntergeladen wird nur die öffentliche Kursdatei. Es werden keine eigenen Daten übertragen.
+- Abschaltbar ist das unter **Einstellungen → Devisenkurse** oder in `config.yaml` (`fx.auto_fetch: false`). Die
+  Datei lässt sich dort auch manuell importieren.
+- Ob der EZB-Referenzkurs steuerlich der maßgebliche Kurs ist, ist nicht verifiziert (Regel `FX_CONVERSION`).
+  Positionen in Fremdwährung bleiben deshalb „vorläufig“.
+
 Empfohlener Ablauf: Broker und Depots anlegen → Depot-Steuereinstellungen für das Jahr setzen → Transaktionen
 importieren (am besten die **gesamte Historie**, damit die Anschaffungskosten stimmen) → Wertpapiere einstufen →
 OeKB-Meldungen erfassen → Steuerberechnung prüfen → Excel-Export.
@@ -237,7 +252,8 @@ Umgesetzt:
 - Alles läuft lokal (Streamlit auf `127.0.0.1`, Telemetrie aus in `.streamlit/config.toml`).
 - Es werden keine Broker-Passwörter gespeichert und es gibt kein automatisches Einloggen. Das KESt-Tool fragt keine
   Zugangsdaten ab.
-- Es werden keine Daten an externe Dienste, KI oder OCR übertragen; die PDF-Texterkennung läuft lokal.
+- Es werden keine Daten an externe Dienste, KI oder OCR übertragen; die PDF-Texterkennung läuft lokal. Einziger
+  Internetzugriff ist der Download der öffentlichen EZB-Kursdatei (abschaltbar).
 - Die Konfiguration lehnt Schlüssel wie `password`, `token` oder `api_key` ab. Optionale Variablen stehen in `.env`
   (siehe `.env.example`).
 - Logs werden redigiert (Tokens, Cookies, signierte URLs, Telefonnummern); das KESt-Tool schreibt keine Buchungsdetails ins Log.
@@ -256,6 +272,8 @@ src/kest_tool/
   config.py                    config.yaml + config.local.yaml + KEST_TOOL_HOME
   db.py / repository.py        SQLite-Schema, Repository, Audit-Log, Konflikte
   models.py                    Enums + pydantic-Modelle (Validierung)
+  fx.py                        EZB-Referenzkurse (Download, Cache, Import, Ergänzen fehlender Kurse)
+  processing.py                Stapelverarbeitung abgelegter PDFs
   storage.py                   Dokumentenablage (SHA-256, kein Überschreiben, Pfadschutz)
   security.py                  Dateinamen-/Pfadschutz, Log-Redaktion
   importers/                   parsing, csv_importer, pdf_importer, oekb_importer
@@ -281,7 +299,7 @@ Datenbanktabellen:
 .venv\Scripts\python -m pytest -q
 ```
 
-`tests/` enthält 66 Tests. Sie decken unter anderem ab:
+`tests/` enthält 72 Tests. Sie decken unter anderem ab:
 
 - CSV mit deutschem Dezimalkomma und erneuten Import
 - Brokerzuordnung, Dubletten und Gebühren
@@ -307,7 +325,8 @@ Datenbanktabellen:
   - Immobilienfonds, Betriebsvermögen
 - **Reihenfolge des Verlustausgleichs:** Annahme zugunsten der Quellensteueranrechnung; die angezeigte anrechenbare
   Quellensteuer nach Verlustausgleich ist eine Schätzung, maßgeblich ist der Bescheid.
-- **Fremdwährungen:** nur mit Kurs aus Beleg oder Eingabe, keine automatische Kursbeschaffung.
+- **Fremdwährungen:** Kurs aus Beleg, Eingabe oder automatisch als EZB-Referenzkurs. Der Download wurde nur gegen eine
+  Datei im EZB-Format getestet, weil die EZB aus der Entwicklungsumgebung nicht erreichbar war.
 - **PDF-Erkennung:** nur mit synthetischen PDFs getestet. Echte Abrechnungen von Trade Republic und Scalable Capital
   können anders aufgebaut sein; dann erscheinen fehlende Felder im Prüfformular.
 - **Windows:** `start.bat`/`install.bat` wurden in einer Linux-Umgebung erstellt und nicht unter Windows ausgeführt.

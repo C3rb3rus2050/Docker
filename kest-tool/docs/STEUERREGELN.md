@@ -153,10 +153,10 @@ Steuerjahre ohne Eintrag in der Regeldatei werden vollständig abgelehnt (keine 
 
 - **Rechtsgrundlage:** nicht verifiziert
 - **Gültigkeit / Status je Steuerjahr:** 2022: nicht verifiziert – keine Berechnung, 2023: nicht verifiziert – keine Berechnung, 2024: nicht verifiziert – keine Berechnung, 2025: nicht verifiziert – keine Berechnung, 2026: nicht verifiziert – keine Berechnung
-- **Implementierte Logik:** Es wird ausschließlich der im Beleg/vom Benutzer angegebene Kurs verwendet; ohne Kurs kein EUR-Betrag. Positionen in Fremdwährung sind vorläufig.
-- **Bekannte Einschränkungen:** Keine automatische Kursbeschaffung.
+- **Implementierte Logik:** Vorrang: Kurs aus Beleg bzw. Benutzereingabe. Fehlt er, wird auf Wunsch der EZB-Referenzkurs des Buchungstags (sonst letzter Bankarbeitstag davor, max. 7 Tage) ergänzt und als Quelle vermerkt. Ohne Kurs kein EUR-Betrag. Positionen in Fremdwährung sind vorläufig.
+- **Bekannte Einschränkungen:** Nicht geprüft, ob der EZB-Referenzkurs oder ein anderer Kurs (z. B. Devisenmittelkurs der Bank) steuerlich maßgeblich ist.
 - **Quellen:** keine
-- **Tests:** `test_tax_engine.py::test_missing_data_detected`
+- **Tests:** `test_tax_engine.py::test_missing_data_detected`, `test_fx.py::test_fill_missing_fx_and_compute`
 - **Letzte Prüfung:** 2026-10-13
 
 ## Quellen

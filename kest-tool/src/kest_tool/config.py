@@ -46,6 +46,7 @@ DEFAULTS: dict[str, Any] = {
     },
     "pdf": {"engine": "auto", "ocr_enabled": False},  # auto = pdfplumber, Fallback PyMuPDF
     "privacy": {"allow_external_services": False},
+    "fx": {"auto_fetch": True},
     "oekb": {"automatic_provider": "none"},
 }
 

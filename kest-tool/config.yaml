@@ -31,5 +31,11 @@ pdf:
 privacy:
   allow_external_services: false   # es gibt keine Funktion, die Daten an externe Dienste sendet
 
+fx:
+  # Fehlende Devisenkurse automatisch mit EZB-Referenzkursen ergänzen. Es wird nur die öffentliche Kursdatei
+  # https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip geladen – keine eigenen Daten werden übertragen.
+  # false = kein Internetzugriff; die Datei kann dann unter Einstellungen manuell importiert werden.
+  auto_fetch: true
+
 oekb:
   automatic_provider: none  # kein verifizierter öffentlicher Zugang – siehe README

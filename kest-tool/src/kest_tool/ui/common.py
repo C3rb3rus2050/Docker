@@ -161,6 +161,12 @@ def status_panel(y: int, key: str) -> None:
                 hint = ("Buchungen vorhanden in " + ", ".join(f"{yy} ({n})" for yy, n in sorted(other.items()))
                         + " → links das **Steuerjahr** wechseln")
             rows.append(("❌", f"Buchungen {y}", hint))
+        n_fx = missing_fx_count(y)
+        if n_fx:
+            rows.append(("🔴", "Devisenkurse fehlen", f"{n_fx} Buchung(en) in Fremdwährung ohne Kurs – Schaltfläche "
+                                                      "unten oder Einstellungen → Devisenkurse"))
+        elif c.db.one("SELECT COUNT(*) n FROM transactions WHERE deleted=0 AND currency<>'EUR'")["n"]:
+            rows.append(("✅", "Devisenkurse", "für alle Fremdwährungsbuchungen vorhanden"))
         n_open = len(stt["docs_open"])
         rows.append(("🟡" if n_open else "✅", "Dokumente ohne Buchung",
                      f"{n_open} – unten automatisch verarbeiten oder auf der Seite **Dokumente** prüfen"
@@ -180,6 +186,9 @@ def status_panel(y: int, key: str) -> None:
                          f"{errs} Fehler, {warns} Warnungen – Details: **Steuerberechnung → Prüfhinweise**"))
         for icon, label, text in rows:
             st.markdown(f"{icon} **{label}:** {text}")
+        if n_fx and st.button(f"Devisenkurse für {n_fx} Buchung(en) von der EZB ergänzen", key=f"fx_{key}"):
+            fill_fx(y, allow_download=True)
+            tax_result(y, force=True)
         pdf_open = [d for d in stt["docs_open"] if d["file_type"] == "pdf"]
         if pdf_open:
             deps = depot_options()
@@ -206,3 +215,50 @@ def after_processing(results) -> None:
             st.session_state["tax_year"] = y
             st.session_state["year_widget_gen"] = st.session_state.get("year_widget_gen", 0) + 1
     st.rerun()
+
+
+def missing_fx_count(y: int | None = None) -> int:
+    sql = "SELECT COUNT(*) n FROM transactions WHERE deleted=0 AND currency<>'EUR' AND (fx_rate IS NULL OR fx_rate<=0)"
+    params: tuple = ()
+    if y:
+        sql += " AND trade_date<=?"
+        params = (f"{y}-12-31",)
+    return ctx().db.one(sql, params)["n"]
+
+
+def fill_fx(y: int | None = None, allow_download: bool | None = None, show: bool = True) -> list:
+    """Ergänzt fehlende Devisenkurse aus EZB-Referenzkursen und zeigt das Ergebnis."""
+    from ..fx import FxError, FxService, fill_missing_fx
+
+    c = ctx()
+    if allow_download is None:
+        allow_download = bool(c.settings.get("fx.auto_fetch", True))
+    try:
+        with st.spinner("Lade EZB-Referenzkurse …"):
+            res = fill_missing_fx(c.repo, FxService(c.store.base), y, allow_download=allow_download)
+    except FxError as exc:
+        if show:
+            st.error(str(exc))
+        return []
+    if res:
+        invalidate_results()
+        if show:
+            ok = [r for r in res if r.status == "gesetzt"]
+            (st.success if len(ok) == len(res) else st.warning)(
+                f"Devisenkurse ergänzt: {len(ok)} von {len(res)} Buchungen (EZB-Referenzkurs; Belegkurse werden nie "
+                "überschrieben).")
+            df([{"Buchung": r.tx_id, "Datum": r.trade_date, "Währung": r.currency, "Kurs je EUR": r.rate,
+                 "Kursdatum": r.rate_date, "Ergebnis": r.message} for r in res])
+    return res
+
+
+def auto_fill_fx(y: int | None = None) -> None:
+    """Automatischer Abruf (einmal je Sitzung und Datenstand), sofern in der Konfiguration erlaubt."""
+    c = ctx()
+    if not c.settings.get("fx.auto_fetch", True):
+        return
+    n = missing_fx_count(y)
+    marker = f"fx_auto_{y}_{n}"
+    if n and not st.session_state.get(marker):
+        st.session_state[marker] = True
+        fill_fx(y)

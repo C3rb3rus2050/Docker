@@ -206,7 +206,7 @@ class Context:
                 line.rule_ids.append("FX_CONVERSION")
                 line.downgrade(PROVISIONAL)
                 line.notes.append(f"Fremdwährung {tx.get('currency')}: EUR-Wert mit Kurs {tx.get('fx_rate')} "
-                                  f"({fx.status_label})")
+                                  f"[{tx.get('fx_source') or 'Quelle unbekannt'}] ({fx.status_label})")
         return line
 
     def apply_rule(self, line: CalcLine, rid: str) -> bool:
@@ -1119,7 +1119,9 @@ def compute(repo: Repository, year: int, rules: TaxRules | None = None) -> TaxRe
                       f"Depot #{dep_id}")
     for tx in ctx.tx_all:
         if tx["trade_date"][:4] == str(year) and tx.get("currency") != "EUR" and not tx.get("fx_rate"):
-            ctx.issue("Fehler", "Fehlende Daten", f"Buchung in {tx['currency']} ohne Devisenkurs", ctx.tx_source(tx))
+            ctx.issue("Fehler", "Fehlende Daten", f"Buchung in {tx['currency']} ohne Devisenkurs – „Devisenkurse von der "
+                                                  "EZB ergänzen“ (Dashboard/Transaktionen) oder Kurs eintragen",
+                      ctx.tx_source(tx))
     for c in repo.conflicts("offen"):
         ctx.issue("Warnung", "Widerspruch", f"Offener Datenkonflikt {c['entity']} {c['entity_key']} Feld "
                                             f"„{c['field']}“: {c['existing_value']} ↔ {c['new_value']}",

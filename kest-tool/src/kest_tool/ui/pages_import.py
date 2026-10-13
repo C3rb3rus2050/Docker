@@ -200,6 +200,7 @@ def _csv_import(y: int, deps: dict) -> None:
         C.invalidate_results()
         st.success(f"Importlauf #{res['run_id']}: {res['rows_imported']} übernommen, {res['rows_skipped']} ignoriert, "
                    f"{res['rows_errors']} fehlerhaft, {res['rows_duplicates']} Dublettenverdacht.")
+        C.auto_fill_fx()
 
 
 # --------------------------------------------------------------------------- #
@@ -344,6 +345,7 @@ def _pdf_import(y: int, deps: dict) -> None:
                     repo, todo, deps[depot_label]):
                 done[r.document_id] = r
         C.show_process_results([done[d["id"]] for d, _, _ in stored if d["id"] in done])
+        C.auto_fill_fx()
     for doc, exd, new in stored:
         doc = repo.document(doc["id"])
         if repo.transactions_for_document(doc["id"]):
