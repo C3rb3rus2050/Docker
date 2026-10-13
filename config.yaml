@@ -1,0 +1,35 @@
+# KESt-Tool – Standardkonfiguration (versioniert)
+#
+# Eigene Änderungen werden über die Oberfläche (Einstellungen) in config.local.yaml gespeichert
+# und überschreiben diese Datei. KEINE Zugangsdaten eintragen – Schlüssel wie password/token/api_key
+# werden beim Laden abgelehnt. Optionale API-Schlüssel nur über Umgebungsvariablen (.env, siehe .env.example).
+
+# Zentrale Ablage für Datenbank, Dokumente, Importe, Exporte, Berichte und Logs.
+# Achtung: Liegt "Documents" in OneDrive, werden die Dateien in die Cloud synchronisiert.
+base_dir: "%USERPROFILE%/Documents/KESt-Tool"
+
+# Steuerjahre, für die Ordner angelegt und die in der Oberfläche angeboten werden.
+# Berechnet wird nur, wenn src/kest_tool/data/tax_rules.yaml Regeln für das Jahr enthält.
+tax_years: [2022, 2023, 2024, 2025, 2026]
+default_tax_year: null      # null = Vorjahr
+
+base_currency: EUR
+currencies: [EUR, USD, CHF, GBP, CAD, JPY, DKK, SEK, NOK, AUD]
+
+import:
+  date_formats: ["%d.%m.%Y", "%Y-%m-%d", "%d.%m.%y", "%d/%m/%Y", "%Y-%m-%dT%H:%M:%S", "%m/%d/%Y"]
+  decimal_separator: auto   # auto | , | .
+  max_upload_mb: 50
+  allowed_extensions: [".csv", ".txt", ".xlsx", ".xls", ".pdf"]
+  fuzzy_duplicate_days: 3
+  fuzzy_duplicate_tolerance: 0.005
+
+pdf:
+  engine: auto              # auto (pdfplumber, Fallback PyMuPDF) | pdfplumber | pymupdf
+  ocr_enabled: false        # keine OCR; gescannte PDFs manuell erfassen
+
+privacy:
+  allow_external_services: false   # es gibt keine Funktion, die Daten an externe Dienste sendet
+
+oekb:
+  automatic_provider: none  # kein verifizierter öffentlicher Zugang – siehe README

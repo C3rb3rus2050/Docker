@@ -160,12 +160,12 @@ class App:
                 return 200, {"ok": True, "removed": delete_downloads(self.settings, b)}
             if what == "database":
                 return 200, {"ok": False, "error": "Die Datenbank kann nur bei beendetem Programm gelöscht werden: "
-                                                   "start.bat --delete-database"}
+                                                   "start_collector.bat --delete-database"}
             return 400, {"error": "Unbekannte Löschaktion"}
         if path == "/api/scheduler":
             from .scheduler import SchedulerError, create_task, delete_task
 
-            start_bat = Path(__file__).resolve().parents[2] / "start.bat"
+            start_bat = Path(__file__).resolve().parents[2] / "start_collector.bat"
             try:
                 out = create_task(start_bat, body.get("time", "07:30")) if body.get("action") == "create" \
                     else delete_task()

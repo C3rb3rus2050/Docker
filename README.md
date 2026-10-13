@@ -1,347 +1,301 @@
-# Broker Document Collector
+# KESt-Tool – Österreichische Kapitalertragsteuer für Wertpapierdepots
 
-Lokale Windows‑11‑Anwendung, die **alle im eigenen Konto angezeigten Dokumente** bei
-**Trade Republic** und **Scalable Capital** automatisch findet, herunterlädt, kategorisiert,
-per SHA‑256 auf Duplikate prüft und einen **Vollständigkeitsbericht** erstellt.
+Lokale Python-Webanwendung (Streamlit, SQLite) für Windows 11. Sie konsolidiert die steuerlich relevanten Daten
+mehrerer Depots (Trade Republic, Scalable Capital, weitere Broker), berechnet sie nachvollziehbar nach
+österreichischen Regeln und bereitet sie als **Arbeitshilfe** für die Einkommensteuererklärung (Beilage E 1kv) auf.
 
-Sie melden sich nur **selbst im sichtbaren Browser** an (inkl. 2FA/Passkey). Danach sucht das
-Programm die Dokumentenbereiche selbst, blättert durch die Historie, lädt die Dokumente herunter
-und **gleicht mehrere Quellen gegeneinander ab** (Weboberfläche ↔ Trade-Republic-Schnittstelle
-↔ Webapp-Datenantworten).
+> **Wichtig:** Das Programm ist eine Vorbereitungshilfe und ersetzt keine Steuerberatung. Es übermittelt nichts an
+> FinanzOnline. Steuerregeln, die nicht belastbar verifiziert werden konnten, werden **nicht** berechnet, sondern als
+> „manuell steuerlich zu prüfen“ ausgewiesen. Siehe [Steuerregeln](docs/STEUERREGELN.md) und
+> [Einschränkungen](#einschränkungen).
 
-> **Stand der Verifikation:** Alle Funktionen sind implementiert und mit Mockseiten,
-> künstlichen PDFs und einem gemockten Trade‑Republic‑WebSocket automatisiert getestet.
-> **Gegen die echten Broker-Konten konnte ohne Zugangsdaten nicht getestet werden.**
-> Siehe [Offene Punkte](#offene-punkte--nicht-verifizierte-funktionen).
+Das Repository enthält außerdem den bereits vorhandenen **Broker Document Collector** (automatischer Download der
+Broker-Dokumente per Browser). Er bleibt unverändert nutzbar: `start_collector.bat`, Dokumentation in
+[docs/BROKER_COLLECTOR.md](docs/BROKER_COLLECTOR.md). Seinen Ausgabeordner kann das KESt-Tool über
+**Import → Ordner einlesen** übernehmen.
 
 ---
 
 ## Inhalt
 
-1. [Installation](#installation)
-2. [Bedienung](#bedienung)
-3. [So arbeitet der Scan](#so-arbeitet-der-scan)
-4. [Zwei Wege & Abgleich](#zwei-wege--abgleich-der-quellen)
-5. [API‑Verfügbarkeit (Recherche)](#api-verfügbarkeit-recherche)
-6. [Dateistruktur](#dateistruktur)
-7. [Sicherheit & Datenschutz](#sicherheit--datenschutz)
-8. [Regelmäßige Synchronisierung](#regelmäßige-synchronisierung)
-9. [Architektur](#architektur)
-10. [Tests](#tests)
-11. [Offene Punkte / nicht verifizierte Funktionen](#offene-punkte--nicht-verifizierte-funktionen)
-12. [Fehlerbehebung](#fehlerbehebung)
+1. [Installation unter Windows 11](#installation-unter-windows-11)
+2. [Start](#start)
+3. [Ablageordner](#ablageordner)
+4. [Bedienung](#bedienung)
+5. [Excel-Export](#excel-export)
+6. [Importformate](#importformate)
+7. [Steuerberechnung](#steuerberechnung)
+8. [OeKB-Daten](#oekb-daten)
+9. [Datenschutz und Sicherheit](#datenschutz-und-sicherheit)
+10. [Architektur](#architektur)
+11. [Tests](#tests)
+12. [Einschränkungen](#einschränkungen)
 
 ---
 
-## Installation
+## Installation unter Windows 11
 
-Voraussetzungen: Windows 11 (64 Bit), Python **3.12** (3.11–3.13 funktionieren), Internet für die
-einmalige Installation. **Keine Administratorrechte nötig.**
+Voraussetzungen: Windows 11, **Python 3.12** (3.13 funktioniert ebenfalls), Internet für die einmalige Installation.
+Administratorrechte sind nicht nötig.
 
-1. Python installieren: <https://www.python.org/downloads/windows/> → „Install for current user“
-   und „Add python.exe to PATH“ aktivieren.
-2. Projektordner entpacken/klonen, darin **`install.bat`** doppelklicken. Das Skript
-   - prüft die Python-Version,
-   - erstellt die virtuelle Umgebung `.venv`,
-   - installiert die Abhängigkeiten (`playwright`, `pypdf`, `pytest`),
-   - installiert Playwright‑Chromium,
-   - legt `config.toml` sowie Ausgabe‑ und Profilordner an,
+1. Python von <https://www.python.org/downloads/windows/> installieren und dabei „Add python.exe to PATH“ aktivieren.
+2. Den Projektordner entpacken oder klonen.
+3. **`install.bat`** doppelklicken. Das Skript
+   - sucht Python 3.12/3.13 und legt die virtuelle Umgebung `.venv` an,
+   - installiert die Abhängigkeiten aus `requirements.txt`,
+   - installiert optional Chromium für den Collector (ein Fehler hier betrifft das KESt-Tool nicht),
+   - legt den Ablageordner samt Datenbank an,
    - führt einen schnellen Selbsttest aus.
-3. **`start.bat`** startet die Anwendung. Die Oberfläche öffnet sich im Standardbrowser unter
-   `http://127.0.0.1:8765/` (nur lokal erreichbar).
 
-Manuelle Installation (alternativ):
+Manuelle Installation:
 
 ```bat
 py -3.12 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
-.venv\Scripts\python -m playwright install chromium
-copy config.example.toml config.toml
-.venv\Scripts\python app.py
+.venv\Scripts\python -m streamlit run app.py
 ```
 
-Optionale lokale OCR für gescannte PDFs: Tesseract‑OCR für Windows installieren,
-`pip install pytesseract pypdfium2`, in den Einstellungen „Lokale OCR“ aktivieren und ggf. den
-Pfad zu `tesseract.exe` angeben. OCR läuft vollständig lokal und ist standardmäßig aus.
+## Start
+
+**`start.bat`** doppelklicken. Die Oberfläche öffnet sich im Browser unter <http://localhost:8501>. Sie ist nur lokal
+erreichbar (`127.0.0.1`). Zum Beenden das Konsolenfenster schließen.
+
+Die Datenbank wird beim ersten Start automatisch angelegt.
+
+Demo ohne echte Daten: `.venv\Scripts\python -m kest_tool.demo C:\Temp\KESt-Demo` (vorher `set PYTHONPATH=src`)
+erzeugt eine eigene Demo-Ablage. Danach mit `set KEST_TOOL_HOME=C:\Temp\KESt-Demo` und `start.bat` öffnen.
+Musterdateien zum Ausprobieren der Importe liegen in [`sample_data/`](sample_data).
+
+## Ablageordner
+
+Standard: `%USERPROFILE%\Documents\KESt-Tool`. Ändern lässt er sich unter **Einstellungen → Ablageordner**
+(gespeichert in `config.local.yaml`) oder über die Umgebungsvariable `KEST_TOOL_HOME`.
+
+```
+KESt-Tool/
+├── database/kest_tool.db          SQLite-Datenbank
+├── config/config.yaml             Kopie der wirksamen Konfiguration
+├── documents/<Jahr>/{TradeRepublic,ScalableCapital,OeKB,Other,Unclassified}/
+├── imports/<Jahr>/{original,processed,import_logs}/
+├── exports/<Jahr>/{excel,pdf,csv,e1kv}/
+├── reports/<Jahr>/                PDF-Jahresberichte
+├── backups/                       vollständige Backups (ZIP)
+└── logs/kest_tool.log             rotierend, redigiert
+```
+
+Regeln der Ablage:
+
+- Originaldateien werden byte-identisch kopiert und nie verändert.
+- Duplikate werden per SHA-256 erkannt; ein erneuter Import legt keine zweite Datei an.
+- Bei Namensgleichheit mit anderem Inhalt wird ein Suffix „(2)“ angehängt. Es wird nie überschrieben.
+- Dateinamen werden für Windows bereinigt (ungültige Zeichen, `CON`/`NUL` …). Alle Pfade werden gegen den
+  Ablageordner geprüft (Schutz vor Pfadmanipulation).
+- Umkategorisieren (Jahr, Quelle, Typ) verschiebt nur die Datei. Der Inhalt bleibt gleich, der Vorgang wird
+  protokolliert.
+- Liegt der Ablageordner in OneDrive, warnt die Oberfläche.
 
 ## Bedienung
 
-| Schritt | Aktion |
+| Seite | Funktionen |
 |---|---|
-| 1 | **Anmeldung starten** (je Broker) – es öffnet sich ein Chromium‑Fenster mit der offiziellen Seite. Selbst anmelden, 2FA bestätigen. Der Status wechselt auf „angemeldet“. |
-| 2 | Broker auswählen, Modus wählen, **Automatischen Scan starten**. Beide Broker werden nacheinander gescannt. |
-| 3 | Fortschritt, Bereiche, Downloads, Duplikate und Fehler live verfolgen. **Pausieren / Fortsetzen / Abbrechen** jederzeit möglich. |
-| 4 | **Bericht exportieren** (HTML, Markdown, JSON im Ordner `reports`). |
+| **Dashboard** | Steuerjahr, Anzahl Broker/Depots/Dokumente/Transaktionen, Erträge, Gewinne/Verluste, Quellensteuer, offene Prüfungen, letzter Import, Excel-Export |
+| **Broker & Depots** | Broker und Depots anlegen und deaktivieren. **Je Steuerjahr** festlegen, ob der Broker österreichische KESt abführt bzw. einen Verlustausgleich durchführt (wichtig gegen Doppelzählungen). Importhistorie |
+| **Import** | CSV/Excel mit Spaltenzuordnung und Vorschau, PDF-Abrechnungen mit Prüfformular, Belege (z. B. Jahressteuerbescheinigung), OeKB-CSV/PDF, Ordnerimport. Dublettenentscheidung je Zeile, Fehler-/Importprotokoll |
+| **Transaktionen** | Filter, manuelle Buchungen und Korrekturen (Begründung ist Pflicht, Audit-Log), Ertragsart bestätigen (z. B. Kapitalrückzahlung, REIT-Bestandteile) |
+| **Wertpapiere** | Suche nach ISIN, Name oder Ticker. Wertpapierart, steuerliche Einstufung, Meldefondsstatus, jeweils mit Quelle und Prüfstatus |
+| **Fonds & OeKB** | Fondsmeldungen, Prüfstatus, Konfliktentscheidungen, manuelle Erfassung, Kursdaten für Nichtmeldefonds |
+| **Dokumente** | Filter nach Jahr, Broker, Typ und Status. Original öffnen oder herunterladen, kategorisieren, Transaktionen zuordnen, PDF-Extraktion prüfen |
+| **Steuerberechnung** | Ergebnisse nach Kategorie, Rechenschritte und Quellen je Position, Verlustausgleich, Fonds, E 1kv, Prüfhinweise, Regeln |
+| **Exporte** | Excel, CSV, PDF-Jahresbericht, E 1kv-Arbeitshilfe, Exporthistorie, gespeicherte Dateien öffnen |
+| **Einstellungen** | Ablageordner, Steuerjahre, Währungen, Importoptionen, Backup/Wiederherstellung, Protokolle, Regelkatalog |
 
-Modi:
+Empfohlener Ablauf: Broker und Depots anlegen → Depot-Steuereinstellungen für das Jahr setzen → Transaktionen
+importieren (am besten die **gesamte Historie**, damit die Anschaffungskosten stimmen) → Wertpapiere einstufen →
+OeKB-Meldungen erfassen → Steuerberechnung prüfen → Excel-Export.
 
-- **Synchronisieren** (Standard): bekannte Dokumente werden übersprungen, fehlgeschlagene erneut versucht.
-- **Gesamtscan**: alles erneut prüfen (identische Inhalte werden per SHA‑256 als Duplikat erkannt, nicht neu gespeichert).
-- **Fortsetzen**: wie Synchronisieren, zusätzlich werden Bereiche übersprungen, die im unterbrochenen Lauf bereits vollständig untersucht wurden.
+## Excel-Export
 
-Erscheint während des Scans eine Sicherheitsabfrage (Sitzung abgelaufen, 2FA, Captcha,
-erneute Bestätigung), **hält der Scan an** und die Oberfläche zeigt „wartet auf Ihre Aktion im
-Browser“. Nach Ihrer Bestätigung im Browser läuft er automatisch weiter. Es wird nichts umgangen.
+**Exporte → Excel-Datei erstellen** (oder die Schaltfläche im Dashboard). Die Datei
+`KESt_Auswertung_<Steuerjahr>_<Exportdatum>.xlsx` wird unter `exports/<Jahr>/excel` dauerhaft gespeichert und in der
+Exporthistorie mit SHA-256 erfasst. Bestehende Dateien werden nie überschrieben.
 
-Kommandozeile (`start.bat --help`):
+Tabellenblätter: Steuerübersicht · Alle Transaktionen · Dividenden und Ausschüttungen · Fonds und OeKB ·
+Nichtmeldefonds · REITs und BDCs · Verlustausgleich · Steuerberechnung · E1kv - FinanzOnline (Excel erlaubt kein
+„/“ im Blattnamen) · Prüfprotokoll · Dokumentenverzeichnis.
 
-```text
-start.bat                       Oberfläche
-start.bat --sync                Inkrementeller Sync beider Broker (für den Aufgabenplaner)
-start.bat --scan tr --mode full Scan ohne Oberfläche (tr | sc | all)
-start.bat --report 12           Bericht für Lauf 12 erzeugen
-start.bat --delete-profile tr   Browserprofil löschen (Neuanmeldung nötig)
-start.bat --delete-database     Datenbank löschen
-start.bat --delete-downloads    Heruntergeladene Dateien löschen
-start.bat --schedule-create 07:30 / --schedule-delete
-```
+Gestaltung:
 
-## So arbeitet der Scan
+- Kopfzeilen sind formatiert und fixiert, Autofilter ist aktiv, Spaltenbreiten sind gesetzt.
+- Datums-, Euro- und Prozentformate werden verwendet, negative Beträge erscheinen rot.
+- Summenzeilen nutzen `=SUBTOTAL(9; …)`, damit sie Filter berücksichtigen und nachvollziehbar bleiben.
+- Statusfarben: grün = belegt und geprüft, gelb = vorläufig/ungeprüft, rot = fehlt bzw. manuell zu prüfen.
+- Fehlende Werte stehen als „FEHLT“, ungeprüfte als „UNGEPRÜFT“ in der Zelle.
+- Die Übersicht zeigt „Gesamt (inkl. vorläufig)“ und „davon gesichert“ getrennt.
 
-1. **Bereiche finden:** Auf der angemeldeten Startseite werden Links, Menüs, Tabs und
-   Schaltflächen anhand ihres zugänglichen Namens erkannt (Dokumente, Postfach, Steuern,
-   Auszüge, Abrechnungen, Aktivität, Transaktionen, Profil …). Gefundene Bereiche werden besucht,
-   dort werden Unterbereiche (Tabs/Untermenüs) ebenfalls erfasst.
-2. **Zeiträume:** Jahresfilter (Auswahllisten oder Jahres‑Tabs) werden erkannt und **jedes
-   Jahr einzeln** geprüft.
-3. **Historie:** „Mehr laden“/„Ältere anzeigen“, Seitenwechsel („Nächste Seite“, Pfeile in
-   Paginierungsleisten) und Infinite Scroll werden durchlaufen, bis keine neuen Einträge mehr
-   erscheinen (zweimal ohne neue Einträge = Ende; harte Limits gegen Endlosschleifen).
-4. **Dokumente:** direkte PDF/CSV/ZIP‑Links, eindeutige Download‑Schaltflächen („PDF
-   herunterladen“ – Titel kommt dann aus dem Listeneintrag), Blob‑Downloads, PDF‑Viewer in
-   Dialogen/Popups. Bei Trade Republic werden Transaktions‑/Aktivitätseinträge geöffnet, um die
-   Dokumente der Detailansicht zu erreichen.
-5. **Nur manuell anforderbare Dokumente** („… anfordern/beantragen“) werden **nicht** angeklickt,
-   sondern im Bericht als „manuelle Freigabe erforderlich“ aufgeführt.
-6. **Download‑Prüfung:** HTTP‑Status, Größenlimit, Dateisignatur (`%PDF-` … `%%EOF`, ZIP,
-   CSV), HTML‑Fehler-/Loginseiten werden verworfen, nie als PDF gespeichert. Temporäre Fehler
-   (Timeout, 429, 5xx) werden mit exponentiellem Backoff wiederholt.
-7. **Speichern:** atomar, ohne Überschreiben (bei Namensgleichheit mit anderem Inhalt Suffix
-   „(2)“), Original-Bytes unverändert. Gleicher SHA‑256 → kein zweites Speichern, die weitere
-   Fundstelle wird als Metadatum gespeichert.
-8. **Fortschritt** wird laufend in SQLite gesichert; abgebrochene Läufe lassen sich fortsetzen.
+## Importformate
 
-### Schutz vor Kontoaktionen
+| Format | Status |
+|---|---|
+| CSV (`;` `,` Tab `\|`, UTF-8/UTF-16/Windows-1252, deutsche und englische Zahlen- und Datumsformate) | getestet mit synthetischen Dateien |
+| Excel `.xlsx` | getestet |
+| PDF-Abrechnungen (Kauf, Verkauf, Dividende, Ausschüttung, Zinsen, Kapitalrückzahlung) | getestet **nur mit synthetischen Muster-PDFs** im Stil von Trade Republic und Scalable Capital |
+| Jahressteuerbescheinigungen, sonstige Belege | werden abgelegt und als „prüfen“ markiert, aber nicht automatisch in Buchungen zerlegt |
+| OeKB-Fondsdaten CSV/Excel | getestet mit eigenem Beispielformat ([sample_data](sample_data)); Spalten frei zuordenbar |
+| OeKB-PDF | heuristische Extraktion mit Bestätigungsformular, getestet nur mit Muster-PDF |
 
-Jeder Klick wird vorher anhand der Bedeutung geprüft. **Blockiert** werden u. a.: Kaufen,
-Verkaufen, Handeln, Order aufgeben/stornieren, Überweisen, Ein-/Auszahlen, Sparplan
-anlegen/ändern, Löschen, Kündigen, Bestätigen, Senden, Speichern, Aktivieren, Abmelden,
-Einstellungen, PIN/Passwort, Karte sperren, Anfordern/Beantragen (sowie englische
-Entsprechungen). Elemente in Formularen mit Eingabefeldern werden nie angeklickt. „Weiter“
-wird nur innerhalb erkannter Paginierungsleisten genutzt. Navigation ist auf die Hosts des
-jeweiligen Brokers beschränkt. Die Integrationstests enthalten Fallen‑Schaltflächen
-(„Jetzt kaufen“, „Verkaufen“, „Erneut kaufen“, „Abmelden“, „… anfordern“), deren Auslösung den
-Test fehlschlagen ließe.
+CSV: Spalten werden über Synonyme automatisch erkannt und lassen sich manuell zuordnen. Zuordnungen können als Profil
+gespeichert werden. Unbekannte Buchungsarten ordnen Sie in einer Tabelle zu. Beträge lassen sich als brutto oder
+netto interpretieren. Fremdwährungen ohne Devisenkurs werden gemeldet.
 
-## Zwei Wege & Abgleich der Quellen
+PDF: Jedes Feld erhält eine Konfidenz. Fehlende Pflichtwerte, Widersprüche (z. B. Stück × Kurs ≠ Kurswert) und
+gescannte PDFs ohne Text führen zur manuellen Prüfung. Eine Buchung entsteht erst nach Bestätigung im Formular, und
+der Dokumentstatus wird nur bei vollständiger und abgeglichener Extraktion „verarbeitet“.
 
-| Broker | Quelle 1 | Quelle 2 | Quelle 3 |
-|---|---|---|---|
-| Trade Republic | Weboberfläche (`app.traderepublic.com`) | **inoffizielle WebSocket‑Schnittstelle** (Timeline + Detail, nur lesend, im angemeldeten Browser) | Webapp‑Datenantworten (passiv) |
-| Scalable Capital | Weboberfläche | Webapp‑Datenantworten (passiv mitgelesene Dokumentlisten) | – |
+Dubletten werden auf drei Ebenen erkannt:
 
-**Trade Republic – WebSocket:** Die Webapp nutzt `wss://api.traderepublic.com`. Das Protokoll ist
-nicht offiziell dokumentiert, aber durch das Open‑Source‑Projekt *pytr* öffentlich beschrieben.
-Der Collector öffnet diesen WebSocket **innerhalb der von Ihnen angemeldeten Seite**; der Browser
-authentifiziert ihn mit seinen eigenen Cookies. Das Tool liest keine Cookies aus, fragt keine
-Telefonnummer/PIN ab und nutzt per Whitelist **nur lesende Abonnements** (`timelineTransactions`,
-`timelineActivityLog`, `timelineDetailV2`). Die Dokumente werden über die dort enthaltenen
-Download‑Links geladen. Abschaltbar in den Einstellungen.
+- Datei: SHA-256.
+- Buchung, exakt: Fingerabdruck aus Depot, Art, Datum, ISIN, Stück, Betrag und Währung.
+- Buchung, möglich: gleiches Depot, gleiche Art und ISIN, ±3 Tage, Betragsabweichung höchstens 0,5 %.
 
-**Scalable Capital – Webapp‑Daten:** Für Scalable ist keine Dokumenten‑API bekannt (siehe
-Recherche). Statt Endpunkte zu erfinden, werden die JSON‑Antworten, die die Webapp **selbst**
-beim Navigieren lädt, lokal mitgelesen und auf Dokumenteinträge (Titel, Datum, Kennung,
-Download‑Link) untersucht. Es werden keine eigenen Anfragen an interne Endpunkte gestellt.
+Je Zeile entscheiden Sie: übernehmen, ignorieren oder prüfen. Jede Buchung verweist auf ihr Ursprungsdokument und
+ihre Zeile.
 
-**Abgleich:** Nach dem Scan werden alle Funde zusammengeführt – nach SHA‑256 (identischer
-Inhalt), URL‑Basis (ohne Signatur), Brokerkennung und zuletzt Titel+Datum. Der Bericht zeigt:
-Dokumente in allen Quellen, **nur in einer Quelle** (→ Hinweis auf Lücken der anderen) und die
-Anzahl je Quelle. Dokumente, die nur eine Quelle kennt, werden trotzdem heruntergeladen.
+## Steuerberechnung
 
-## API‑Verfügbarkeit (Recherche)
+Modular in `src/kest_tool/tax/engine.py`, versionierte Regeln in
+[`src/kest_tool/data/tax_rules.yaml`](src/kest_tool/data/tax_rules.yaml), Dokumentation in
+[docs/STEUERREGELN.md](docs/STEUERREGELN.md) (erzeugt mit `python scripts/generate_rules_doc.py`).
 
-Stand der Recherche: Oktober 2026. Unterschieden nach Zugriffsart:
+Jede Rechenposition enthält:
 
-| Zugriffsart | Trade Republic | Scalable Capital |
-|---|---|---|
-| Offiziell dokumentierte API für **Dokumente** | **Keine.** Die Open‑Banking‑/PSD2‑Schnittstelle richtet sich an lizenzierte Drittanbieter (Konto-/Zahlungsdaten) und ist **keine** Dokumenten‑Download‑API – sie wird nicht verwendet. | **Keine.** Die offizielle *Scalable CLI* (`sc`, Beta, OAuth‑Device‑Flow) bietet laut README Depot, Transaktionen, Sparpläne und Handel, aber **keine Dokumenten/Postfach‑Befehle** und keine Windows‑Binärdatei → nicht genutzt (insbesondere keine Handelsbefehle). |
-| Normale Browsernavigation | Ja – Hauptquelle | Ja – Hauptquelle |
-| Im Browser angebotene Downloadlinks | Ja (Detailansichten, Dokumente) | Ja (Postfach/Dokumente) |
-| Dynamische Dokumentenlisten | Ja (SPA, Nachladen) | Ja (SPA, Nachladen) |
-| Nicht öffentlich dokumentierte interne Endpunkte | WebSocket der Webapp (durch *pytr* beschrieben) – **zweite Quelle**, nur lesend, nur im angemeldeten Browser, keine Umgehung von Zugriffskontrollen | Keine bekannt – **nicht verwendet**; nur passives Mitlesen der Antworten, die die Webapp selbst lädt |
-| Nur manuell exportierbar/anforderbar | wird erkannt und im Bericht gemeldet | wird erkannt und im Bericht gemeldet; Dokumente früherer Kontomodelle/Bankpartner nur, soweit im aktuellen Konto angezeigt |
+- Ausgangsdaten und Herkunft (Buchung, Datei, Zeile)
+- angewendete Regeln mit Status und Quellen
+- Steuersatz und Rechenschritte
+- Ergebnis und Steuerjahr
+- Status: **berechnet** (Regel offiziell belegt, Daten geprüft), **vorläufig** oder **manuell prüfen** (kein Betrag)
 
-Quellen: [pytr (GitHub)](https://github.com/pytr-org/pytr), [Scalable CLI (GitHub)](https://github.com/ScalableCapital/scalable-cli).
-Die offiziellen Hilfeseiten der Broker sollten bei Änderungen erneut geprüft werden.
+Umgesetzt:
 
-## Dateistruktur
+- **Aktien:** Anschaffungskosten nach gleitendem Durchschnittspreis je Depot und Wertpapier. Gebühren werden nicht
+  abgezogen (§ 27a Abs 4 Z 2, § 20 Abs 2 EStG), sondern nur ausgewiesen. Realisierte Gewinne und Verluste,
+  Dividenden brutto, Splits.
+- **Quellensteuer:** getrennt gespeichert. Anrechenbar ist höchstens der DBA-Satz und höchstens die österreichische
+  Steuer. Nicht anrechenbare und ungeklärte Beträge werden getrennt ausgewiesen. Bisher ist nur der DBA-Satz für
+  die **USA** als verifiziert hinterlegt; für andere Länder bleibt die Anrechnung „ungeklärt“, bis Sie den Satz
+  geprüft eintragen.
+- **Inländische KESt:** Depots mit KESt-Abzug durch den Broker gelten als „inländisch“. Die einbehaltene KESt wird
+  ausgewiesen (KZ 899) und nicht doppelt besteuert.
+- **Meldefonds:** ausschüttungsgleiche Erträge, steuerpflichtiger Teil der Ausschüttung, anrechenbare Steuer und
+  AK-Korrektur laut OeKB-Meldung, jeweils für den Bestand zum Meldedatum. Ausschüttungen ohne Meldung werden voll,
+  aber vorläufig angesetzt. Eine manuell gebuchte AgE neben einer Meldung wird nicht doppelt gezählt.
+- **Nichtmeldefonds:** Pauschale (90 % der Differenz, mindestens 10 % des letzten Rücknahmepreises) **nur für 2022
+  und 2023** (sekundär belegt). Ab 2024 wurde § 186 InvFG geändert und der neue Inhalt nicht verifiziert, deshalb
+  erfolgt keine Berechnung, nur eine Prüfposition.
+- **REITs/BDCs:** keine Einstufung über den Namen. Ohne je Buchung bestätigte Ertragsart wird der Betrag „ungeklärt“
+  und nicht berechnet.
+- **Kapitalrückzahlungen:** Mit bestätigtem Beleg mindern sie die Anschaffungskosten, ein Überschuss gilt als
+  Gewinn. Ohne Beleg werden sie „ungeklärt“ ausgewiesen.
+- **Verlustausgleich:** nur innerhalb der 27,5-%-Gruppe desselben Jahres. Kein Ausgleich mit 25-%-Bankzinsen, kein
+  Verlustvortrag. Führt ein Broker selbst einen Verlustausgleich durch, wird zuerst depotintern verrechnet. Zu jeder
+  Verrechnung werden ursprünglicher, verrechneter und verfallener Betrag sowie die Begründung ausgewiesen.
+- **Steuerjahre:** Jede Regel hat einen Status je Jahr. Für nicht hinterlegte Jahre (z. B. 2019) lehnt das Tool die
+  Berechnung ab.
+- **E 1kv:** Kennzahlen 2022–2024 aus Auszügen der amtlichen Formulare (862/863, 897/898, 936/937, 981/994, 891/892,
+  899). KZ 998 sowie 860/861 sind nur sekundär belegt. Für **2025/2026 sind die Kennzahlen nicht verifiziert**: Die
+  Beträge erscheinen mit dem Vorjahreswert als „(863?)“ und dem Hinweis, das Formular zu prüfen.
 
-Standard‑Ausgabeordner: `%USERPROFILE%\Documents\BrokerDocumentCollector\` (konfigurierbar)
+## OeKB-Daten
 
-```
-BrokerDocumentCollector/
-├── TradeRepublic/
-│   ├── Steuer/2023/2024-02-15_Jahressteuerbescheinigung.pdf
-│   ├── Kontoauszuege/2024/
-│   ├── Depotauszuege/
-│   ├── Wertpapierabrechnungen/2024/
-│   ├── Dividenden/  Zinsen/  Gebuehren/  Ein-Auszahlungen/  Vertraege/
-│   ├── Zu_pruefen/          (unsichere Klassifizierung)
-│   └── Sonstige/            (unbekannt)
-├── ScalableCapital/ …       (gleiche Struktur, dynamisch angelegt)
-├── database/collector.sqlite3
-├── logs/collector.log       (rotierend, 5 × 5 MB, redigiert)
-└── reports/bericht_<broker>_lauf<N>_<zeit>.html|.md|.json
-```
+- **Automatischer Weg:** Eine öffentlich dokumentierte, frei nutzbare OeKB-Schnittstelle für steuerliche
+  Fondsmeldungen konnte **nicht verifiziert** werden. Die OeKB bietet Fondsdaten über my.oekb.at bzw. vertragliche
+  Datenlieferungen (Fondsdaten-Portal mit Nutzungsbedingungen, „Fondsdaten Plus“) an. Die Schnittstelle
+  `AutomaticProvider` ist vorbereitet, aber ohne Anbieter. Die Oberfläche zeigt das transparent an, und es wird
+  keine API vorgetäuscht.
+- **Manueller Weg:** Import von CSV/Excel oder PDF sowie manuelle Erfassung, jeweils mit ISIN, Meldedatum
+  (= Steuerjahr), Quelle, Importdatum, Version und Prüfstatus.
+- **Konflikte:** Eine abweichende neue Meldung wird nicht aktiv geschaltet, sondern als Konflikt angelegt. Die
+  Entscheidung (bestehend behalten oder neu übernehmen) braucht eine Begründung und wird protokolliert. Die nicht
+  gewählte Version bleibt erhalten.
 
-Dateinamen: `<Dokumentdatum>_<Originalname>` – das Datum wird nur vorangestellt, wenn es aus der
-Dokumentliste, dem Titel/Dateinamen oder einem beschrifteten Datum im PDF stammt (nie erfunden).
-Der Inhalt bleibt byte‑identisch; Originalname, Quelle und alle Fundstellen stehen in der Datenbank.
+## Datenschutz und Sicherheit
 
-**Browserprofile** liegen bewusst getrennt unter `%LOCALAPPDATA%\BrokerDocumentCollector\browser-profile\<broker>`
-(nicht im häufig OneDrive‑synchronisierten Dokumente‑Ordner).
-
-Datenbanktabellen: `documents`, `document_locations` (alternative Fundstellen), `scan_runs`,
-`scan_items` (dauerhafter Status je Dokumentkennung), `run_results` (Ergebnis je Lauf), `areas`
-(Bereichsstatus je Lauf), `source_records` (Quellenabgleich), `markers` (bereits ausgewertete
-Timeline‑Ereignisse).
-
-## Sicherheit & Datenschutz
-
-- **Keine Passwortabfrage, keine Speicherung von Zugangsdaten.** Die Konfiguration lehnt Schlüssel
-  wie `password`, `pin`, `token`, `cookie`, `session` ab.
-- **Keine Cookies/Tokens in Logs, Datenbank oder Berichten:** Alle Log‑Meldungen, Fehlermeldungen
-  und gespeicherten URLs werden redigiert (Query‑Parameter wie Signaturen/Tokens, Cookie‑ und
-  Authorization‑Header, JWTs, Telefonnummern). Vorab signierte Links werden nur ohne Signatur
-  gespeichert. Tests prüfen das auf Byte‑Ebene in der SQLite‑Datei.
-- **Cookies verlassen den Browser nicht.** Downloads laufen über die Sitzung des Browsers; an
-  fremde Hosts (z. B. Speicherlinks) werden keine Cookies mitgesendet.
-- **Keine Cloud, keine Telemetrie, keine externen KI‑Dienste, keine CDNs.** Die Oberfläche ist
-  nur unter 127.0.0.1 erreichbar, POST‑Anfragen brauchen ein Zufallstoken je Programmstart,
-  der Host‑Header wird geprüft (Schutz gegen fremde Webseiten/DNS‑Rebinding).
-- **OneDrive‑Warnung:** Liegt der Ausgabeordner in einem Cloud‑Sync‑Ordner, zeigt die Oberfläche
-  eine Warnung.
-- **Dateisicherheit:** Directory‑Traversal‑Schutz (`safe_join`, Bereinigung von Dateinamen inkl.
-  reservierter Windows‑Namen), Größenlimit, Signaturprüfung, Inhalte werden nie ausgeführt
-  (PDF‑Text wird nur mit `pypdf` gelesen).
-- **Nur erlaubte Hosts:** Navigation/Downloads nur über HTTPS auf den Domains des Brokers (bei Trade
-  Republic zusätzlich TR‑eigene Speicher‑Hosts); keine IP‑Adressen, kein localhost, keine
-  eingebetteten Zugangsdaten.
-
-### Browserprofil = Zugangsschlüssel
-
-Das Profil enthält die Sitzungscookies. Wer es kopiert, kann – solange die Sitzung gilt –
-auf Ihr Konto zugreifen. Empfehlungen:
-
-- Windows‑Konto mit Passwort/Windows Hello, Bildschirmsperre bei Abwesenheit.
-- **BitLocker** aktivieren: *Einstellungen → Datenschutz und Sicherheit → Geräteverschlüsselung*
-  (Windows 11 Home) bzw. *Systemsteuerung → BitLocker‑Laufwerksverschlüsselung* (Pro/Enterprise).
-  Den Wiederherstellungsschlüssel sicher (offline) aufbewahren. Das schützt Profil, Datenbank und
-  Dokumente bei Diebstahl des Geräts.
-- Profil nicht in Cloud‑Ordner verschieben oder sichern.
-- **Löschen** (getrennt möglich): Oberfläche „Daten löschen“ oder
-  `start.bat --delete-profile [tr|sc]`, `--delete-database`, `--delete-downloads [tr|sc]`.
-  Zusätzlich empfiehlt es sich, sich in der Broker‑App von allen Web‑Sitzungen abzumelden.
-
-## Regelmäßige Synchronisierung
-
-Oberfläche → „Täglicher Sync … Aufgabe anlegen“ oder `start.bat --schedule-create 07:30`.
-Es wird eine Aufgabe „BrokerDocumentCollector Sync“ im Windows‑Aufgabenplaner angelegt (nur
-bei angemeldetem Benutzer, ohne Adminrechte). Der Sync
-
-1. erkennt bekannte Dokumente an stabilen Kennungen und Hashes,
-2. lädt nur neue bzw. zuvor fehlgeschlagene Dokumente,
-3. fragt bei Trade Republic bereits ausgewertete Timeline‑Einträge nicht erneut ab
-   (Einstellung „Ältere Einträge erneut prüfen“ erzwingt das),
-4. erstellt einen neuen Bericht.
-
-Ist die Sitzung abgelaufen, öffnet sich das Browserfenster und der Sync **wartet** (Standard
-10 Minuten) auf Ihre Anmeldung; danach bricht er mit Status „Anmeldung erforderlich“ ab.
+- Alles läuft lokal (Streamlit auf `127.0.0.1`, Telemetrie aus in `.streamlit/config.toml`).
+- Es werden keine Broker-Passwörter gespeichert und es gibt kein automatisches Einloggen. Das KESt-Tool fragt keine
+  Zugangsdaten ab.
+- Es werden keine Daten an externe Dienste, KI oder OCR übertragen; die PDF-Texterkennung läuft lokal.
+- Die Konfiguration lehnt Schlüssel wie `password`, `token` oder `api_key` ab. Optionale Variablen stehen in `.env`
+  (siehe `.env.example`).
+- Logs werden redigiert (Tokens, Cookies, signierte URLs, Telefonnummern); das KESt-Tool schreibt keine Buchungsdetails ins Log.
+- Uploads werden validiert: erlaubte Endungen, Größenlimit, PDF/XLSX-Signatur. Dateiinhalte werden nie ausgeführt;
+  PDFs werden nur als Text gelesen.
+- Backups sind ZIP-Dateien mit SHA-256-Manifest, die Wiederherstellung prüft jede Datei, mit Zip-Slip-Schutz.
+  Eine nicht leere Ablage wird nur nach ausdrücklicher Bestätigung vollständig in einen Sicherungsordner verschoben,
+  es wird nichts gelöscht.
+- Empfehlung: BitLocker aktivieren und den Ablageordner nicht in einem Cloud-Sync-Ordner führen.
 
 ## Architektur
 
 ```
-app.py → cli.py ──► ui.py (lokaler HTTP-Server, deutsch)      ──┐
-                └─► scanner.py: ScanManager (1 Worker-Thread) ──┤
-                                Collector (Ablauf, Fortsetzen)  │
-   broker_adapter.py  Interface BrokerAdapter + Datenmodelle    │
-   web_adapter.py     generische Webapp-Logik  ◄────────────────┘
-     ├─ trade_republic.py   TradeRepublicAdapter  (+ tr_api.py: WebSocket-Protokoll)
-     └─ scalable_capital.py ScalableCapitalAdapter
-   discovery.py        sichere DOM-Erkennung: Bereiche, Paginierung, Zeiträume, Dokumente
-   network_capture.py  passive Auswertung von Webapp-JSON
-   browser_manager.py  Playwright, persistente Profile, Downloads in der Sitzung
-   downloader.py       Signaturprüfung, Retry, atomare Speicherung
-   deduplication.py    SHA-256
-   classifier.py       Heuristik (+ optionale lokale OCR)
-   reconciliation.py   Quellenabgleich
-   reporting.py        Prüfberichte (HTML/MD/JSON)
-   database.py         SQLite
-   security.py         Dateinamen, Pfade, URL-Richtlinien, Redaktion
-   maintenance.py / scheduler.py / logging_setup.py / config.py
+app.py                         Streamlit-Einstieg, Navigation
+src/kest_tool/
+  config.py                    config.yaml + config.local.yaml + KEST_TOOL_HOME
+  db.py / repository.py        SQLite-Schema, Repository, Audit-Log, Konflikte
+  models.py                    Enums + pydantic-Modelle (Validierung)
+  storage.py                   Dokumentenablage (SHA-256, kein Überschreiben, Pfadschutz)
+  importers/                   parsing, csv_importer, pdf_importer, oekb_importer
+  tax/rules.py, data/tax_rules.yaml   versionierte Regeln, Quellen, E 1kv-Kennzahlen
+  tax/engine.py                CostBasisTracker, IncomeClassifier, FundProcessor, LossOffset, Summary, E 1kv
+  export/excel.py, reports.py  Excel (11 Blätter), CSV, PDF-Bericht, E 1kv-Hilfe
+  backup.py                    Backup/Wiederherstellung
+  demo.py                      synthetische Beispieldaten
+  ui/                          Streamlit-Seiten
+src/broker_collector/          bestehender Broker Document Collector
 ```
 
-Das Interface `BrokerAdapter` definiert `connect()`, `check_session()`,
-`discover_document_areas()`, `discover_documents()`, `download_document()`,
-`paginate_history()`, `get_scan_status()`, `close()`. Selektoren/Hosts/Muster sind im jeweiligen
-Adapter gekapselt; die Erkennung bevorzugt Rollen und zugängliche Namen statt CSS‑Klassen.
+Datenbanktabellen:
+
+- `brokers`, `depots`, `depot_tax_settings` (je Jahr), `securities`
+- `transactions`, `documents`, `document_links`, `document_events`
+- `import_runs`, `import_log`
+- `fund_reports`, `nmf_prices`, `conflicts`
+- `audit_log`, `csv_profiles`, `exports`
 
 ## Tests
 
 ```bat
-.venv\Scripts\python -m pytest -q                 REM alle automatisierten Tests
-.venv\Scripts\python -m pytest -q -m integration  REM nur Browser-Integrationstests (Mockseiten)
+.venv\Scripts\python -m pytest -q
 ```
 
-Abgedeckt: SHA‑256‑Duplikate, Dateinamenbereinigung, Signaturprüfung, SQLite‑Persistenz,
-Fortsetzung unterbrochener Scans, Pause/Abbruch, Retry‑Logik, Fehlerprotokollierung inkl.
-Redaktion, URL‑Validierung, Directory Traversal, Klassifizierung, Downloadstatus,
-Berichtserstellung, Quellenabgleich, WebSocket‑Protokoll (Delta, Paginierung, Fehler),
-Netzwerk‑Extraktion, Oberfläche (Token, Host‑Prüfung), Löschfunktionen, Aufgabenplaner‑Befehl.
+`tests/kest/` enthält 60 Tests für das KESt-Tool. Sie decken unter anderem ab:
 
-Integrationstests (headless Chromium, Mockseiten über HTTPS‑Routing): Bereichserkennung,
-„Mehr laden“, Jahresfilter, Blob‑Download, PDF‑Viewer im Dialog, Detailansichten,
-HTML‑statt‑PDF, Duplikate über Quellen, Fallen gegen Kontoaktionen, Sync‑Wiederholungslauf,
-Trade‑Republic‑WebSocket im Browser (gemockter Server) inkl. inkrementellem Lauf.
+- CSV mit deutschem Dezimalkomma und erneuten Import
+- Brokerzuordnung, Dubletten und Gebühren
+- Verkauf mit bekannten Anschaffungskosten und Dividende mit Quellensteuer
+- Meldefonds und Nichtmeldefonds, AgE und Schutz vor Doppelzählung von Fondserträgen
+- Kapitalrückzahlung und eingeschränkten Verlustausgleich
+- fehlende Daten, verweigerte Steuerjahre und nicht verifizierte Regeln (Warnung statt Betrag)
+- alle Excel-Blätter und Abgleich der Excel-Summen mit der Datenbank
+- Ablage, Backup und Wiederherstellung sowie einen UI-Rauchtest aller Seiten
 
-**Echte Broker‑Livetests** (`tests/test_live_brokers.py`) sind als `live` markiert und laufen nur
-manuell mit `BDC_LIVE=1` und eigener Anmeldung.
+Die Tests des bestehenden Collectors laufen unverändert mit.
 
-Hinweis für Umgebungen mit vorinstalliertem Chromium: `BDC_BROWSER_EXECUTABLE` auf die
-Chromium‑Datei setzen.
+## Einschränkungen
 
-## Offene Punkte / nicht verifizierte Funktionen
-
-Ehrliche Liste dessen, was **ohne Zugang zu echten Konten nicht live geprüft** werden konnte:
-
-1. **Trade‑Republic‑Weboberfläche:** Die generische Erkennung (Namen von Menüs, Listen,
-   Detailansichten) ist gegen Mockseiten getestet, nicht gegen `app.traderepublic.com`. Ob alle
-   Dokumentbereiche gefunden werden, muss ein erster Livelauf zeigen (Bericht prüfen).
-2. **Trade‑Republic‑WebSocket:** Protokoll laut *pytr*; nicht offiziell, kann sich ändern. Annahmen:
-   der Browser authentifiziert den WebSocket mit den Sitzungscookies; Dokumentlinks liegen auf
-   TR‑eigenen Hosts (`*traderepublic*.amazonaws.com`/`*.traderepublic.com`). Weicht der Host ab,
-   wird der Download mit „Host nicht erlaubt“ protokolliert – dann den offiziellen Host unter
-   `extra_document_hosts` eintragen. Fällt die Quelle aus, läuft der UI‑Scan unverändert weiter.
-3. **Scalable‑Capital‑Oberfläche:** Start‑URL `https://de.scalable.capital/`; Login‑/Postfach‑Pfade
-   werden heuristisch erkannt, nicht live verifiziert. Ob die Webapp Dokumentlisten als JSON lädt
-   (zweite Quelle), ist unbekannt – ansonsten meldet der Bericht „nur eine Quelle“.
-4. **Sitzungserkennung** (angemeldet/abgelaufen/2FA/Captcha) ist heuristisch (Passwort-/Code‑Felder,
-   Captcha‑Frames, Abmelden‑Element). Im Zweifel wartet das Tool lieber auf den Benutzer.
-5. **Windows‑spezifisch nicht ausgeführt:** `install.bat`, `start.bat`, Aufgabenplaner (`schtasks`)
-   und „Ordner öffnen“ wurden in einer Linux‑Umgebung entwickelt; die Python‑Teile sind
-   plattformunabhängig getestet, die Batch‑Dateien nicht unter Windows gelaufen.
-6. **OCR** ist implementiert, aber ohne installiertes Tesseract nicht getestet.
-7. **Vollständigkeit** kann grundsätzlich nicht garantiert werden; der Bericht weist
-   teilweise/nicht untersuchte Bereiche, Fehler, manuelle Fälle, Jahreslücken und
-   Quellenabweichungen aus.
-
-## Fehlerbehebung
-
-| Problem | Lösung |
-|---|---|
-| „Chromium konnte nicht gestartet werden“ | Ein anderes Fenster nutzt dasselbe Profil → „Browserfenster schließen“ oder Programm neu starten. |
-| Status bleibt „nicht angemeldet“ | Im Browserfenster anmelden; danach „Status prüfen“. Hilft das nicht: Profil löschen und neu anmelden. |
-| „Host nicht erlaubt“ bei Downloads | Offiziellen Speicher‑Host des Brokers in `extra_document_hosts` eintragen. |
-| Viele „Zu prüfen“ | Klassifizierung unsicher – Dateien liegen sicher in `Zu_pruefen`, Originale unverändert. |
-| Bereich „teilweise untersucht“ | Limits in `config.toml` erhöhen (`max_pages_per_area`, `max_load_more_clicks`) und „Fortsetzen“. |
-| Logs | `<Ausgabeordner>\logs\collector.log` (redigiert). |
+- **Verifikation:** BMF, RIS, Findok und OeKB waren aus der Entwicklungsumgebung nicht direkt abrufbar. Regeln wurden
+  über Suchauszüge offizieller Dokumente bzw. Sekundärquellen belegt und entsprechend gekennzeichnet. Vor der
+  Verwendung bitte die Quellen in [docs/STEUERREGELN.md](docs/STEUERREGELN.md) selbst prüfen.
+- **E 1kv 2025/2026:** Kennzahlen nicht verifiziert.
+- **Nichtmeldefonds ab 2024:** keine Berechnung.
+- **DBA-Sätze:** nur USA verifiziert.
+- **Nicht implementiert:**
+  - Regelbesteuerungsoption, Derivate, Kryptowährungen, Anleihen-Stückzinsen, Altbestand vor 1.4.2012
+  - pauschale Anschaffungskosten (§ 93 Abs 4), Wegzug/Schenkung, Kapitalmaßnahmen außer Split
+    (werden als Prüfhinweis gemeldet)
+  - Immobilienfonds, Betriebsvermögen
+- **Reihenfolge des Verlustausgleichs:** Annahme zugunsten der Quellensteueranrechnung; die angezeigte anrechenbare
+  Quellensteuer nach Verlustausgleich ist eine Schätzung, maßgeblich ist der Bescheid.
+- **Fremdwährungen:** nur mit Kurs aus Beleg oder Eingabe, keine automatische Kursbeschaffung.
+- **PDF-Erkennung:** nur mit synthetischen PDFs getestet. Echte Abrechnungen von Trade Republic und Scalable Capital
+  können anders aufgebaut sein; dann erscheinen fehlende Felder im Prüfformular.
+- **Windows:** `start.bat`/`install.bat` wurden in einer Linux-Umgebung erstellt und nicht unter Windows ausgeführt.
+  Die Python-Teile sind plattformunabhängig getestet (Python 3.12 und 3.13).

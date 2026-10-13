@@ -1,0 +1,19 @@
+[server]
+# Nur lokal erreichbar – keine Freigabe ins Netzwerk
+address = "127.0.0.1"
+port = 8501
+headless = false
+maxUploadSize = 50
+enableXsrfProtection = true
+enableCORS = true
+
+[browser]
+# Keine Nutzungsstatistik an Streamlit senden
+gatherUsageStats = false
+serverAddress = "localhost"
+
+[client]
+toolbarMode = "minimal"
+
+[theme]
+base = "light"

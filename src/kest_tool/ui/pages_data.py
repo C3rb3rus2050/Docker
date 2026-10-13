@@ -1,0 +1,395 @@
+"""Seiten: Wertpapiere, Fonds & OeKB, Transaktionen, Dokumente."""
+
+from __future__ import annotations
+
+import json
+from datetime import date
+
+import pandas as pd
+import streamlit as st
+from pydantic import ValidationError
+
+from ..importers.oekb_importer import get_provider
+from ..models import (
+    DOC_SOURCES,
+    DOC_STATUS,
+    DOC_TYPES,
+    TAX_CLASS_LABELS,
+    FundReportIn,
+    FundStatus,
+    IncomeCategory,
+    ReviewStatus,
+    SecurityIn,
+    SecurityType,
+    TaxClass,
+    TransactionIn,
+    TxType,
+)
+from . import common as C
+
+
+# --------------------------------------------------------------------------- #
+def securities() -> None:
+    repo = C.ctx().repo
+    C.year_selector()
+    st.title("Wertpapiere")
+    st.caption("Wertpapierart und steuerliche Einstufung sind getrennte Felder. Eine Einstufung gilt nur als geprüft, "
+               "wenn eine belastbare Quelle angegeben ist (z. B. Emittentenangabe, OeKB-Meldung, Steuerbescheinigung). "
+               "Die Einstufung wird nie aus Ticker, Name oder der Bezeichnung REIT/BDC abgeleitet.")
+    q = st.text_input("Suche (ISIN, Name, Ticker, WKN)")
+    rows = repo.securities(q or None)
+    C.df([{"ISIN": s["isin"], "Name": s["name"], "Ticker": s["ticker"], "Art": s["security_type"],
+           "Steuerliche Einstufung": s["tax_class"], "Einstufung geprüft": bool(s["tax_class_verified"]),
+           "Quelle Einstufung": s["tax_class_source"], "Meldefondsstatus": s["fund_status"],
+           "Status geprüft": bool(s["fund_status_verified"]), "Quelle Status": s["fund_status_source"],
+           "Sitzstaat": s["country"], "Prüfstatus": s["review_status"]} for s in rows])
+    isins = ["(neues Wertpapier)"] + [s["isin"] for s in rows]
+    sel = st.selectbox("Bearbeiten", isins)
+    cur = repo.security_by_isin(sel) if sel != "(neues Wertpapier)" else {}
+    cur = cur or {}
+    with st.form("sec_form"):
+        cols = st.columns(4)
+        isin = cols[0].text_input("ISIN", cur.get("isin", ""), disabled=bool(cur))
+        name = cols[1].text_input("Name", cur.get("name") or "")
+        ticker = cols[2].text_input("Ticker", cur.get("ticker") or "")
+        wkn = cols[3].text_input("WKN", cur.get("wkn") or "")
+        cols = st.columns(3)
+        stypes = [t.value for t in SecurityType]
+        stype = cols[0].selectbox("Wertpapierart", stypes, index=stypes.index(cur.get("security_type", "Sonstige")))
+        country = cols[1].text_input("Sitzstaat Emittent (ISO-2, für Quellensteuer)", cur.get("country") or "",
+                                     max_chars=2)
+        currency = cols[2].text_input("Handelswährung", cur.get("currency") or "")
+        st.markdown("**Steuerliche Einstufung**")
+        cols = st.columns(3)
+        tcs = [t.value for t in TaxClass]
+        tc = cols[0].selectbox("Einstufung", tcs, index=tcs.index(cur.get("tax_class", "ungeklaert")),
+                               format_func=lambda v: TAX_CLASS_LABELS[TaxClass(v)])
+        tc_src = cols[1].text_input("Quelle der Einstufung", cur.get("tax_class_source") or "")
+        tc_ver = cols[2].checkbox("Einstufung geprüft", bool(cur.get("tax_class_verified")))
+        cols = st.columns(3)
+        fss = [f.value for f in FundStatus]
+        fs = cols[0].selectbox("Meldefondsstatus", fss, index=fss.index(cur.get("fund_status", "kein_fonds")))
+        fs_src = cols[1].text_input("Quelle Meldefondsstatus (z. B. OeKB-Suche vom …)", cur.get("fund_status_source")
+                                    or "")
+        fs_ver = cols[2].checkbox("Status geprüft", bool(cur.get("fund_status_verified")))
+        notes = st.text_area("Notizen", cur.get("notes") or "")
+        review = st.selectbox("Prüfstatus", ["ungeprueft", "geprueft", "pruefen"],
+                              index=["ungeprueft", "geprueft", "pruefen"].index(cur.get("review_status", "ungeprueft")))
+        if st.form_submit_button("Speichern"):
+            try:
+                sec = SecurityIn(isin=cur.get("isin") or isin, name=name or None, ticker=ticker or None,
+                                 wkn=wkn or None, currency=currency or None, country=country.upper() or None,
+                                 security_type=SecurityType(stype), tax_class=TaxClass(tc),
+                                 tax_class_source=tc_src or None, tax_class_verified=tc_ver,
+                                 fund_status=FundStatus(fs), fund_status_source=fs_src or None,
+                                 fund_status_verified=fs_ver, notes=notes or None)
+                repo.upsert_security(sec, reason="manuelle Pflege")
+                repo.set_security_review(sec.isin, review)
+                C.invalidate_results()
+                st.success("Gespeichert")
+                st.rerun()
+            except ValidationError as exc:
+                st.error("; ".join(e["msg"] for e in exc.errors()))
+    if cur:
+        with st.expander("Änderungshistorie"):
+            C.df([a for a in repo.audit_entries() if a["entity"] == "security" and a["entity_id"] == cur["isin"]])
+
+
+# --------------------------------------------------------------------------- #
+def funds() -> None:
+    repo = C.ctx().repo
+    y = C.year_selector()
+    st.title("Fonds & OeKB")
+    p = get_provider(C.ctx().settings.get("oekb.automatic_provider"))
+    st.info(f"**Automatischer Weg:** nicht verfügbar. {p.reason}")
+    st.caption("**Manueller Weg:** Meldungen als CSV/PDF importieren (Seite Import) oder hier erfassen. Abweichende "
+               "Werte erzeugen einen Konflikt – nichts wird stillschweigend überschrieben.")
+    tabs = st.tabs(["Meldungen", "Konflikte", "Meldung erfassen", f"Nichtmeldefonds-Kurse {y}"])
+    with tabs[0]:
+        reps = repo.fund_reports()
+        C.df([{"ID": r["id"], "ISIN": r["isin"], "Fonds": r["fund_name"], "Art": r["report_type"],
+               "GJ-Ende": r["fiscal_year_end"], "Meldedatum": r["report_date"], "AgE/Anteil": r["age_per_unit"],
+               "Ausschüttung/Anteil": r["distribution_per_unit"],
+               "steuerpfl. Ausschüttung/Anteil": r["taxable_distribution_per_unit"],
+               "AK-Korrektur/Anteil": r["ak_correction_per_unit"], "anrechenb. Steuer/Anteil":
+                   r["creditable_tax_per_unit"], "Währung": r["currency"], "Quelle": r["source"],
+               "Dokument": r["document_id"], "Importiert": r["imported_at"], "Version": r["version"],
+               "Aktiv": bool(r["active"]), "Prüfstatus": r["review_status"]} for r in reps])
+        if reps:
+            cols = st.columns(3)
+            rid = cols[0].selectbox("Meldung", [r["id"] for r in reps])
+            status = cols[1].selectbox("Prüfstatus setzen", ["ungeprueft", "geprueft", "verworfen"])
+            if cols[2].button("Übernehmen"):
+                repo.set_fund_report_review(int(rid), status)
+                C.invalidate_results()
+                st.rerun()
+    with tabs[1]:
+        open_c = repo.conflicts("offen")
+        C.df(open_c)
+        fr = [c for c in open_c if c["entity"] == "fund_report"]
+        pairs = sorted({(int(c["existing_ref"].split(":")[1].split()[0]), int(c["new_ref"].split(":")[1].split()[0]))
+                        for c in fr})
+        for ex_id, new_id in pairs:
+            with st.form(f"conf_{ex_id}_{new_id}"):
+                st.write(f"Meldung #{ex_id} (bestehend) ↔ #{new_id} (neu)")
+                C.df([{k: v for k, v in c.items() if k in ("field", "existing_value", "new_value")} for c in fr
+                      if c["existing_ref"].startswith(f"fund_reports:{ex_id} ") and
+                      c["new_ref"].startswith(f"fund_reports:{new_id} ")])
+                dec = st.radio("Entscheidung", ["bestehend_behalten", "neu_uebernommen"], horizontal=True)
+                note = st.text_input("Begründung (Pflicht)")
+                if st.form_submit_button("Entscheiden"):
+                    try:
+                        repo.resolve_fund_report_conflict(ex_id, new_id, dec, note)
+                        C.invalidate_results()
+                        st.rerun()
+                    except ValueError as exc:
+                        st.error(str(exc))
+        for c in [c for c in open_c if c["entity"] == "nmf_price"]:
+            with st.form(f"nmfc_{c['id']}"):
+                st.write(f"Kursdaten {c['entity_key']} Feld {c['field']}: {c['existing_value']} ↔ {c['new_value']}")
+                take = st.radio("Wert", ["bestehend behalten", "neu übernehmen"], horizontal=True)
+                note = st.text_input("Begründung (Pflicht)")
+                if st.form_submit_button("Entscheiden"):
+                    try:
+                        repo.resolve_nmf_conflict(c["id"], take == "neu übernehmen", note)
+                        C.invalidate_results()
+                        st.rerun()
+                    except ValueError as exc:
+                        st.error(str(exc))
+    with tabs[2]:
+        with st.form("fr_manual"):
+            cols = st.columns(4)
+            isin = cols[0].text_input("ISIN")
+            rtype = cols[1].selectbox("Meldungsart", ["Jahresmeldung", "Ausschuettungsmeldung"])
+            rdate = cols[2].date_input("Meldedatum", value=date(y, 6, 30), format="DD.MM.YYYY")
+            fye = cols[3].date_input("Geschäftsjahresende", value=None, format="DD.MM.YYYY")
+            cols = st.columns(6)
+            dist = cols[0].number_input("Ausschüttung/Anteil", value=0.0, format="%.6f")
+            ddate = cols[1].date_input("Ex-Tag", value=None, format="DD.MM.YYYY")
+            taxable = cols[2].number_input("steuerpfl. Ausschüttung/Anteil", value=0.0, format="%.6f")
+            age = cols[3].number_input("AgE/Anteil", value=0.0, format="%.6f")
+            akk = cols[4].number_input("AK-Korrektur/Anteil", value=0.0, format="%.6f")
+            cred = cols[5].number_input("anrechenb. Steuer/Anteil", value=0.0, format="%.6f")
+            cols = st.columns(3)
+            cur = cols[0].text_input("Währung", "EUR")
+            fx = cols[1].number_input("Devisenkurs (Währung je EUR)", value=0.0, format="%.6f")
+            src_note = cols[2].text_input("Quelle (z. B. my.oekb.at Abfrage vom …)")
+            if st.form_submit_button("Speichern"):
+                try:
+                    rep = FundReportIn(isin=isin, report_type=rtype, report_date=rdate, fiscal_year_end=fye,
+                                       distribution_date=ddate, distribution_per_unit=dist or None,
+                                       taxable_distribution_per_unit=taxable if dist else None, age_per_unit=age,
+                                       ak_correction_per_unit=akk, creditable_tax_per_unit=cred or None, currency=cur,
+                                       fx_rate=fx or None, source="manuell", notes=src_note or None)
+                    res = repo.add_fund_report(rep)
+                    C.invalidate_results()
+                    st.success(f"Ergebnis: {res['status']} (Meldung #{res['id']})")
+                except ValidationError as exc:
+                    st.error("; ".join(e["msg"] for e in exc.errors()))
+    with tabs[3]:
+        st.caption("Für die Pauschalbesteuerung von Nichtmeldefonds: erster und letzter Rücknahmepreis des "
+                   "Kalenderjahres. Ob die Regel für das Jahr verifiziert ist, zeigt die Steuerberechnung.")
+        C.df(repo.nmf_prices(y))
+        with st.form("nmf_form"):
+            cols = st.columns(4)
+            isin = cols[0].text_input("ISIN")
+            fp = cols[1].number_input("Erster Rücknahmepreis", value=0.0, format="%.4f")
+            fd = cols[2].date_input("Datum erster Preis", value=date(y, 1, 2), format="DD.MM.YYYY")
+            cur = cols[3].text_input("Währung", "EUR")
+            cols = st.columns(4)
+            lp = cols[0].number_input("Letzter Rücknahmepreis", value=0.0, format="%.4f")
+            ld = cols[1].date_input("Datum letzter Preis", value=date(y, 12, 31), format="DD.MM.YYYY")
+            fx = cols[2].number_input("Devisenkurs 31.12. (Währung je EUR)", value=0.0, format="%.6f")
+            src = cols[3].text_input("Quelle")
+            if st.form_submit_button("Speichern"):
+                from ..models import normalize_isin
+                res = repo.upsert_nmf_price(normalize_isin(isin), y, fp or None, fd.isoformat(), lp or None,
+                                            ld.isoformat(), cur.upper(), fx or None, src or "manuell")
+                C.invalidate_results()
+                st.success(f"Ergebnis: {res['status']}")
+
+
+# --------------------------------------------------------------------------- #
+def transactions() -> None:
+    c = C.ctx()
+    repo = c.repo
+    y = C.year_selector()
+    st.title("Transaktionen")
+    deps = C.depot_options()
+    cols = st.columns(3)
+    only_year = cols[0].checkbox(f"Nur {y}", value=True)
+    depot_f = cols[1].selectbox("Depot", ["alle"] + list(deps))
+    isin_f = cols[2].text_input("ISIN-Filter")
+    rows = repo.transactions(y if only_year else None, deps.get(depot_f), isin_f.strip().upper() or None)
+    C.df([{"ID": t["id"], "Datum": t["trade_date"], "Broker": t["broker_name"], "Depot": t["depot_name"],
+           "Art": t["tx_type"], "ISIN": t["isin"], "Name": t["security_name"], "Stück": t["quantity"],
+           "Kurs": t["price"], "Währung": t["currency"], "Betrag": t["amount"], "Betrag EUR": t["amount_eur"],
+           "Gebühren EUR": t["fees_eur"], "QSt EUR": t["withholding_tax_eur"], "Land": t["withholding_country"],
+           "KESt": t["kest_at_eur"], "Ertragsart": t["income_category"],
+           "Ertragsart belegt": bool(t["income_category_verified"]), "Quelle": t["source_type"],
+           "Dokument": t["document_name"], "Prüfstatus": t["review_status"], "Notiz": t["notes"]} for t in rows])
+    if not deps:
+        st.warning("Kein Depot vorhanden.")
+        return
+    tab_new, tab_edit = st.tabs(["Manuelle Buchung / Korrektur", "Buchung bearbeiten"])
+    with tab_new:
+        with st.form("tx_new"):
+            cols = st.columns(4)
+            depot = cols[0].selectbox("Depot", list(deps))
+            t = cols[1].selectbox("Art", [x.value for x in TxType])
+            d = cols[2].date_input("Datum", value=date(y, 12, 31), format="DD.MM.YYYY")
+            isin = cols[3].text_input("ISIN")
+            name = st.text_input("Wertpapiername")
+            cols = st.columns(6)
+            qty = cols[0].number_input("Stück", value=0.0, format="%.6f")
+            price = cols[1].number_input("Kurs", value=0.0, format="%.4f")
+            amount = cols[2].number_input("Bruttobetrag", value=0.0, format="%.2f")
+            fees = cols[3].number_input("Gebühren", value=0.0, format="%.2f")
+            cur = cols[4].selectbox("Währung", c.settings.currencies)
+            fx = cols[5].number_input("Devisenkurs (je EUR)", value=0.0, format="%.6f")
+            cols = st.columns(5)
+            wht = cols[0].number_input("Quellensteuer", value=0.0, format="%.2f")
+            country = cols[1].text_input("Quellenstaat", max_chars=2)
+            kest = cols[2].number_input("Österr. KESt EUR", value=0.0, format="%.2f")
+            ratio = cols[3].number_input("Split-Verhältnis neu/alt", value=0.0, format="%.4f")
+            cats = [x.value for x in IncomeCategory]
+            cat = cols[4].selectbox("Ertragsart", cats)
+            cat_ver = st.checkbox("Ertragsart ist durch Beleg bestätigt (z. B. Kapitalrückzahlung, REIT-Bestandteile)")
+            notes = st.text_input("Begründung/Notiz (Pflicht für manuelle Buchungen)")
+            if st.form_submit_button("Buchung anlegen"):
+                if not notes.strip():
+                    st.error("Bitte eine Begründung angeben.")
+                else:
+                    try:
+                        tx = TransactionIn(depot_id=deps[depot], tx_type=TxType(t), trade_date=d, isin=isin or None,
+                                           security_name=name or None, quantity=qty or None, price=price or None,
+                                           amount=amount or None, fees=fees, currency=cur, fx_rate=fx or None,
+                                           withholding_tax=wht, withholding_country=country or None, kest_at_eur=kest,
+                                           ratio=ratio or None, income_category=IncomeCategory(cat),
+                                           income_category_verified=cat_ver, notes=notes, source_type="manuell",
+                                           review_status=ReviewStatus.UNCHECKED)
+                        dup = repo.find_duplicates(tx)
+                        tid = repo.add_transaction(tx)
+                        C.invalidate_results()
+                        st.success(f"Buchung #{tid} angelegt.")
+                        if dup["exact"] or dup["possible"]:
+                            st.warning(f"Hinweis: ähnliche Buchungen vorhanden: "
+                                       f"{[r['id'] for r in dup['exact'] + dup['possible']]}")
+                    except ValidationError as exc:
+                        st.error("; ".join(e["msg"] for e in exc.errors()))
+    with tab_edit:
+        if not rows:
+            st.info("Keine Buchungen im Filter.")
+            return
+        tid = st.selectbox("Buchung", [r["id"] for r in rows],
+                           format_func=lambda i: next(f"#{r['id']} {r['trade_date']} {r['tx_type']} {r['isin'] or ''} "
+                                                      f"{r['amount']}" for r in rows if r["id"] == i))
+        tx = repo.transaction(tid)
+        with st.form("tx_edit"):
+            cols = st.columns(4)
+            amount = cols[0].number_input("Bruttobetrag", value=float(tx["amount"] or 0), format="%.2f")
+            fees = cols[1].number_input("Gebühren", value=float(tx["fees"] or 0), format="%.2f")
+            fx = cols[2].number_input("Devisenkurs (je EUR)", value=float(tx["fx_rate"] or 0), format="%.6f")
+            qty = cols[3].number_input("Stück", value=float(tx["quantity"] or 0), format="%.6f")
+            cols = st.columns(4)
+            wht = cols[0].number_input("Quellensteuer", value=float(tx["withholding_tax"] or 0), format="%.2f")
+            country = cols[1].text_input("Quellenstaat", tx["withholding_country"] or "", max_chars=2)
+            cats = [x.value for x in IncomeCategory]
+            cat = cols[2].selectbox("Ertragsart", cats, index=cats.index(tx["income_category"]))
+            cat_ver = cols[3].checkbox("Ertragsart belegt", bool(tx["income_category_verified"]))
+            review = st.selectbox("Prüfstatus", ["ungeprueft", "geprueft", "pruefen"],
+                                  index=["ungeprueft", "geprueft", "pruefen"].index(tx["review_status"]))
+            reason = st.text_input("Begründung der Änderung (Pflicht)")
+            c1, c2 = st.columns(2)
+            save = c1.form_submit_button("Änderung speichern")
+            delete = c2.form_submit_button("Buchung löschen (logisch)")
+        if save or delete:
+            try:
+                if delete:
+                    repo.delete_transaction(tid, reason)
+                else:
+                    changes = {"amount": amount or None, "fees": fees, "fx_rate": fx or None, "quantity": qty or None,
+                               "withholding_tax": wht, "withholding_country": country.upper() or None,
+                               "income_category": cat, "income_category_verified": int(cat_ver),
+                               "review_status": review}
+                    changes = {k: v for k, v in changes.items() if v != tx.get(k)}
+                    if changes:
+                        repo.update_transaction(tid, changes, reason)
+                C.invalidate_results()
+                st.success("Gespeichert (protokolliert).")
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
+
+
+# --------------------------------------------------------------------------- #
+def documents() -> None:
+    c = C.ctx()
+    repo = c.repo
+    y = C.year_selector()
+    st.title("Dokumente")
+    cols = st.columns(5)
+    fy = cols[0].selectbox("Steuerjahr", ["alle"] + c.settings.tax_years,
+                           index=(c.settings.tax_years.index(y) + 1) if y in c.settings.tax_years else 0)
+    fs = cols[1].selectbox("Quelle/Broker", ["alle"] + DOC_SOURCES)
+    ft = cols[2].selectbox("Typ", ["alle"] + DOC_TYPES)
+    fst = cols[3].selectbox("Status", ["alle"] + DOC_STATUS)
+    q = cols[4].text_input("Suche (Name/Hash)")
+    docs = repo.documents(None if fy == "alle" else int(fy), None if fs == "alle" else fs,
+                          None if ft == "alle" else ft, q or None, None if fst == "alle" else fst)
+    C.df([{"ID": d["id"], "Datei": d["original_filename"], "Typ": d["doc_type"], "Quelle": d["source"],
+           "Jahr": d["tax_year"], "Importiert": d["imported_at"], "Status": d["status"], "Buchungen": d["tx_count"],
+           "SHA-256": d["sha256"][:16] + "…", "Pfad": d["stored_path"]} for d in docs])
+    if not docs:
+        return
+    did = st.selectbox("Dokument", [d["id"] for d in docs],
+                       format_func=lambda i: next(f"#{d['id']} {d['original_filename']}" for d in docs if d["id"] == i))
+    doc = repo.document(did)
+    path = repo.document_path(doc)
+    st.write(f"**Speicherort:** `{path}`  \n**SHA-256:** `{doc['sha256']}`  \n**Importiert:** {doc['imported_at']} "
+             f"({doc['import_method']})")
+    b1, b2 = st.columns(2)
+    with b1:
+        C.open_file_button(path, f"open_{did}")
+    with b2:
+        C.download_button(path, f"dl_{did}", "Original herunterladen")
+    with st.form(f"doc_edit_{did}"):
+        st.caption("Kategorisierung/Verschiebung ändert nur Ablageort und Metadaten – der Dateiinhalt bleibt unverändert.")
+        cols = st.columns(4)
+        ny = cols[0].number_input("Steuerjahr", 2000, 2100, value=int(doc["tax_year"] or y))
+        ns = cols[1].selectbox("Quelle", DOC_SOURCES, index=DOC_SOURCES.index(doc["source"]))
+        nt = cols[2].selectbox("Typ", DOC_TYPES, index=DOC_TYPES.index(doc["doc_type"]) if doc["doc_type"] in DOC_TYPES
+                               else DOC_TYPES.index("Unbekannt"))
+        nst = cols[3].selectbox("Status", DOC_STATUS, index=DOC_STATUS.index(doc["status"]))
+        notes = st.text_input("Notiz", doc["notes"] or "")
+        if st.form_submit_button("Speichern"):
+            try:
+                repo.update_document(did, tax_year=int(ny), source=ns, doc_type=nt, status=nst, notes=notes or None)
+                st.success("Gespeichert")
+                st.rerun()
+            except OSError as exc:
+                st.error(str(exc))
+    st.subheader("Zugeordnete Transaktionen")
+    C.df([{"ID": t["id"], "Datum": t["trade_date"], "Art": t["tx_type"], "ISIN": t["isin"], "Betrag": t["amount"]}
+          for t in repo.transactions_for_document(did)])
+    all_tx = repo.transactions(int(doc["tax_year"]) if doc["tax_year"] else None)
+    if all_tx:
+        cols = st.columns([3, 1])
+        tsel = cols[0].selectbox("Transaktion zuordnen", [t["id"] for t in all_tx],
+                                 format_func=lambda i: next(f"#{t['id']} {t['trade_date']} {t['tx_type']} "
+                                                            f"{t['isin'] or ''} {t['amount']}" for t in all_tx
+                                                            if t["id"] == i))
+        if cols[1].button("Zuordnen"):
+            repo.link_document(did, int(tsel))
+            st.rerun()
+    if doc["file_type"] == "pdf":
+        with st.expander("PDF-Extraktion prüfen / Buchung anlegen", expanded=doc["status"] in ("pruefen", "neu")):
+            from .pages_import import pdf_review_form
+            exd = json.loads(doc["extraction_json"]) if doc.get("extraction_json") else None
+            if exd is None:
+                from ..importers.pdf_importer import extract_pdf
+                exd = extract_pdf(path.read_bytes()).to_dict()
+            exd.setdefault("status_text", "")
+            pdf_review_form(doc, exd, None, key=f"doc{did}")
+    with st.expander("Verlauf"):
+        C.df(repo.document_events(did))

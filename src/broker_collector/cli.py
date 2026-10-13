@@ -77,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.schedule_create or args.schedule_delete:
         from .scheduler import SchedulerError, create_task, delete_task
 
-        start_bat = Path(__file__).resolve().parents[2] / "start.bat"
+        start_bat = Path(__file__).resolve().parents[2] / "start_collector.bat"
         try:
             print(create_task(start_bat, args.schedule_create) if args.schedule_create else delete_task())
         except SchedulerError as exc:

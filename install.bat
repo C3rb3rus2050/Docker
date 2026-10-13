@@ -1,11 +1,11 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul
-title Broker Document Collector - Installation
+title KESt-Tool - Installation
 cd /d "%~dp0"
 
 echo ============================================================
-echo  Broker Document Collector - Installation
+echo  KESt-Tool (inkl. Broker Document Collector) - Installation
 echo ============================================================
 echo.
 
@@ -51,29 +51,29 @@ if errorlevel 1 (
 )
 echo [OK] Abhaengigkeiten installiert
 
-rem --- 4. Playwright Chromium -------------------------------------------------
-echo [..] Installiere Playwright-Chromium ^(einmalig, ca. 150 MB^) ...
-"%VPY%" -m playwright install chromium
+rem --- 4. Playwright Chromium (nur fuer den optionalen Broker Document Collector) --
+echo [..] Installiere Playwright-Chromium fuer den optionalen Collector ^(ca. 150 MB^) ...
+"%VPY%" -m playwright install chromium >nul 2>&1
 if errorlevel 1 (
-    echo [FEHLER] Chromium fuer Playwright konnte nicht installiert werden.
-    goto :fail
+    echo [WARNUNG] Chromium konnte nicht installiert werden. Das KESt-Tool funktioniert trotzdem;
+    echo           nur start_collector.bat benoetigt Chromium.
+) else (
+    echo [OK] Chromium installiert
 )
-echo [OK] Chromium installiert
 
 rem --- 5. Lokale Ordner -------------------------------------------------------
 if not exist "config.toml" (
     copy /y "config.example.toml" "config.toml" >nul
-    echo [OK] config.toml aus Vorlage erstellt
 )
-"%VPY%" -c "import sys; sys.path.insert(0, 'src'); from broker_collector.config import load_settings; s = load_settings(); s.ensure_dirs(); print('[OK] Ausgabeordner:', s.output_dir); print('[OK] Browserprofil:', s.profile_dir)"
+"%VPY%" -c "import sys; sys.path.insert(0, 'src'); from kest_tool.context import create_context; c = create_context(); print('[OK] KESt-Tool Ablage:', c.store.base); c.close()"
 if errorlevel 1 (
-    echo [FEHLER] Die lokalen Ordner konnten nicht angelegt werden. config.toml pruefen.
+    echo [FEHLER] Der Ablageordner konnte nicht angelegt werden. config.yaml / config.local.yaml pruefen.
     goto :fail
 )
 
 rem --- 6. Selbsttest (optional, schnell) --------------------------------------
 echo [..] Fuehre Selbsttest aus ...
-"%VPY%" -m pytest -q -m "not live and not integration" >nul 2>&1
+"%VPY%" -m pytest -q -p no:cacheprovider -m "not live and not integration" >nul 2>&1
 if errorlevel 1 (
     echo [WARNUNG] Selbsttest nicht erfolgreich. Details: .venv\Scripts\python -m pytest -q
 ) else (

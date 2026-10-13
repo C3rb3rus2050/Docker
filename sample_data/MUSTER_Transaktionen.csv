@@ -1,0 +1,6 @@
+Datum;Typ;ISIN;Wertpapier;Stück;Kurs;Betrag;Gebühren;Währung;Quellensteuer;Land
+10.01.2024;Kauf;IE00B4L5Y983;iShares Core MSCI World (MUSTER);20;80,00;1.600,00;1,00;EUR;;
+15.03.2024;Kauf;US0378331005;Apple Inc. (MUSTER);10;150,25;1.502,50;1,00;EUR;;
+16.05.2024;Dividende;US0378331005;Apple Inc. (MUSTER);;;2,40;;EUR;0,36;US
+30.06.2024;Zinsen;;Zinsen Verrechnungskonto (MUSTER);;;12,34;;EUR;;
+02.09.2024;Verkauf;US0378331005;Apple Inc. (MUSTER);5;140,00;700,00;1,00;EUR;;
