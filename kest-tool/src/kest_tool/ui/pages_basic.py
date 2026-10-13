@@ -29,9 +29,11 @@ def dashboard() -> None:
     cols[2].metric(f"Dokumente {y}", s["documents"], help=f"insgesamt {s['documents_total']}")
     cols[3].metric(f"Transaktionen {y}", s["transactions"])
     cols[4].metric("Offene Konflikte", s["open_conflicts"])
-    if not s["depots"]:
-        st.info("Noch keine Depots angelegt → Seite **Broker & Depots**.")
-    res = C.tax_result(y, force=st.button("Neu berechnen"))
+    force = st.button("Neu berechnen")
+    if force:
+        C.tax_result(y, force=True)
+    C.status_panel(y, "dash")
+    res = C.tax_result(y)
     if res:
         sm = res.summary
         st.subheader("Erträge und realisierte Ergebnisse (inkl. vorläufiger Positionen)")
@@ -49,11 +51,6 @@ def dashboard() -> None:
         m[2].metric("ungeklärt", C.eur(sm["Ungeklärte Quellensteuer"]))
         m[3].metric("Geschätzte Steuer", C.eur(sm["Geschätzte Steuer nach Anrechnung"]),
                     help="Schätzung inkl. vorläufiger Positionen – nicht endgültig")
-        errs = sum(1 for i in res.issues if i.severity == "Fehler")
-        warns = sum(1 for i in res.issues if i.severity == "Warnung")
-        st.warning(f"Offene Prüfungen: {errs} Fehler, {warns} Warnungen, "
-                   f"{sm['Positionen manuell zu prüfen']} Positionen manuell zu prüfen, "
-                   f"{sm['Positionen vorläufig']} vorläufig. Ergebnisse sind nicht endgültig.")
     runs = c.repo.import_runs(1)
     if runs:
         r = runs[0]

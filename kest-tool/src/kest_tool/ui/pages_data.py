@@ -328,6 +328,23 @@ def documents() -> None:
     repo = c.repo
     y = C.year_selector()
     st.title("Dokumente")
+    if "last_process_results" in st.session_state:
+        C.show_process_results(st.session_state.pop("last_process_results"))
+    open_pdfs = repo.db.query(
+        "SELECT d.id FROM documents d WHERE d.file_type='pdf' AND d.status<>'ignoriert' AND NOT EXISTS "
+        "(SELECT 1 FROM transactions t WHERE t.document_id=d.id AND t.deleted=0) AND NOT EXISTS "
+        "(SELECT 1 FROM document_links l WHERE l.document_id=d.id)")
+    if open_pdfs:
+        with st.container(border=True):
+            st.markdown(f"**{len(open_pdfs)} PDF-Dokument(e) ohne Buchung.** Vollständig erkannte Abrechnungen können "
+                        "automatisch übernommen werden; der Rest bleibt mit Grund im Status „pruefen“.")
+            deps = C.depot_options()
+            cols = st.columns([2, 1])
+            dflt = cols[0].selectbox("Standarddepot, falls das Depot nicht eindeutig ist", ["—"] + list(deps),
+                                     key="doc_dflt_depot")
+            if cols[1].button("Offene PDFs automatisch verarbeiten", type="primary"):
+                from ..processing import process_documents
+                C.after_processing(process_documents(repo, [d["id"] for d in open_pdfs], deps.get(dflt)))
     cols = st.columns(5)
     fy = cols[0].selectbox("Steuerjahr", ["alle"] + c.settings.tax_years,
                            index=(c.settings.tax_years.index(y) + 1) if y in c.settings.tax_years else 0)
@@ -385,10 +402,12 @@ def documents() -> None:
     if doc["file_type"] == "pdf":
         with st.expander("PDF-Extraktion prüfen / Buchung anlegen", expanded=doc["status"] in ("pruefen", "neu")):
             from .pages_import import pdf_review_form
-            exd = json.loads(doc["extraction_json"]) if doc.get("extraction_json") else None
-            if exd is None:
-                from ..importers.pdf_importer import extract_pdf
-                exd = extract_pdf(path.read_bytes()).to_dict()
+            from ..importers.pdf_importer import PdfError, extract_pdf
+            try:
+                exd = extract_pdf(path.read_bytes()).to_dict()  # immer aktuell auslesen
+            except (PdfError, OSError) as exc:
+                st.error(f"PDF nicht lesbar: {exc}")
+                return
             exd.setdefault("status_text", "")
             pdf_review_form(doc, exd, None, key=f"doc{did}")
     with st.expander("Verlauf"):

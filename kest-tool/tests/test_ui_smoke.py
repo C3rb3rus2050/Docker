@@ -53,7 +53,7 @@ def test_tax_page_shows_provisional_warning(demo_home):
     at.run()
     _goto(at, "steuer")
     _run(at)
-    at.selectbox(key="tax_year_select").set_value(2024)
+    at.selectbox(key="tax_year_select_0").set_value(2024)
     _run(at)
     assert any("Keine endgültigen Ergebnisse" in w.value for w in at.warning)
 
@@ -61,7 +61,7 @@ def test_tax_page_shows_provisional_warning(demo_home):
 def test_dashboard_excel_button(demo_home):
     at = AppTest.from_file(APP, default_timeout=120)
     at.run()
-    at.selectbox(key="tax_year_select").set_value(2024)
+    at.selectbox(key="tax_year_select_0").set_value(2024)
     _run(at)
     btn = [b for b in at.button if b.label == "Excel-Export erstellen"][0]
     btn.click()

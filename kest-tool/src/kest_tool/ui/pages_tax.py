@@ -18,6 +18,9 @@ def tax() -> None:
     res = C.tax_result(y, force=st.button("Neu berechnen", type="primary"))
     if not res:
         return
+    if not res.lines:
+        C.status_panel(y, "tax")
+        return
     s, sc = res.summary, res.summary_confirmed
     n_prov, n_man = s["Positionen vorläufig"], s["Positionen manuell zu prüfen"]
     if n_prov or n_man:

@@ -31,6 +31,7 @@ from ..importers.oekb_importer import (
 from ..importers.parsing import parse_tx_type
 from ..importers.pdf_importer import PdfError, extract_pdf
 from ..models import DOC_SOURCES, FundReportIn, ReviewStatus, TransactionIn, TxType
+from ..processing import process_documents
 from ..storage import sha256_bytes
 from . import common as C
 
@@ -67,6 +68,8 @@ def render() -> None:
     st.title("Import")
     st.caption("Originaldateien werden unverändert in der Ablage gespeichert. Erneut importierte Dateien werden über "
                "SHA-256 erkannt. Vor jedem Import wird eine Vorschau angezeigt.")
+    if "last_process_results" in st.session_state:
+        C.show_process_results(st.session_state.pop("last_process_results"))
     kind = st.radio("Importtyp", IMPORT_TYPES, horizontal=False)
     deps = C.depot_options()
     if kind.startswith(("CSV", "PDF – Abr")) and not deps:
@@ -311,29 +314,43 @@ def _store_pdf(data: bytes, name: str, y: int, depot_id: int | None, method: str
 
 
 def _pdf_import(y: int, deps: dict) -> None:
-    depot_label = st.selectbox("Depot (Vorschlag)", list(deps), key="pdf_depot")
+    repo = C.ctx().repo
+    depot_label = st.selectbox("Depot (falls nicht eindeutig über den Broker bestimmbar)", list(deps), key="pdf_depot")
+    auto = st.checkbox("Vollständig erkannte Abrechnungen automatisch als Buchung übernehmen", value=True,
+                       help="Nur Dokumente, bei denen alle Pflichtwerte sicher erkannt wurden. Alle anderen erscheinen "
+                            "unten zur manuellen Prüfung.")
     ups = st.file_uploader("PDF-Abrechnungen", type=["pdf"], accept_multiple_files=True, key="pdf_up")
     st.caption("Die Texterkennung läuft lokal (pdfplumber/PyMuPDF). Gescannte PDFs ohne Textebene können nicht "
                "ausgelesen werden – Werte dann manuell eintragen. Keine Übertragung an externe Dienste.")
+    stored = []
     for up in ups or []:
         data = up.getvalue()
         err = _check_upload(up.name, data)
-        st.subheader(up.name)
         if err:
-            st.error(err)
+            st.error(f"{up.name}: {err}")
             continue
         try:
             doc, exd, new = _store_pdf(data, up.name, y, deps[depot_label], "pdf-upload")
         except PdfError:
             continue
-        seen = st.session_state.setdefault("pdf_uploaded_this_session", set())
-        if new:
-            seen.add(doc["sha256"])
-        elif doc["sha256"] not in seen:
-            st.info(f"Dokument bereits vorhanden (#{doc['id']}, importiert {doc['imported_at']}). Bestehende "
-                    f"Buchungen: {len(C.ctx().repo.transactions_for_document(doc['id']))}.")
-        if not new and doc.get("extraction_json"):
+        stored.append((doc, exd, new))
+    if not stored:
+        return
+    done = st.session_state.setdefault("pdf_processed", {})
+    if auto:
+        todo = [d["id"] for d, _, _ in stored if d["id"] not in done]
+        if todo:
+            for r in process_documents(
+                    repo, todo, deps[depot_label]):
+                done[r.document_id] = r
+        C.show_process_results([done[d["id"]] for d, _, _ in stored if d["id"] in done])
+    for doc, exd, new in stored:
+        doc = repo.document(doc["id"])
+        if repo.transactions_for_document(doc["id"]):
+            continue
+        if doc.get("extraction_json"):
             exd = json.loads(doc["extraction_json"])
+        st.subheader(f"Prüfen: {doc['original_filename']}")
         pdf_review_form(doc, exd, deps[depot_label], key=doc["sha256"][:12])
 
 
@@ -461,6 +478,8 @@ def _folder_import(y: int, deps: dict) -> None:
                "Buchungen werden erst nach Prüfung auf der Seite Dokumente angelegt.")
     folder = st.text_input("Ordnerpfad", placeholder=r"C:\Users\<Name>\Documents\BrokerDocumentCollector")
     recursive = st.checkbox("Unterordner einbeziehen", value=True)
+    auto = st.checkbox("Vollständig erkannte Abrechnungen danach automatisch als Buchung übernehmen", value=True)
+    dflt = st.selectbox("Standarddepot, falls das Depot nicht eindeutig ist", ["—"] + list(deps), key="folder_depot")
     if not folder:
         return
     p = Path(folder).expanduser()
@@ -472,12 +491,14 @@ def _folder_import(y: int, deps: dict) -> None:
     st.write(f"{len(files)} Dateien gefunden.")
     if files and st.button("Einlesen", type="primary"):
         new_n = dup_n = err_n = 0
+        new_ids = []
         progress = st.progress(0.0)
         for i, f in enumerate(files, 1):
             try:
                 data = f.read_bytes()
                 if f.suffix.lower() == ".pdf":
-                    _, _, new = _store_pdf(data, f.name, y, None, "ordner-import")
+                    doc, _, new = _store_pdf(data, f.name, y, deps.get(dflt), "ordner-import")
+                    new_ids.append(doc["id"])
                 else:
                     _, new = repo.add_document(data, f.name, doc_type="Transaktionsexport (CSV)", tax_year=y,
                                                import_method="ordner-import", status="pruefen")
@@ -488,3 +509,6 @@ def _folder_import(y: int, deps: dict) -> None:
                 st.warning(f"{f.name}: {exc}")
             progress.progress(i / len(files))
         st.success(f"{new_n} neu abgelegt, {dup_n} bereits vorhanden, {err_n} Fehler.")
+        if auto and new_ids:
+            from ..processing import process_documents
+            C.after_processing(process_documents(repo, new_ids, deps.get(dflt)))

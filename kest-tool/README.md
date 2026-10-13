@@ -108,6 +108,22 @@ Regeln der Ablage:
 | **Exporte** | Excel, CSV, PDF-Jahresbericht, E 1kv-Arbeitshilfe, Exporthistorie, gespeicherte Dateien öffnen |
 | **Einstellungen** | Ablageordner, Steuerjahre, Währungen, Importoptionen, Backup/Wiederherstellung, Protokolle, Regelkatalog |
 
+**Status:** Dashboard und Steuerberechnung zeigen einen Statusblock, der Folgendes ausweist:
+
+- ob Depots angelegt sind
+- wie viele Buchungen das gewählte Jahr hat und in welchen Jahren es Daten gibt
+- wie viele Dokumente noch ohne Buchung sind
+- wie viele Steuerpositionen berechnet (🟢), vorläufig (🟡) bzw. manuell zu prüfen (🔴) sind
+
+Wird nichts berechnet, steht dort der Grund und der nächste Schritt. Das Steuerjahr steht beim Start auf dem
+jüngsten Jahr mit Buchungen.
+
+**Automatische Verarbeitung von PDFs:** Vollständig erkannte Abrechnungen (alle Pflichtwerte sicher, keine
+Widersprüche) werden beim PDF- und Ordnerimport automatisch zu Buchungen. Bereits abgelegte Dokumente lassen sich
+über „offene PDFs automatisch verarbeiten“ (Dashboard/Dokumente) nachträglich verarbeiten; dabei wird neu
+ausgelesen. Das Depot ergibt sich aus dem erkannten Broker, wenn dieser genau ein Depot hat, sonst gilt das gewählte
+Standarddepot. Unvollständige Dokumente bleiben mit Grund im Status „pruefen“.
+
 Empfohlener Ablauf: Broker und Depots anlegen → Depot-Steuereinstellungen für das Jahr setzen → Transaktionen
 importieren (am besten die **gesamte Historie**, damit die Anschaffungskosten stimmen) → Wertpapiere einstufen →
 OeKB-Meldungen erfassen → Steuerberechnung prüfen → Excel-Export.
@@ -137,7 +153,7 @@ Gestaltung:
 |---|---|
 | CSV (`;` `,` Tab `\|`, UTF-8/UTF-16/Windows-1252, deutsche und englische Zahlen- und Datumsformate) | getestet mit synthetischen Dateien |
 | Excel `.xlsx` | getestet |
-| PDF-Abrechnungen (Kauf, Verkauf, Dividende, Ausschüttung, Zinsen, Kapitalrückzahlung) | getestet **nur mit synthetischen Muster-PDFs** im Stil von Trade Republic und Scalable Capital |
+| PDF-Abrechnungen (Kauf, Verkauf, Dividende, Ausschüttung, Zinsen, Kapitalrückzahlung) | getestet **nur mit synthetischen Muster-PDFs** und nachgebildeten Layouts (Trade-Republic-Positionszeile, Baader/Scalable „STK“ und „EUR 126,30“, Quellensteuer „für US-Emittent“, Devisenkurs „EUR/USD“) – keine echten Abrechnungen |
 | Jahressteuerbescheinigungen, sonstige Belege | werden abgelegt und als „prüfen“ markiert, aber nicht automatisch in Buchungen zerlegt |
 | OeKB-Fondsdaten CSV/Excel | getestet mit eigenem Beispielformat ([sample_data](sample_data)); Spalten frei zuordenbar |
 | OeKB-PDF | heuristische Extraktion mit Bestätigungsformular, getestet nur mit Muster-PDF |
@@ -265,7 +281,7 @@ Datenbanktabellen:
 .venv\Scripts\python -m pytest -q
 ```
 
-`tests/` enthält 60 Tests. Sie decken unter anderem ab:
+`tests/` enthält 66 Tests. Sie decken unter anderem ab:
 
 - CSV mit deutschem Dezimalkomma und erneuten Import
 - Brokerzuordnung, Dubletten und Gebühren

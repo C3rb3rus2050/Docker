@@ -68,16 +68,18 @@ CUR = r"EUR|USD|CHF|GBP|CAD|JPY|DKK|SEK|NOK|AUD|€|\$"
 DATE = r"\d{1,2}\.\d{1,2}\.\d{4}|\d{4}-\d{2}-\d{2}"
 ISIN_RX = re.compile(r"\b([A-Z]{2}[A-Z0-9]{9}[0-9])\b")
 
-DATE_LABELS = ["Schlusstag", "Handelstag", "Ausführungstag", "Ausführung", "Buchungsdatum", "Zahltag", "Valuta",
-               "Ex-Tag", "Datum", "Ausführungsdatum", "Abrechnungsdatum"]
+TRADE_DATE_LABELS = ["Schlusstag", "Handelstag", "Ausführungstag", "Ausführungsdatum", "Ausführung"]
+INCOME_DATE_LABELS = ["Zahltag", "Zahlungstag", "Valuta", "Buchungsdatum", "Datum", "Abrechnungsdatum"]
+GENERIC_DATE_LABELS = ["Buchungsdatum", "Datum", "Abrechnungsdatum", "Valuta"]
 FEE_LABELS = ["Fremdkostenzuschlag", "Ordergebühr", "Ordergebuehr", "Orderentgelt", "Provision", "Transaktionsgebühr",
               "Transaktionskosten", "Handelsplatzgebühr", "Börsengebühr", "Gebühr", "Fremde Spesen", "Spesen"]
 GROSS_LABELS_TRADE = ["Kurswert", "Ordervolumen", "Kaufpreis", "Verkaufspreis", "Gesamtkurswert"]
 GROSS_LABELS_INCOME = ["Bruttobetrag", "Brutto", "Dividende brutto", "Ausschüttung brutto", "Bruttoertrag",
                        "Zinsbetrag brutto", "Ertrag", "Dividende", "Ausschüttung", "Zinsen"]
-TOTAL_LABELS = ["Gesamt", "Endbetrag", "Ausmachender Betrag", "Gutschrift", "Belastung", "Betrag zu Ihren Lasten",
+TOTAL_LABELS = ["Gesamt", "Endbetrag", "Zu Lasten", "Zu Gunsten", "Ausmachender Betrag", "Gutschrift", "Belastung", "Betrag zu Ihren Lasten",
                 "Betrag zu Ihren Gunsten", "Total"]
-WHT_LABELS = ["Quellensteuer", "Ausländische Quellensteuer", "US-Quellensteuer", "Withholding Tax"]
+WHT_LABELS = ["Quellensteuer", "Ausländische Quellensteuer", "US-Quellensteuer", "Withholding Tax",
+              "Anrechenbare Quellensteuer"]
 KEST_LABELS = ["Kapitalertragsteuer Österreich", "KESt Österreich", "KESt", "Kapitalertragsteuer"]
 
 
@@ -147,26 +149,39 @@ def _date(s: str) -> date | None:
     return None
 
 
+def _amount_line(label: str) -> re.Pattern:
+    """Zeile 'Label … [WÄHRUNG] Betrag [WÄHRUNG]' – der letzte Betrag der Zeile zählt."""
+    return re.compile(rf"(?im)^[ \t]*{re.escape(label)}\b[^\n]*?(?:^|[ \t:])(?:({CUR})[ \t]*)?({NUM})[ \t]*({CUR})?[ \t]*$")
+
+
+def _match_amount(m: re.Match) -> tuple[float, str] | None:
+    v = _num(m.group(2))
+    if v is None:
+        return None
+    cur = (m.group(3) or m.group(1) or "").replace("€", "EUR").replace("$", "USD")
+    return v, cur
+
+
 def _labeled_amount(text: str, labels: list[str]) -> tuple[float, str, str] | None:
-    """Sucht 'Label ... Betrag Währung' in derselben Zeile; liefert (Betrag, Währung, Label)."""
+    """Sucht 'Label … Betrag Währung' (oder 'Währung Betrag'); liefert (Betrag, Währung, Label)."""
     for label in labels:
-        rx = re.compile(rf"(?im)^.*?\b{re.escape(label)}\b[^\n\d-]*?(?:\(?[^\n]*?\)?\s)?({NUM})\s*({CUR})?\s*$")
-        for m in rx.finditer(text):
-            v = _num(m.group(1))
-            if v is not None:
-                cur = (m.group(2) or "").replace("€", "EUR").replace("$", "USD")
-                return v, cur, label
+        for m in _amount_line(label).finditer(text):
+            r = _match_amount(m)
+            if r:
+                return r[0], r[1], label
     return None
 
 
 def _all_labeled_amounts(text: str, labels: list[str]) -> list[tuple[float, str, str]]:
-    out = []
+    out, seen = [], set()
     for label in labels:
-        rx = re.compile(rf"(?im)^\s*{re.escape(label)}\b[^\n\d-]*({NUM})\s*({CUR})?\s*$")
-        for m in rx.finditer(text):
-            v = _num(m.group(1))
-            if v is not None:
-                out.append((v, (m.group(2) or "").replace("€", "EUR"), label))
+        for m in _amount_line(label).finditer(text):
+            if m.start() in seen:
+                continue
+            r = _match_amount(m)
+            if r:
+                seen.add(m.start())
+                out.append((r[0], r[1], label))
     return out
 
 
@@ -238,24 +253,46 @@ def parse_text(text: str) -> Extraction:
         f["isin"] = Field(uniq[0], 0.4, f"mehrere ISIN gefunden: {', '.join(uniq)}")
         ex.warnings.append(f"Mehrere ISIN im Dokument ({', '.join(uniq)}) – Zuordnung prüfen")
 
-    # Wertpapiername: Zeile vor/nach ISIN
-    if "isin" in f:
+    # Positionszeile (z. B. Trade Republic): "<Name> 1 Stk. 497,40 EUR 497,40 EUR"
+    pos = re.search(rf"(?im)^(.*?)(?<![\w.,])({NUM})[ \t]*(?:Stk\.?|Stück)[ \t]+({NUM})[ \t]*({CUR})"
+                    rf"(?:[ \t]+({NUM})[ \t]*({CUR}))?[ \t]*$", text)
+    # Baader/Scalable: "STK 2,000 <Name> <ISIN>"
+    stk = re.search(rf"(?im)^[ \t]*STK\.?[ \t]+({NUM})[ \t]*(.*)$", text)
+
+    # Wertpapiername
+    name = ""
+    if pos and len(pos.group(1).strip()) > 2:
+        name = pos.group(1).strip()
+    elif stk:
+        name = ISIN_RX.sub("", stk.group(2)).strip()
+    elif "isin" in f:
         m = re.search(rf"(?m)^(.*?){f['isin'].value}(.*)$", text)
         if m:
             name = re.sub(r"\bISIN\b[:\s]*", "", (m.group(1) or "").strip(" :|-")).strip()
             if len(name) < 3:
                 lines = text[:m.start()].rstrip().splitlines()
                 name = lines[-1].strip() if lines else ""
-            name = re.sub(rf"\b({NUM})\s*(Stk\.?|Stück)\b.*", "", name).strip()
-            if 2 < len(name) < 120 and not re.search(r"position|anzahl|isin", name, re.I):
-                f["security_name"] = Field(name, 0.6, "Text neben ISIN")
+    name = re.sub(rf"(?<![\w.,])({NUM})\s*(Stk\.?|Stück)\b.*", "", name).strip()
+    if 2 < len(name) < 120 and not re.search(r"position|anzahl|isin|nominale", name, re.I):
+        f["security_name"] = Field(name, 0.6, "Positionszeile/Text neben ISIN")
 
-    # Datum
-    for label in DATE_LABELS:
+    # Datum – je Dokumentart die passende Angabe (Handelstag bzw. Zahltag; Ex-Tag zuletzt)
+    income_doc = ex.tx_type in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value,
+                                TxType.CAPITAL_REPAYMENT.value)
+    if ex.tx_type in (TxType.BUY.value, TxType.SELL.value):
+        m = re.search(rf"(?i)\b(?:Kauf|Verkauf|Sparplanausführung|ausgeführt|Ausführung)\b[^\n\d]{{0,25}}\bam\s+({DATE})", text)
+        if m and _date(m.group(1)):
+            f["trade_date"] = Field(_date(m.group(1)), 0.9, "Ausführung am …")
+    labels = INCOME_DATE_LABELS if income_doc else TRADE_DATE_LABELS + GENERIC_DATE_LABELS
+    for label in labels + ["Ex-Tag"]:
+        if "trade_date" in f:
+            break
         m = re.search(rf"(?i)\b{re.escape(label)}\b[^\n\d]{{0,30}}({DATE})", text)
         if m and _date(m.group(1)):
-            f["trade_date"] = Field(_date(m.group(1)), 0.9, f"Label „{label}“")
-            break
+            conf = 0.6 if label == "Ex-Tag" else 0.9
+            f["trade_date"] = Field(_date(m.group(1)), conf, f"Label „{label}“")
+            if label == "Ex-Tag":
+                ex.warnings.append("Nur Ex-Tag gefunden – Zahltag (Zufluss) prüfen")
     if "trade_date" not in f:
         m = re.search(DATE, text)
         if m and _date(m.group(0)):
@@ -263,21 +300,22 @@ def parse_text(text: str) -> Extraction:
             ex.warnings.append("Buchungsdatum nur heuristisch ermittelt")
 
     # Stückzahl & Kurs
-    m = re.search(rf"(?i)(?<![\w.,])({NUM})[ \t]*(?:Stk\.?|Stück|Anteile|Shares)(?!\w)", text) or \
-        re.search(rf"(?i)\b(?:Stück|Anzahl|Stückzahl|Nominale)\b[: \t]*({NUM})", text)
-    if m:
-        q = _num(m.group(1))
-        if q:
-            f["quantity"] = Field(abs(q), 0.85, "Stück-Angabe")
-    m = re.search(rf"(?i)\b(?:Kurs|Ausführungskurs|Preis|Durchschnittskurs)\b[^\n\d]{{0,20}}({NUM})\s*({CUR})", text)
-    if m:
-        f["price"] = Field(_num(m.group(1)), 0.8, "Kurs-Angabe")
-        f["currency"] = Field(m.group(2).replace("€", "EUR"), 0.8, "Währung beim Kurs")
-    elif "quantity" in f:
-        m = re.search(rf"(?i)(?<![\w.,])({NUM})[ \t]*(?:Stk\.?|Stück)[ \t]+({NUM})[ \t]*({CUR})", text)
-        if m:
-            f["price"] = Field(_num(m.group(2)), 0.75, "Positionszeile")
-            f["currency"] = Field(m.group(3).replace("€", "EUR"), 0.75, "Positionszeile")
+    if pos:
+        f["quantity"] = Field(abs(_num(pos.group(2)) or 0), 0.9, "Positionszeile")
+        f["price"] = Field(_num(pos.group(3)), 0.85, "Positionszeile")
+        f["currency"] = Field(pos.group(4).replace("€", "EUR"), 0.85, "Positionszeile")
+    elif stk and _num(stk.group(1)):
+        f["quantity"] = Field(abs(_num(stk.group(1))), 0.9, "STK-Angabe")
+    else:
+        m = re.search(rf"(?i)(?<![\w.,])({NUM})[ \t]*(?:Stk\.?|Stück|Anteile|Shares)(?!\w)", text) or \
+            re.search(rf"(?i)\b(?:Stück|Anzahl|Stückzahl)\b[: \t]*({NUM})", text)
+        if m and _num(m.group(1)):
+            f["quantity"] = Field(abs(_num(m.group(1))), 0.85, "Stück-Angabe")
+    if "price" not in f:
+        m = re.search(rf"(?im)\b(?:Kurs|Ausführungskurs|Preis|Durchschnittskurs)\b[ \t:]*(?:({CUR})[ \t]*)?({NUM})[ \t]*({CUR})?", text)
+        if m and (m.group(1) or m.group(3)) and _num(m.group(2)):
+            f["price"] = Field(_num(m.group(2)), 0.8, "Kurs-Angabe")
+            f["currency"] = Field((m.group(3) or m.group(1)).replace("€", "EUR"), 0.8, "Währung beim Kurs")
 
     # Beträge
     income = ex.tx_type in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value,
@@ -287,6 +325,9 @@ def parse_text(text: str) -> Extraction:
         f["amount"] = Field(abs(gross[0]), 0.85, f"Label „{gross[2]}“")
         if gross[1] and "currency" not in f:
             f["currency"] = Field(gross[1], 0.8, f"Währung bei „{gross[2]}“")
+    elif pos and pos.group(5):
+        f["amount"] = Field(abs(_num(pos.group(5)) or 0), 0.85, "Betrag in der Positionszeile")
+        f["currency"] = Field(pos.group(6).replace("€", "EUR"), 0.85, "Positionszeile")
     elif not income and "quantity" in f and "price" in f and f["price"].value:
         f["amount"] = Field(round(f["quantity"].value * f["price"].value, 2), 0.6, "Stück × Kurs")
         ex.warnings.append("Kurswert aus Stück × Kurs berechnet – nicht im Dokument gefunden")
@@ -315,9 +356,11 @@ def parse_text(text: str) -> Extraction:
         f["kest_at_eur"] = Field(round(sum(abs(v) for v, _, _ in kest), 2), 0.5, ", ".join(l for *_, l in kest))
         ex.warnings.append("Kapitalertragsteuer gefunden – prüfen, ob es sich um österreichische KESt handelt")
 
-    m = re.search(rf"(?i)(?:Devisenkurs|Wechselkurs|Umrechnungskurs)[^\n\d]{{0,20}}(?:1\s*EUR\s*=\s*)?({NUM})", text)
-    if m:
-        f["fx_rate"] = Field(_num(m.group(1)), 0.7, "Devisenkurs")
+    m = re.search(rf"(?i)(?:Devisenkurs|Wechselkurs|Umrechnungskurs)[^\n\d]{{0,20}}(?:1\s*EUR\s*=\s*)?({NUM})", text) \
+        or re.search(rf"(?<![\w.,])(\d+,\d{{2,6}}|\d+\.\d{{2,6}})[ \t]*EUR/[A-Z]{{3}}\b", text) \
+        or re.search(rf"\bEUR/[A-Z]{{3}}[ \t:]*(\d+,\d{{2,6}}|\d+\.\d{{2,6}})", text)
+    if m and _num(m.group(1)):
+        f["fx_rate"] = Field(_num(m.group(1)), 0.75, "Devisenkurs (Fremdwährung je EUR)")
     if "currency" not in f:
         m = re.search(rf"\b({CUR})\b", text)
         if m:
