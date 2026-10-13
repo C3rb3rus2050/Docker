@@ -128,3 +128,65 @@ def test_env_file_helpers(tmp_path, monkeypatch):
     assert os.environ["EODHD_API_KEY"] == "abc"
     save_env_var("EODHD_API_KEY", "", env)
     assert "EODHD_API_KEY" not in env.read_text() and "EODHD_API_KEY" not in os.environ
+
+
+class NavApi(FakeApi):
+    """Wie FakeApi, zusätzlich Rücknahmepreise über EUFUND (Ticker = ISIN.EUFUND)."""
+
+    def __call__(self, url: str):
+        if "/eod/LU0274208692.EUFUND" in url:
+            self.calls.append(url)
+            return [{"date": "2023-01-03", "close": 50.0}, {"date": "2023-12-28", "close": 60.0}]
+        if "/search/LU0274208692" in url:
+            self.calls.append(url)
+            return [{"Code": "LU0274208692", "Exchange": "EUFUND", "Currency": "USD", "ISIN": "LU0274208692"},
+                    {"Code": "XDWD", "Exchange": "XETRA", "Currency": "EUR", "ISIN": "LU0274208692"}]
+        return super().__call__(url)
+
+
+def test_redemption_prices_preferred_via_eufund(repo, depot, ctx):
+    from kest_tool.fx import FxService
+    FxService(ctx.store.base).import_bytes(b"Date,USD,\n2023-12-28,1.1000,\n")
+    fund(repo, NMF_FUND, FundStatus.NICHTMELDEFONDS)
+    add_tx(repo, depot, TxType.BUY, "2023-02-01", isin=NMF_FUND, quantity=10, amount=1000)
+    api = NavApi()
+    res = fill_nmf_prices(repo, _svc(repo, api), 2023)
+    assert res[0].status == "gesetzt" and res[0].message.startswith("Rücknahmepreis")
+    assert not any("/eod/XDWD" in u for u in api.calls)                       # kein Börsenkurs nötig
+    p = repo.nmf_prices(2023)[0]
+    assert (p["first_price"], p["last_price"], p["currency"]) == (50.0, 60.0, "USD")
+    assert p["fx_rate_last"] == pytest.approx(1.1)
+    assert "Rücknahmepreis" in p["source"] and "kein Rücknahmepreis" not in p["source"]
+    result = compute(repo, 2023)
+    nmf = [l for l in result.lines if l.category == CAT_NMF][0]
+    # max(0,9 × 10; 0,1 × 60) = 9 USD je Anteil × 10 / 1,1 = 81,82 EUR
+    assert nmf.amount == pytest.approx(9 * 10 / 1.1, abs=0.01)
+    assert "Rücknahmepreisen" not in result.nmf_rows[0]["Datenlücken / Prüfhinweise"]
+
+
+def test_imported_redemption_prices_used_without_network(repo, depot):
+    fund(repo, NMF_FUND, FundStatus.NICHTMELDEFONDS)
+    add_tx(repo, depot, TxType.BUY, "2023-02-01", isin=NMF_FUND, quantity=10, amount=1000)
+    svc = PriceService(repo, EodhdProvider(api_key=""))                      # kein Schlüssel
+    data = "ISIN;Datum;Rücknahmepreis;Währung\nLU0274208692;02.01.2023;100,00;EUR\nLU0274208692;29.12.2023;104,00;EUR\n"
+    assert import_price_csv(repo, svc, data.encode(), "fondsgesellschaft.csv", redemption=True) == 2
+    res = fill_nmf_prices(repo, svc, 2023)
+    assert res[0].status == "gesetzt" and res[0].message.startswith("Rücknahmepreis")
+    p = repo.nmf_prices(2023)[0]
+    assert (p["first_price"], p["last_price"]) == (100.0, 104.0)
+    assert "Rücknahmepreis (manueller Import" in p["source"]
+
+
+def test_fallback_to_exchange_close_explains_missing_nav(repo, depot):
+    fund(repo, NMF_FUND, FundStatus.NICHTMELDEFONDS)
+    add_tx(repo, depot, TxType.BUY, "2023-02-01", isin=NMF_FUND, quantity=10, amount=1000)
+    res = fill_nmf_prices(repo, _svc(repo, FakeApi()), 2023)                 # EUFUND schlägt fehl
+    assert res[0].status == "gesetzt" and res[0].message.startswith("Börsenkurs")
+    assert "All World Extended" in res[0].message
+    assert "kein Rücknahmepreis" in repo.nmf_prices(2023)[0]["source"]
+    # ohne Ersatz: kein Wert, sondern Fehler mit Grund
+    repo.db.execute("DELETE FROM nmf_prices")
+    repo.db.execute("DELETE FROM security_prices")
+    res = fill_nmf_prices(repo, _svc(repo, FakeApi()), 2023, allow_exchange_fallback=False)
+    assert res[0].status == "fehler" and "EUFUND" in res[0].message
+    assert repo.nmf_prices(2023) == []

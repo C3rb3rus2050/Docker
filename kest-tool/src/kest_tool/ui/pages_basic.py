@@ -229,8 +229,17 @@ def settings_page() -> None:
              + ("API-Schlüssel ist **hinterlegt**." if svc.provider.available else "**Kein API-Schlüssel hinterlegt.**"))
     st.caption("Verwendung: erster/letzter Kurs des Jahres für Nichtmeldefonds und Bewertung der Bestände zum 31.12. "
                "Übertragen werden nur ISIN bzw. Börsenkürzel und Zeitraum. Der kostenlose Zugang ist laut Anbieter auf "
-               "20 Abrufe pro Tag und Kurse des letzten Jahres beschränkt. Börsenschlusskurse sind keine "
-               "Rücknahmepreise – geladene Kurse für Nichtmeldefonds bleiben „ungeprüft“.")
+               "20 Abrufe pro Tag und Kurse des letzten Jahres beschränkt.")
+    st.markdown("**Rücknahmepreise (Nichtmeldefonds):** Reihenfolge 1) importierte Rücknahmepreise (z. B. CSV der "
+                "Fondsgesellschaft), 2) EODHD „EUFUND“ (Rücknahmepreise/NAV europäischer Fonds, laut Anbieter erst ab "
+                "Paket „All World Extended“), 3) ersatzweise Börsenschlusskurse mit Hinweis „kein Rücknahmepreis“. "
+                "Fremdwährungen werden mit dem EZB-Kurs zum letzten Preisdatum umgerechnet. Alle geladenen Werte "
+                "bleiben „ungeprüft“.")
+    fb = st.checkbox("Ohne Rücknahmepreise ersatzweise Börsenschlusskurse verwenden",
+                     value=bool(c.settings.get("prices.nmf_exchange_fallback", True)))
+    if fb != bool(c.settings.get("prices.nmf_exchange_fallback", True)):
+        c.settings.save_local({"prices": {"nmf_exchange_fallback": fb}})
+        st.rerun()
     with st.form("px_key"):
         key_in = st.text_input(f"API-Schlüssel ({ENV_KEY}, wird nur lokal in .env gespeichert)", type="password")
         c1, c2 = st.columns(2)
@@ -254,10 +263,11 @@ def settings_page() -> None:
         C.fill_prices(int(py))
     up_px = st.file_uploader("Kurse als CSV importieren (Spalten ISIN;Datum;Kurs;Währung)", type=["csv", "txt", "xlsx"],
                              key="px_up")
+    px_nav = st.checkbox("Die Datei enthält Rücknahmepreise (NAV) – z. B. von der Fondsgesellschaft", key="px_nav")
     st.download_button("CSV-Vorlage für Kurse", price_csv_template(), file_name="Kurse_Vorlage.csv")
     if up_px and st.button("Kurs-CSV übernehmen"):
         try:
-            n = import_price_csv(c.repo, svc, up_px.getvalue(), up_px.name)
+            n = import_price_csv(c.repo, svc, up_px.getvalue(), up_px.name, redemption=px_nav)
             C.invalidate_results()
             st.success(f"{n} Kurse importiert. Für Nichtmeldefonds danach „Kurse jetzt laden“ bzw. Fonds & OeKB → "
                        "Nichtmeldefonds-Kurse nutzen.")

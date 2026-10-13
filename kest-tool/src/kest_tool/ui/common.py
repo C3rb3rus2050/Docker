@@ -300,14 +300,18 @@ def fill_prices(y: int, show: bool = True) -> list:
     from ..prices import PriceError, fill_nmf_prices, fill_year_end_prices
 
     svc = price_service()
-    if not svc.provider.available:
+    from ..prices import NAV_MARKER
+    has_nav_csv = ctx().db.one("SELECT COUNT(*) n FROM security_prices WHERE source LIKE ?", (f"%{NAV_MARKER}%",))["n"]
+    if not svc.provider.available and not has_nav_csv:
         if show:
             st.warning("Kein API-Schlüssel für den Kursdienst hinterlegt → **Einstellungen → Wertpapierkurse**. "
                        "Alternativ Kurse als CSV importieren.")
         return []
     try:
         with st.spinner("Lade Wertpapierkurse …"):
-            res = fill_nmf_prices(ctx().repo, svc, y) + fill_year_end_prices(ctx().repo, svc, y)
+            res = fill_nmf_prices(ctx().repo, svc, y,
+                                  bool(ctx().settings.get("prices.nmf_exchange_fallback", True))) \
+                + fill_year_end_prices(ctx().repo, svc, y)
     except PriceError as exc:
         if show:
             st.error(str(exc))

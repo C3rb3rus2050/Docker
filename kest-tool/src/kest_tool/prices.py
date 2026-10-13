@@ -37,6 +37,8 @@ ENV_KEY = "EODHD_API_KEY"
 DEFAULT_EXCHANGES = ["XETRA", "F", "VI", "LSE", "AS", "PA", "SW", "MI", "US"]
 MAX_BACK_DAYS = 10
 NOT_REDEMPTION = "Börsenschlusskurs, kein Rücknahmepreis – prüfen"
+NAV_MARKER = "Rücknahmepreis"           # Quellenkennzeichen für echte Rücknahmepreise (NAV)
+NAV_EXCHANGE = "EUFUND"                 # EODHD: europäische Fonds, Ticker = ISIN.EUFUND (kostenpflichtiges Paket)
 
 
 class PriceError(RuntimeError):
@@ -101,6 +103,25 @@ class EodhdProvider:
         return SymbolInfo(f"{best['Code']}.{best['Exchange']}", best.get("Name") or "", best["Exchange"],
                           (best.get("Currency") or "EUR").upper())
 
+    def nav_history(self, isin: str, start: date, end: date) -> list[tuple[date, float]]:
+        """Rücknahmepreise (NAV) europäischer Fonds über EODHD „EUFUND“ (Ticker = ISIN.EUFUND).
+
+        Laut Anbieter erst ab dem Paket „All World Extended“ verfügbar – mit kleinerem Zugang meldet die API einen
+        Fehler, der hier verständlich weitergegeben wird.
+        """
+        try:
+            return self.history(f"{isin}.{NAV_EXCHANGE}", start, end)
+        except PriceError as exc:
+            raise PriceError(f"Rücknahmepreise (EODHD {NAV_EXCHANGE}) nicht abrufbar – laut Anbieter erst ab Paket "
+                             f"„All World Extended“. Details: {exc}") from None
+
+    def nav_currency(self, isin: str) -> str | None:
+        rows = self._get(f"search/{urllib.parse.quote(isin)}") or []
+        for r in rows:
+            if isinstance(r, dict) and r.get("Exchange") == NAV_EXCHANGE:
+                return (r.get("Currency") or "").upper() or None
+        return None
+
     def history(self, symbol: str, start: date, end: date) -> list[tuple[date, float]]:
         rows = self._get(f"eod/{urllib.parse.quote(symbol)}", **{"from": start.isoformat(), "to": end.isoformat()})
         out = []
@@ -157,6 +178,22 @@ class PriceService:
                              "quelle": self.provider.name})
         return info
 
+    def nav_series(self, isin: str, start: date, end: date) -> list[dict]:
+        """Gespeicherte Rücknahmepreise (manuell importiert oder EUFUND) im Zeitraum."""
+        return self.db.query("SELECT * FROM security_prices WHERE isin=? AND price_date BETWEEN ? AND ? AND source LIKE ? "
+                             "ORDER BY price_date", (isin, start.isoformat(), end.isoformat(), f"%{NAV_MARKER}%"))
+
+    def fetch_nav(self, isin: str, start: date, end: date) -> list[dict]:
+        rows = self.provider.nav_history(isin, start, end)
+        if rows:
+            try:
+                fund_cur = self.provider.nav_currency(isin)
+            except PriceError:
+                fund_cur = None
+            fund_cur = fund_cur or ((self.repo.security_by_isin(isin) or {}).get("currency") or "EUR").upper()
+            self.store(isin, rows, fund_cur, f"EODHD {isin}.{NAV_EXCHANGE} ({NAV_MARKER}/NAV)")
+        return self.nav_series(isin, start, end)
+
     def fetch(self, isin: str, start: date, end: date) -> tuple[SymbolInfo | None, list[dict]]:
         existing = self.series(isin, start, end)
         info = self.ensure_symbol(isin)
@@ -187,32 +224,63 @@ def _held_isins(repo, year: int, fund_status: str | None = None) -> list[str]:
     return [r["isin"] for r in rows]
 
 
-def fill_nmf_prices(repo, service: PriceService, year: int) -> list[PriceResult]:
-    """Erster/letzter Kurs des Jahres für Nichtmeldefonds. Bestehende Werte werden nie überschrieben (Konflikt)."""
+def fill_nmf_prices(repo, service: PriceService, year: int, allow_exchange_fallback: bool = True) -> list[PriceResult]:
+    """Erster/letzter Preis des Jahres für Nichtmeldefonds. Bestehende Werte werden nie überschrieben (Konflikt).
+
+    Reihenfolge: 1. bereits gespeicherte Rücknahmepreise (z. B. CSV der Fondsgesellschaft), 2. Rücknahmepreise über
+    EODHD EUFUND, 3. (optional) Börsenschlusskurse – mit Hinweis „kein Rücknahmepreis“.
+    """
     out = []
+    start, end = date(year, 1, 1), date(year, 12, 31)
     for isin in _held_isins(repo, year, FundStatus.NICHTMELDEFONDS.value):
         existing = repo.db.one("SELECT * FROM nmf_prices WHERE isin=? AND tax_year=?", (isin, year))
         if existing and existing.get("first_price") and existing.get("last_price"):
-            out.append(PriceResult(isin, "Nichtmeldefonds", "identisch", "Kurse bereits erfasst"))
+            out.append(PriceResult(isin, "Nichtmeldefonds", "identisch", "Preise bereits erfasst"))
             continue
-        try:
-            info, rows = service.fetch(isin, date(year, 1, 1), date(year, 12, 31))
-        except PriceError as exc:
-            out.append(PriceResult(isin, "Nichtmeldefonds", "fehler", str(exc)))
+        rows, kind, notes = service.nav_series(isin, start, end), "Rücknahmepreis", []
+        if not rows and service.provider.available:
+            try:
+                rows = service.fetch_nav(isin, start, end)
+            except PriceError as exc:
+                notes.append(str(exc))
+        if not rows and allow_exchange_fallback:
+            try:
+                info, all_rows = service.fetch(isin, start, end)
+                rows = [r for r in all_rows if r["price_date"][:4] == str(year) and NAV_MARKER not in r["source"]]
+                kind = "Börsenkurs"
+            except PriceError as exc:
+                notes.append(str(exc))
+        rows = [r for r in rows if r["price_date"][:4] == str(year)]
+        if not rows:
+            out.append(PriceResult(isin, "Nichtmeldefonds", "fehler" if notes else "kein_kurs",
+                                   "; ".join(notes) or f"keine Preise für {year} gefunden"))
             continue
-        in_year = [r for r in rows if r["price_date"][:4] == str(year)]
-        if info is None or not in_year:
-            out.append(PriceResult(isin, "Nichtmeldefonds", "kein_kurs",
-                                   "kein Kurs gefunden" if info is None else f"keine Kurse für {year} (Tarif-Limit?)"))
-            continue
-        first, last = in_year[0], in_year[-1]
-        src = f"{first['source']} – {NOT_REDEMPTION}"
+        first, last = rows[0], rows[-1]
+        src = first["source"] if kind == "Rücknahmepreis" else f"{first['source']} – {NOT_REDEMPTION}"
+        fx_last = None
+        if first["currency"] != "EUR":
+            fx_last = _ecb_rate(repo, first["currency"], date.fromisoformat(last["price_date"]))
+            if fx_last is None:
+                notes.append(f"EZB-Kurs {first['currency']} zum {last['price_date']} fehlt – Devisenkurs nachtragen")
         res = repo.upsert_nmf_price(isin, year, first["close"], first["price_date"], last["close"], last["price_date"],
-                                    first["currency"], None, src)
-        out.append(PriceResult(isin, "Nichtmeldefonds", "gesetzt" if res["status"] == "neu" else res["status"],
-                               f"erster {first['close']} ({first['price_date']}), letzter {last['close']} "
-                               f"({last['price_date']}) {first['currency']}"))
+                                    first["currency"], fx_last, src)
+        msg = (f"{kind}: erster {first['close']} ({first['price_date']}), letzter {last['close']} "
+               f"({last['price_date']}) {first['currency']}")
+        if kind == "Börsenkurs" and notes:
+            msg += " – Rücknahmepreise nicht verfügbar: " + "; ".join(notes)
+        out.append(PriceResult(isin, "Nichtmeldefonds", "gesetzt" if res["status"] == "neu" else res["status"], msg))
     return out
+
+
+def _ecb_rate(repo, currency: str, on: date) -> float | None:
+    from .fx import FxError, FxService
+
+    try:
+        rates = FxService(repo.store.base).rates(allow_download=True, needed_until=on)
+    except FxError:
+        return None
+    hit = rates.lookup(currency, on) if rates else None
+    return hit[0] if hit else None
 
 
 def fill_year_end_prices(repo, service: PriceService, year: int) -> list[PriceResult]:
@@ -235,8 +303,9 @@ def fill_year_end_prices(repo, service: PriceService, year: int) -> list[PriceRe
 
 
 def import_price_csv(repo, service: PriceService, data: bytes, filename: str, isin: str | None = None,
-                     currency: str = "EUR") -> int:
-    """CSV mit Spalten Datum;Kurs (optional ISIN;Währung). Quelle: manueller Import."""
+                     currency: str = "EUR", redemption: bool = False) -> int:
+    """CSV mit Spalten Datum;Kurs (optional ISIN;Währung). ``redemption=True``: Rücknahmepreise (NAV),
+    z. B. von der Fondsgesellschaft – werden für Nichtmeldefonds bevorzugt verwendet."""
     from .importers.csv_importer import read_table
 
     df, _ = read_table(data, filename)
@@ -263,7 +332,8 @@ def import_price_csv(repo, service: PriceService, data: bytes, filename: str, is
         key = ((str(r[icol]).strip().upper() if icol else isin), (str(r[ccol]).strip().upper() if ccol else currency))
         by_isin.setdefault(key, []).append((d, v))
     for (i, cur), rows in by_isin.items():
-        n += service.store(i, rows, cur or "EUR", f"manueller Import ({Path(filename).name})")
+        kind = f"{NAV_MARKER} (manueller Import" if redemption else "Kurs (manueller Import"
+        n += service.store(i, rows, cur or "EUR", f"{kind} {Path(filename).name})")
     repo.audit("security_prices", None, "Kurse importiert", {"datei": filename, "anzahl": n})
     return n
 

@@ -43,6 +43,9 @@ prices:
   provider: eodhd
   auto_fetch: true
   preferred_exchanges: [XETRA, F, VI, LSE, AS, PA, SW, MI, US]
+  # Nichtmeldefonds: zuerst Rücknahmepreise (importiert oder EODHD „EUFUND“, kostenpflichtiges Paket);
+  # ohne Rücknahmepreise ersatzweise Börsenschlusskurse (mit Hinweis „kein Rücknahmepreis“).
+  nmf_exchange_fallback: true
 
 oekb:
   automatic_provider: none  # kein verifizierter öffentlicher Zugang – siehe README

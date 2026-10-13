@@ -152,8 +152,16 @@ Wertpapiere direkt über die ISIN; das Tool bevorzugt dabei Euro-Notierungen (XE
   überschreiben (z. B. `EUNL.XETRA`).
 - **Keine Überschreibungen:** Bereits erfasste Kurse für Nichtmeldefonds werden nie überschrieben; abweichende
   Werte erscheinen als Konflikt zur Entscheidung.
-- **Steuerlicher Vorbehalt:** Die Pauschalregel verlangt **Rücknahmepreise**, Börsenschlusskurse sind keine. Geladene
-  Kurse bleiben deshalb „ungeprüft“ und tragen einen entsprechenden Hinweis.
+- **Rücknahmepreise für Nichtmeldefonds:** Die Pauschalregel verlangt Rücknahmepreise. Das Tool nimmt diese
+  Reihenfolge:
+  1. bereits importierte Rücknahmepreise, z. B. eine CSV der Fondsgesellschaft (beim Import „Rücknahmepreise (NAV)“
+     anhaken)
+  2. Rücknahmepreise (NAV) über EODHD „EUFUND“ (Ticker = ISIN.EUFUND); laut Anbieter erst ab dem kostenpflichtigen
+     Paket „All World Extended“
+  3. ersatzweise Börsenschlusskurse, gekennzeichnet mit „kein Rücknahmepreis“; abschaltbar in den Einstellungen
+
+  Fremdwährungspreise erhalten automatisch den EZB-Kurs zum letzten Preisdatum. Alle geladenen Werte bleiben
+  „ungeprüft“.
 - **Bewertung zum 31.12.:** Kurs, Wert in EUR und unrealisiertes Ergebnis stehen in der Bestandsübersicht. Sie dienen
   nur zur Information und sind nicht steuerrelevant.
 - **Inoffizielle Kursquellen** (z. B. Yahoo Finance) werden wegen ihrer Nutzungsbedingungen nicht verwendet.
@@ -320,7 +328,7 @@ Datenbanktabellen:
 .venv\Scripts\python -m pytest -q
 ```
 
-`tests/` enthält 78 Tests. Sie decken unter anderem ab:
+`tests/` enthält 81 Tests. Sie decken unter anderem ab:
 
 - CSV mit deutschem Dezimalkomma und erneuten Import
 - Brokerzuordnung, Dubletten und Gebühren
@@ -347,7 +355,9 @@ Datenbanktabellen:
 - **Reihenfolge des Verlustausgleichs:** Annahme zugunsten der Quellensteueranrechnung; die angezeigte anrechenbare
   Quellensteuer nach Verlustausgleich ist eine Schätzung, maßgeblich ist der Bescheid.
 - **Wertpapierkurse:** Der EODHD-Abruf wurde nur gegen simulierte Antworten im dokumentierten Format getestet, weil
-  der Dienst aus der Entwicklungsumgebung nicht erreichbar war. Börsenkurse sind keine Rücknahmepreise.
+  der Dienst aus der Entwicklungsumgebung nicht erreichbar war. Das gilt auch für die Rücknahmepreise über „EUFUND“
+  (kostenpflichtiges Paket). Ohne diesen Zugang bleiben der CSV-Import von Rücknahmepreisen oder der gekennzeichnete
+  Ersatz durch Börsenkurse.
 - **Fremdwährungen:** Kurs aus Beleg, Eingabe oder automatisch als EZB-Referenzkurs. Der Download wurde nur gegen eine
   Datei im EZB-Format getestet, weil die EZB aus der Entwicklungsumgebung nicht erreichbar war.
 - **PDF-Erkennung:** nur mit synthetischen PDFs getestet. Echte Abrechnungen von Trade Republic und Scalable Capital

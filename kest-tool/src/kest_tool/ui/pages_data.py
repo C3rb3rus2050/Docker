@@ -195,7 +195,7 @@ def funds() -> None:
         st.caption("Für die Pauschalbesteuerung von Nichtmeldefonds: erster und letzter Rücknahmepreis des "
                    "Kalenderjahres. Ob die Regel für das Jahr verifiziert ist, zeigt die Steuerberechnung.")
         C.df(repo.nmf_prices(y))
-        if st.button(f"Kurse {y} automatisch laden (Kursdienst)"):
+        if st.button(f"Rücknahmepreise/Kurse {y} automatisch laden"):
             C.fill_prices(y)
         with st.form("nmf_form"):
             cols = st.columns(4)
