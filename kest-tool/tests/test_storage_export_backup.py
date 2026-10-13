@@ -8,7 +8,7 @@ from datetime import date
 import pytest
 from openpyxl import load_workbook
 
-from broker_collector.security import UnsafePathError
+from kest_tool.security import UnsafePathError
 from kest_helpers import APPLE, MSCI_WORLD_ACC, REIT, add_tx, fund, stock, ctx, depot, repo  # noqa: F401
 from kest_tool.backup import BackupError, create_backup, restore_backup, verify_backup
 from kest_tool.config import ConfigError, load_settings

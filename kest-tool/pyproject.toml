@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kest-tool"
+version = "1.0.0"
+description = "Lokales KESt-Tool (Österreich) zur Aufbereitung von Kapitaleinkünften aus Wertpapierdepots"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Private use" }
+dependencies = [
+    "streamlit>=1.40,<2",
+    "pandas>=2.2,<4",
+    "openpyxl>=3.1,<4",
+    "pdfplumber>=0.11,<0.12",
+    "pymupdf>=1.24,<2",
+    "pydantic>=2.7,<3",
+    "PyYAML>=6.0,<7",
+    "reportlab>=4.2,<6",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+kest_tool = ["data/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]
+addopts = "-ra"

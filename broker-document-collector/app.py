@@ -1,4 +1,4 @@
-"""Startpunkt: ``python collector.py`` startet die Oberfläche (siehe ``python collector.py --help``)."""
+"""Startpunkt: ``python app.py`` startet die Oberfläche (siehe ``python app.py --help``)."""
 
 import sys
 from pathlib import Path

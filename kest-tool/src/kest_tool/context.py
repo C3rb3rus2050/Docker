@@ -7,7 +7,7 @@ import logging.handlers
 from dataclasses import dataclass
 from pathlib import Path
 
-from broker_collector.security import RedactingFilter
+from .security import RedactingFilter
 
 from .config import Settings, load_settings
 from .db import Database

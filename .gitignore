@@ -9,7 +9,7 @@ build/
 dist/
 
 # Lokale Konfiguration und sensible Laufzeitdaten – NIEMALS committen
-/config.toml
+broker-document-collector/config.toml
 browser-profile/
 browser_profiles/
 *.sqlite3
@@ -25,4 +25,4 @@ config.local.yaml
 KESt-Tool/
 KESt-Tool-Demo/
 *.xlsx
-!sample_data/*.xlsx
+

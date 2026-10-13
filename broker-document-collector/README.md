@@ -1,7 +1,5 @@
 # Broker Document Collector
 
-> Teil des Projekts **KESt-Tool** – Hauptdokumentation siehe [README](../README.md). Der Collector ist ein optionales Zusatzwerkzeug und wird mit `start_collector.bat` gestartet.
-
 Lokale Windows‑11‑Anwendung, die **alle im eigenen Konto angezeigten Dokumente** bei
 **Trade Republic** und **Scalable Capital** automatisch findet, herunterlädt, kategorisiert,
 per SHA‑256 auf Duplikate prüft und einen **Vollständigkeitsbericht** erstellt.
@@ -49,7 +47,7 @@ einmalige Installation. **Keine Administratorrechte nötig.**
    - installiert Playwright‑Chromium,
    - legt `config.toml` sowie Ausgabe‑ und Profilordner an,
    - führt einen schnellen Selbsttest aus.
-3. **`start_collector.bat`** startet die Anwendung. Die Oberfläche öffnet sich im Standardbrowser unter
+3. **`start.bat`** startet die Anwendung. Die Oberfläche öffnet sich im Standardbrowser unter
    `http://127.0.0.1:8765/` (nur lokal erreichbar).
 
 Manuelle Installation (alternativ):
@@ -59,7 +57,7 @@ py -3.12 -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python -m playwright install chromium
 copy config.example.toml config.toml
-.venv\Scripts\python collector.py
+.venv\Scripts\python app.py
 ```
 
 Optionale lokale OCR für gescannte PDFs: Tesseract‑OCR für Windows installieren,
@@ -85,17 +83,17 @@ Erscheint während des Scans eine Sicherheitsabfrage (Sitzung abgelaufen, 2FA, C
 erneute Bestätigung), **hält der Scan an** und die Oberfläche zeigt „wartet auf Ihre Aktion im
 Browser“. Nach Ihrer Bestätigung im Browser läuft er automatisch weiter. Es wird nichts umgangen.
 
-Kommandozeile (`start_collector.bat --help`):
+Kommandozeile (`start.bat --help`):
 
 ```text
-start_collector.bat                       Oberfläche
-start_collector.bat --sync                Inkrementeller Sync beider Broker (für den Aufgabenplaner)
-start_collector.bat --scan tr --mode full Scan ohne Oberfläche (tr | sc | all)
-start_collector.bat --report 12           Bericht für Lauf 12 erzeugen
-start_collector.bat --delete-profile tr   Browserprofil löschen (Neuanmeldung nötig)
-start_collector.bat --delete-database     Datenbank löschen
-start_collector.bat --delete-downloads    Heruntergeladene Dateien löschen
-start_collector.bat --schedule-create 07:30 / --schedule-delete
+start.bat                       Oberfläche
+start.bat --sync                Inkrementeller Sync beider Broker (für den Aufgabenplaner)
+start.bat --scan tr --mode full Scan ohne Oberfläche (tr | sc | all)
+start.bat --report 12           Bericht für Lauf 12 erzeugen
+start.bat --delete-profile tr   Browserprofil löschen (Neuanmeldung nötig)
+start.bat --delete-database     Datenbank löschen
+start.bat --delete-downloads    Heruntergeladene Dateien löschen
+start.bat --schedule-create 07:30 / --schedule-delete
 ```
 
 ## So arbeitet der Scan
@@ -242,12 +240,12 @@ auf Ihr Konto zugreifen. Empfehlungen:
   Dokumente bei Diebstahl des Geräts.
 - Profil nicht in Cloud‑Ordner verschieben oder sichern.
 - **Löschen** (getrennt möglich): Oberfläche „Daten löschen“ oder
-  `start_collector.bat --delete-profile [tr|sc]`, `--delete-database`, `--delete-downloads [tr|sc]`.
+  `start.bat --delete-profile [tr|sc]`, `--delete-database`, `--delete-downloads [tr|sc]`.
   Zusätzlich empfiehlt es sich, sich in der Broker‑App von allen Web‑Sitzungen abzumelden.
 
 ## Regelmäßige Synchronisierung
 
-Oberfläche → „Täglicher Sync … Aufgabe anlegen“ oder `start_collector.bat --schedule-create 07:30`.
+Oberfläche → „Täglicher Sync … Aufgabe anlegen“ oder `start.bat --schedule-create 07:30`.
 Es wird eine Aufgabe „BrokerDocumentCollector Sync“ im Windows‑Aufgabenplaner angelegt (nur
 bei angemeldetem Benutzer, ohne Adminrechte). Der Sync
 
@@ -263,7 +261,7 @@ Ist die Sitzung abgelaufen, öffnet sich das Browserfenster und der Sync **warte
 ## Architektur
 
 ```
-collector.py → cli.py ──► ui.py (lokaler HTTP-Server, deutsch)      ──┐
+app.py → cli.py ──► ui.py (lokaler HTTP-Server, deutsch)      ──┐
                 └─► scanner.py: ScanManager (1 Worker-Thread) ──┤
                                 Collector (Ablauf, Fortsetzen)  │
    broker_adapter.py  Interface BrokerAdapter + Datenmodelle    │
@@ -329,7 +327,7 @@ Ehrliche Liste dessen, was **ohne Zugang zu echten Konten nicht live geprüft** 
    (zweite Quelle), ist unbekannt – ansonsten meldet der Bericht „nur eine Quelle“.
 4. **Sitzungserkennung** (angemeldet/abgelaufen/2FA/Captcha) ist heuristisch (Passwort-/Code‑Felder,
    Captcha‑Frames, Abmelden‑Element). Im Zweifel wartet das Tool lieber auf den Benutzer.
-5. **Windows‑spezifisch nicht ausgeführt:** `install.bat`, `start_collector.bat`, Aufgabenplaner (`schtasks`)
+5. **Windows‑spezifisch nicht ausgeführt:** `install.bat`, `start.bat`, Aufgabenplaner (`schtasks`)
    und „Ordner öffnen“ wurden in einer Linux‑Umgebung entwickelt; die Python‑Teile sind
    plattformunabhängig getestet, die Batch‑Dateien nicht unter Windows gelaufen.
 6. **OCR** ist implementiert, aber ohne installiertes Tesseract nicht getestet.

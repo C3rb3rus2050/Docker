@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from broker_collector.security import is_probably_cloud_synced
+from ..security import is_probably_cloud_synced
 
 from ..context import shutdown_logging
 from ..backup import BackupError, create_backup, restore_backup, verify_backup

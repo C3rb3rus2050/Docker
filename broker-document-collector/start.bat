@@ -11,10 +11,10 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 rem Alle Parameter werden durchgereicht, z. B.:
-rem   start_collector.bat               - Oberflaeche starten
-rem   start_collector.bat --sync        - Inkrementelle Synchronisierung (Aufgabenplaner)
-rem   start_collector.bat --help        - Alle Optionen
-".venv\Scripts\python.exe" collector.py %*
+rem   start.bat               - Oberflaeche starten
+rem   start.bat --sync        - Inkrementelle Synchronisierung (Aufgabenplaner)
+rem   start.bat --help        - Alle Optionen
+".venv\Scripts\python.exe" app.py %*
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" (
     echo.

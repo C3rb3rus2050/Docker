@@ -17,7 +17,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from broker_collector.security import UnsafePathError, safe_join, sanitize_filename, sanitize_path_component
+from .security import UnsafePathError, safe_join, sanitize_filename, sanitize_path_component
 
 from .models import DOC_SOURCES
 

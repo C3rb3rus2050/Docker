@@ -11,7 +11,7 @@ from streamlit.testing.v1 import AppTest  # noqa: E402
 
 from kest_tool.demo import build_demo  # noqa: E402
 
-APP = str(Path(__file__).resolve().parents[2] / "app.py")
+APP = str(Path(__file__).resolve().parents[1] / "app.py")
 PAGES = ["depots", "import", "transaktionen", "wertpapiere", "fonds", "dokumente", "steuer", "exporte",
          "einstellungen"]
 
