@@ -47,6 +47,8 @@ DEFAULTS: dict[str, Any] = {
     "pdf": {"engine": "auto", "ocr_enabled": False},  # auto = pdfplumber, Fallback PyMuPDF
     "privacy": {"allow_external_services": False},
     "fx": {"auto_fetch": True},
+    "prices": {"provider": "eodhd", "auto_fetch": True,
+               "preferred_exchanges": ["XETRA", "F", "VI", "LSE", "AS", "PA", "SW", "MI", "US"]},
     "oekb": {"automatic_provider": "none"},
 }
 
@@ -165,3 +167,39 @@ def load_settings(default_file: Path | None = None, local_file: Path | None = No
     data = _deep_merge(DEFAULTS, _read_yaml(default_file))
     data = _deep_merge(data, _read_yaml(local_file))
     return Settings(data=data, local_file=local_file)
+
+
+ENV_FILE = PROJECT_ROOT / ".env"
+_ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{1,63}$")
+
+
+def load_env_file(path: Path | None = None) -> None:
+    """Lädt KEY=VALUE-Zeilen aus .env in die Umgebung (bestehende Variablen haben Vorrang)."""
+    path = path or ENV_FILE
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip().strip('"').strip("'")
+        if _ENV_NAME.match(k) and k not in os.environ:
+            os.environ[k] = v
+
+
+def save_env_var(name: str, value: str, path: Path | None = None) -> None:
+    """Setzt bzw. entfernt (leerer Wert) eine Variable in .env – für optionale API-Schlüssel, nie in config.yaml."""
+    if not _ENV_NAME.match(name):
+        raise ConfigError("Ungültiger Variablenname")
+    if any(c in value for c in "\r\n"):
+        raise ConfigError("Ungültiger Wert")
+    path = path or ENV_FILE
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    lines = [l for l in lines if not l.strip().startswith(f"{name}=")]
+    if value:
+        lines.append(f"{name}={value}")
+        os.environ[name] = value
+    else:
+        os.environ.pop(name, None)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")

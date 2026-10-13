@@ -167,6 +167,13 @@ def status_panel(y: int, key: str) -> None:
                                                       "unten oder Einstellungen → Devisenkurse"))
         elif c.db.one("SELECT COUNT(*) n FROM transactions WHERE deleted=0 AND currency<>'EUR'")["n"]:
             rows.append(("✅", "Devisenkurse", "für alle Fremdwährungsbuchungen vorhanden"))
+        miss = missing_price_info(y)
+        if miss["nmf"]:
+            rows.append(("🔴", "Kurse Nichtmeldefonds fehlen", f"{len(miss['nmf'])} Fonds ohne ersten/letzten Kurs {y} "
+                                                               "– Schaltfläche unten oder Fonds & OeKB"))
+        if miss["year_end"]:
+            rows.append(("🟡", "Kurse zum 31.12. fehlen", f"{len(miss['year_end'])} Wertpapier(e) – nur für die "
+                                                          "Bestandsbewertung, nicht steuerrelevant"))
         n_open = len(stt["docs_open"])
         rows.append(("🟡" if n_open else "✅", "Dokumente ohne Buchung",
                      f"{n_open} – unten automatisch verarbeiten oder auf der Seite **Dokumente** prüfen"
@@ -188,6 +195,9 @@ def status_panel(y: int, key: str) -> None:
             st.markdown(f"{icon} **{label}:** {text}")
         if n_fx and st.button(f"Devisenkurse für {n_fx} Buchung(en) von der EZB ergänzen", key=f"fx_{key}"):
             fill_fx(y, allow_download=True)
+            tax_result(y, force=True)
+        if (miss["nmf"] or miss["year_end"]) and st.button("Wertpapierkurse automatisch laden", key=f"px_{key}"):
+            fill_prices(y)
             tax_result(y, force=True)
         pdf_open = [d for d in stt["docs_open"] if d["file_type"] == "pdf"]
         if pdf_open:
@@ -262,3 +272,63 @@ def auto_fill_fx(y: int | None = None) -> None:
     if n and not st.session_state.get(marker):
         st.session_state[marker] = True
         fill_fx(y)
+
+
+def price_service():
+    from ..prices import EodhdProvider, PriceService
+
+    c = ctx()
+    return PriceService(c.repo, EodhdProvider(exchanges=c.settings.get("prices.preferred_exchanges")))
+
+
+def missing_price_info(y: int) -> dict:
+    """Welche Kurse für das Jahr fehlen (Nichtmeldefonds-Jahreskurse, Bewertung 31.12.)."""
+    c = ctx()
+    nmf = c.db.query(
+        "SELECT DISTINCT t.isin FROM transactions t JOIN securities s ON s.isin=t.isin WHERE t.deleted=0 "
+        "AND s.fund_status='nichtmeldefonds' AND t.trade_date<=? AND NOT EXISTS (SELECT 1 FROM nmf_prices p "
+        "WHERE p.isin=t.isin AND p.tax_year=? AND p.first_price IS NOT NULL AND p.last_price IS NOT NULL)",
+        (f"{y}-12-31", y))
+    held = c.db.query(
+        "SELECT DISTINCT t.isin FROM transactions t WHERE t.deleted=0 AND t.isin IS NOT NULL AND t.trade_date<=? "
+        "AND NOT EXISTS (SELECT 1 FROM security_prices p WHERE p.isin=t.isin AND p.price_date BETWEEN ? AND ?)",
+        (f"{y}-12-31", f"{y}-12-21", f"{y}-12-31"))
+    return {"nmf": [r["isin"] for r in nmf], "year_end": [r["isin"] for r in held]}
+
+
+def fill_prices(y: int, show: bool = True) -> list:
+    from ..prices import PriceError, fill_nmf_prices, fill_year_end_prices
+
+    svc = price_service()
+    if not svc.provider.available:
+        if show:
+            st.warning("Kein API-Schlüssel für den Kursdienst hinterlegt → **Einstellungen → Wertpapierkurse**. "
+                       "Alternativ Kurse als CSV importieren.")
+        return []
+    try:
+        with st.spinner("Lade Wertpapierkurse …"):
+            res = fill_nmf_prices(ctx().repo, svc, y) + fill_year_end_prices(ctx().repo, svc, y)
+    except PriceError as exc:
+        if show:
+            st.error(str(exc))
+        return []
+    invalidate_results()
+    if show and res:
+        icons = {"gesetzt": "✅", "identisch": "⏭️", "konflikt": "🟡", "kein_kurs": "🟡", "fehler": "🔴"}
+        n_ok = sum(1 for r in res if r.status == "gesetzt")
+        (st.success if n_ok else st.info)(f"Wertpapierkurse: {n_ok} neu geladen, "
+                                          f"{sum(1 for r in res if r.status in ('fehler', 'kein_kurs'))} ohne Ergebnis.")
+        df([{"": icons.get(r.status, ""), "ISIN": r.isin, "Zweck": r.purpose, "Status": r.status,
+             "Ergebnis": r.message} for r in res])
+    return res
+
+
+def auto_fill_prices(y: int) -> None:
+    c = ctx()
+    if not c.settings.get("prices.auto_fetch", True) or not price_service().provider.available:
+        return
+    miss = missing_price_info(y)
+    marker = f"prices_auto_{y}_{len(miss['nmf'])}_{len(miss['year_end'])}"
+    if (miss["nmf"] or miss["year_end"]) and not st.session_state.get(marker):
+        st.session_state[marker] = True
+        fill_prices(y)

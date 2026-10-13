@@ -448,7 +448,11 @@ def build_workbook(repo: Repository, store: DocumentStore, res: TaxResult, rules
     w.table([Col("Bestand", "Depot", width=16), Col("Broker", "Broker", width=16), Col("ISIN", "ISIN", width=15),
              Col("Name", "Name", width=24), Col("Bestand 31.12.", "Bestand 31.12.", "num", 12),
              Col("Steuerliche AK gesamt EUR", "Steuerliche AK gesamt EUR", "eur", 16),
-             Col("AK je Stück EUR", "AK je Stück EUR", "num", 12), Col("AK vollständig", "AK vollständig", width=10)],
+             Col("AK je Stück EUR", "AK je Stück EUR", "num", 12), Col("AK vollständig", "AK vollständig", width=10),
+             Col("Kurs 31.12.", "Kurs 31.12.", "num", 12), Col("Kurswährung", "Kurswährung", width=8),
+             Col("Kursdatum", "Kursdatum", "date", 12), Col("Kursquelle", "Kursquelle", width=30),
+             Col("Wert 31.12. EUR (Info)", "Wert 31.12. EUR", "eur", 16),
+             Col("Unrealisiert EUR (Info)", "Unrealisiert EUR (Info)", "eur", 16)],
             res.positions, totals=False, heading=f"Bestände und steuerliche Anschaffungskosten zum 31.12.{year}")
 
     # 9 E1kv ----------------------------------------------------------------------------

@@ -139,6 +139,25 @@ Standarddepot. Unvollständige Dokumente bleiben mit Grund im Status „pruefen�
 - Ob der EZB-Referenzkurs steuerlich der maßgebliche Kurs ist, ist nicht verifiziert (Regel `FX_CONVERSION`).
   Positionen in Fremdwährung bleiben deshalb „vorläufig“.
 
+**Wertpapierkurse:** Für Nichtmeldefonds (erster und letzter Kurs des Kalenderjahres) und für die Bewertung der
+Bestände zum 31.12. lädt das Tool Kurse automatisch über den Kursdienst **EODHD** (<https://eodhd.com>). Er findet
+Wertpapiere direkt über die ISIN; das Tool bevorzugt dabei Euro-Notierungen (XETRA, Frankfurt, Wien …).
+
+- **Voraussetzung:** ein persönlicher API-Schlüssel, unter **Einstellungen → Wertpapierkurse** eingetragen. Er wird
+  nur lokal in `.env` gespeichert.
+- **Kostenloser Zugang:** laut Anbieter 20 Abrufe pro Tag und Kurse des letzten Jahres. Ältere Jahre brauchen einen
+  bezahlten Zugang oder den CSV-Import (Vorlage in den Einstellungen).
+- **Übertragen** werden nur ISIN bzw. Börsenkürzel und der Zeitraum, keine Bestände oder Beträge.
+- **Kurssymbol:** Das Tool wählt es automatisch und protokolliert die Zuordnung. Unter **Wertpapiere** lässt es sich
+  überschreiben (z. B. `EUNL.XETRA`).
+- **Keine Überschreibungen:** Bereits erfasste Kurse für Nichtmeldefonds werden nie überschrieben; abweichende
+  Werte erscheinen als Konflikt zur Entscheidung.
+- **Steuerlicher Vorbehalt:** Die Pauschalregel verlangt **Rücknahmepreise**, Börsenschlusskurse sind keine. Geladene
+  Kurse bleiben deshalb „ungeprüft“ und tragen einen entsprechenden Hinweis.
+- **Bewertung zum 31.12.:** Kurs, Wert in EUR und unrealisiertes Ergebnis stehen in der Bestandsübersicht. Sie dienen
+  nur zur Information und sind nicht steuerrelevant.
+- **Inoffizielle Kursquellen** (z. B. Yahoo Finance) werden wegen ihrer Nutzungsbedingungen nicht verwendet.
+
 Empfohlener Ablauf: Broker und Depots anlegen → Depot-Steuereinstellungen für das Jahr setzen → Transaktionen
 importieren (am besten die **gesamte Historie**, damit die Anschaffungskosten stimmen) → Wertpapiere einstufen →
 OeKB-Meldungen erfassen → Steuerberechnung prüfen → Excel-Export.
@@ -253,7 +272,8 @@ Umgesetzt:
 - Es werden keine Broker-Passwörter gespeichert und es gibt kein automatisches Einloggen. Das KESt-Tool fragt keine
   Zugangsdaten ab.
 - Es werden keine Daten an externe Dienste, KI oder OCR übertragen; die PDF-Texterkennung läuft lokal. Einziger
-  Internetzugriff ist der Download der öffentlichen EZB-Kursdatei (abschaltbar).
+  Internetzugriffe sind der Download der öffentlichen EZB-Kursdatei und – nur mit eigenem API-Schlüssel – der
+  Wertpapierkursabruf bei EODHD (nur ISIN/Kürzel und Zeitraum); beides ist abschaltbar.
 - Die Konfiguration lehnt Schlüssel wie `password`, `token` oder `api_key` ab. Optionale Variablen stehen in `.env`
   (siehe `.env.example`).
 - Logs werden redigiert (Tokens, Cookies, signierte URLs, Telefonnummern); das KESt-Tool schreibt keine Buchungsdetails ins Log.
@@ -273,6 +293,7 @@ src/kest_tool/
   db.py / repository.py        SQLite-Schema, Repository, Audit-Log, Konflikte
   models.py                    Enums + pydantic-Modelle (Validierung)
   fx.py                        EZB-Referenzkurse (Download, Cache, Import, Ergänzen fehlender Kurse)
+  prices.py                    Wertpapierkurse (EODHD per ISIN, CSV-Import, Nichtmeldefonds, Bewertung 31.12.)
   processing.py                Stapelverarbeitung abgelegter PDFs
   storage.py                   Dokumentenablage (SHA-256, kein Überschreiben, Pfadschutz)
   security.py                  Dateinamen-/Pfadschutz, Log-Redaktion
@@ -299,7 +320,7 @@ Datenbanktabellen:
 .venv\Scripts\python -m pytest -q
 ```
 
-`tests/` enthält 72 Tests. Sie decken unter anderem ab:
+`tests/` enthält 78 Tests. Sie decken unter anderem ab:
 
 - CSV mit deutschem Dezimalkomma und erneuten Import
 - Brokerzuordnung, Dubletten und Gebühren
@@ -325,6 +346,8 @@ Datenbanktabellen:
   - Immobilienfonds, Betriebsvermögen
 - **Reihenfolge des Verlustausgleichs:** Annahme zugunsten der Quellensteueranrechnung; die angezeigte anrechenbare
   Quellensteuer nach Verlustausgleich ist eine Schätzung, maßgeblich ist der Bescheid.
+- **Wertpapierkurse:** Der EODHD-Abruf wurde nur gegen simulierte Antworten im dokumentierten Format getestet, weil
+  der Dienst aus der Entwicklungsumgebung nicht erreichbar war. Börsenkurse sind keine Rücknahmepreise.
 - **Fremdwährungen:** Kurs aus Beleg, Eingabe oder automatisch als EZB-Referenzkurs. Der Download wurde nur gegen eine
   Datei im EZB-Format getestet, weil die EZB aus der Entwicklungsumgebung nicht erreichbar war.
 - **PDF-Erkennung:** nur mit synthetischen PDFs getestet. Echte Abrechnungen von Trade Republic und Scalable Capital

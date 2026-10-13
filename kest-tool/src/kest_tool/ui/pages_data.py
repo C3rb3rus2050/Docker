@@ -72,6 +72,8 @@ def securities() -> None:
         fs_src = cols[1].text_input("Quelle Meldefondsstatus (z. B. OeKB-Suche vom …)", cur.get("fund_status_source")
                                     or "")
         fs_ver = cols[2].checkbox("Status geprüft", bool(cur.get("fund_status_verified")))
+        psym = st.text_input("Kurssymbol beim Kursdienst (leer = automatisch per ISIN, z. B. EUNL.XETRA)",
+                             cur.get("price_symbol") or "")
         notes = st.text_area("Notizen", cur.get("notes") or "")
         review = st.selectbox("Prüfstatus", ["ungeprueft", "geprueft", "pruefen"],
                               index=["ungeprueft", "geprueft", "pruefen"].index(cur.get("review_status", "ungeprueft")))
@@ -84,6 +86,9 @@ def securities() -> None:
                                  fund_status=FundStatus(fs), fund_status_source=fs_src or None,
                                  fund_status_verified=fs_ver, notes=notes or None)
                 repo.upsert_security(sec, reason="manuelle Pflege")
+                if (psym or None) != cur.get("price_symbol"):
+                    repo.db.execute("UPDATE securities SET price_symbol=? WHERE isin=?", (psym.strip() or None, sec.isin))
+                    repo.audit("security", sec.isin, "Kurssymbol gesetzt", {"symbol": psym.strip() or None})
                 repo.set_security_review(sec.isin, review)
                 C.invalidate_results()
                 st.success("Gespeichert")
@@ -190,6 +195,8 @@ def funds() -> None:
         st.caption("Für die Pauschalbesteuerung von Nichtmeldefonds: erster und letzter Rücknahmepreis des "
                    "Kalenderjahres. Ob die Regel für das Jahr verifiziert ist, zeigt die Steuerberechnung.")
         C.df(repo.nmf_prices(y))
+        if st.button(f"Kurse {y} automatisch laden (Kursdienst)"):
+            C.fill_prices(y)
         with st.form("nmf_form"):
             cols = st.columns(4)
             isin = cols[0].text_input("ISIN")

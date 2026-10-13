@@ -37,5 +37,12 @@ fx:
   # false = kein Internetzugriff; die Datei kann dann unter Einstellungen manuell importiert werden.
   auto_fetch: true
 
+prices:
+  # Wertpapierkurse (Nichtmeldefonds: erster/letzter Kurs des Jahres; Bewertung zum 31.12.) über EODHD.
+  # Benötigt EODHD_API_KEY in .env (Einstellungen → Wertpapierkurse). Übertragen werden nur ISIN/Kürzel und Zeitraum.
+  provider: eodhd
+  auto_fetch: true
+  preferred_exchanges: [XETRA, F, VI, LSE, AS, PA, SW, MI, US]
+
 oekb:
   automatic_provider: none  # kein verifizierter öffentlicher Zugang – siehe README

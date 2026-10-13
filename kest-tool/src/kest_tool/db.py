@@ -14,11 +14,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Spalten, die in späteren Versionen ergänzt wurden (für bestehende Datenbanken)
 MIGRATIONS: list[tuple[str, str, str]] = [
     ("transactions", "fx_source", "TEXT"),
+    ("securities", "price_symbol", "TEXT"),
+    ("securities", "price_currency", "TEXT"),
 ]
 
 SCHEMA = """
@@ -74,6 +76,8 @@ CREATE TABLE IF NOT EXISTS securities (
     fund_status_verified INTEGER NOT NULL DEFAULT 0,
     review_status TEXT NOT NULL DEFAULT 'ungeprueft',
     notes TEXT,
+    price_symbol TEXT,                         -- Kurssymbol beim Kursdienst, z. B. EUNL.XETRA
+    price_currency TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT
 );
@@ -207,6 +211,17 @@ CREATE TABLE IF NOT EXISTS fund_reports (
     notes TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_fr_isin ON fund_reports(isin);
+
+-- Wertpapierkurse (Schlusskurse aus Kursdienst oder manuellem Import)
+CREATE TABLE IF NOT EXISTS security_prices (
+    isin TEXT NOT NULL,
+    price_date TEXT NOT NULL,
+    close REAL NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'EUR',
+    source TEXT NOT NULL,
+    fetched_at TEXT,
+    PRIMARY KEY (isin, price_date, source)
+);
 
 -- Kursdaten für Nichtmeldefonds (Pauschalbesteuerung)
 CREATE TABLE IF NOT EXISTS nmf_prices (

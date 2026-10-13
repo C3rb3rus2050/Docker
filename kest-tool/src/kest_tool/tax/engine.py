@@ -873,6 +873,8 @@ class FundProcessor:
                     "Anschaffungskosten erhöhen sich um diesen Betrag",
                 ]
                 line.sources.append(f"Kursdaten nmf_prices #{p['id']} ({p.get('source')})")
+                if "kein Rücknahmepreis" in (p.get("source") or ""):
+                    gaps.append("Börsenschlusskurse statt Rücknahmepreisen – mit Fondsgesellschaft/OeKB abgleichen")
                 if p.get("review_status") != "geprueft":
                     line.downgrade(PROVISIONAL)
                     gaps.append("Kursdaten ungeprüft")
@@ -1092,16 +1094,42 @@ def e1kv_rows(result_lines: list[CalcLine], rules: TaxRules, year: int) -> list[
 
 
 def positions_snapshot(ctx: Context, tracker: CostBasisTracker) -> list[dict]:
+    """Bestände zum 31.12. mit steuerlichen AK und – falls Kurse vorliegen – Bewertung (nur Information)."""
+    from ..fx import FxService
+
+    try:
+        fx_rates = FxService(ctx.repo.store.base).rates(allow_download=False)
+    except Exception:  # noqa: BLE001 – Bewertung ist optional
+        fx_rates = None
+    end = date(ctx.year, 12, 31)
     rows = []
     for (dep, isin), h in sorted(tracker.holdings.items(), key=lambda kv: (kv[0][0], kv[0][1])):
         if h.qty <= EPS:
             continue
         sec = ctx.securities.get(isin, {}) or {}
+        price = ctx.repo.db.one(
+            "SELECT * FROM security_prices WHERE isin=? AND price_date<=? AND price_date>=? "
+            "ORDER BY price_date DESC LIMIT 1", (isin, end.isoformat(), date(ctx.year, 12, 21).isoformat()))
+        value_eur = None
+        if price:
+            rate = 1.0
+            if price["currency"] != "EUR":
+                hit = fx_rates.lookup(price["currency"], end) if fx_rates else None
+                rate = hit[0] if hit else None
+            value_eur = round(h.qty * price["close"] / rate, 2) if rate else None
+        cost = round(h.cost, 2) if h.cost_known else None
         rows.append({"Depot": ctx.depots[dep]["name"], "Broker": ctx.depots[dep]["broker_name"], "ISIN": isin,
                      "Name": sec.get("name"), "Bestand 31.12.": round(h.qty, 6),
-                     "Steuerliche AK gesamt EUR": round(h.cost, 2) if h.cost_known else None,
+                     "Steuerliche AK gesamt EUR": cost,
                      "AK je Stück EUR": round(h.cost / h.qty, 6) if h.cost_known and h.qty else None,
-                     "AK vollständig": "ja" if h.cost_known and not h.history_gap else "nein"})
+                     "AK vollständig": "ja" if h.cost_known and not h.history_gap else "nein",
+                     "Kurs 31.12.": price["close"] if price else None,
+                     "Kurswährung": price["currency"] if price else None,
+                     "Kursdatum": price["price_date"] if price else None,
+                     "Kursquelle": price["source"] if price else "kein Kurs",
+                     "Wert 31.12. EUR": value_eur,
+                     "Unrealisiert EUR (Info)": round(value_eur - cost, 2) if value_eur is not None and cost is not None
+                     else None})
     return rows
 
 

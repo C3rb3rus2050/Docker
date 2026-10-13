@@ -33,6 +33,7 @@ def dashboard() -> None:
     if force:
         C.tax_result(y, force=True)
     C.auto_fill_fx(y)
+    C.auto_fill_prices(y)
     C.status_panel(y, "dash")
     res = C.tax_result(y)
     if res:
@@ -220,9 +221,52 @@ def settings_page() -> None:
                 st.success(f"Importiert: Stand {r.last_date}, {len(r.currencies)} Währungen")
             except (FxError, ValueError) as exc:
                 st.error(f"Datei nicht verwendbar: {exc}")
+    st.subheader("Wertpapierkurse")
+    from ..config import save_env_var
+    from ..prices import ENV_KEY, PriceError, import_price_csv, price_csv_template
+    svc = C.price_service()
+    st.write("Kursdienst: **EODHD** (https://eodhd.com, Suche per ISIN). "
+             + ("API-Schlüssel ist **hinterlegt**." if svc.provider.available else "**Kein API-Schlüssel hinterlegt.**"))
+    st.caption("Verwendung: erster/letzter Kurs des Jahres für Nichtmeldefonds und Bewertung der Bestände zum 31.12. "
+               "Übertragen werden nur ISIN bzw. Börsenkürzel und Zeitraum. Der kostenlose Zugang ist laut Anbieter auf "
+               "20 Abrufe pro Tag und Kurse des letzten Jahres beschränkt. Börsenschlusskurse sind keine "
+               "Rücknahmepreise – geladene Kurse für Nichtmeldefonds bleiben „ungeprüft“.")
+    with st.form("px_key"):
+        key_in = st.text_input(f"API-Schlüssel ({ENV_KEY}, wird nur lokal in .env gespeichert)", type="password")
+        c1, c2 = st.columns(2)
+        if c1.form_submit_button("Schlüssel speichern") and key_in.strip():
+            save_env_var(ENV_KEY, key_in.strip())
+            st.success("Gespeichert.")
+            st.rerun()
+        if c2.form_submit_button("Schlüssel entfernen"):
+            save_env_var(ENV_KEY, "")
+            st.rerun()
+    px_auto = st.checkbox("Fehlende Kurse automatisch laden (beim Öffnen des Dashboards)",
+                          value=bool(c.settings.get("prices.auto_fetch", True)))
+    if px_auto != bool(c.settings.get("prices.auto_fetch", True)):
+        c.settings.save_local({"prices": {"auto_fetch": px_auto}})
+        st.rerun()
+    sel_year = st.session_state.get("tax_year", c.settings.default_tax_year)
+    py = st.selectbox("Steuerjahr für den Kursabruf", c.settings.tax_years,
+                      index=c.settings.tax_years.index(sel_year) if sel_year in c.settings.tax_years
+                      else len(c.settings.tax_years) - 1, key="px_year")
+    if st.button("Kurse jetzt laden"):
+        C.fill_prices(int(py))
+    up_px = st.file_uploader("Kurse als CSV importieren (Spalten ISIN;Datum;Kurs;Währung)", type=["csv", "txt", "xlsx"],
+                             key="px_up")
+    st.download_button("CSV-Vorlage für Kurse", price_csv_template(), file_name="Kurse_Vorlage.csv")
+    if up_px and st.button("Kurs-CSV übernehmen"):
+        try:
+            n = import_price_csv(c.repo, svc, up_px.getvalue(), up_px.name)
+            C.invalidate_results()
+            st.success(f"{n} Kurse importiert. Für Nichtmeldefonds danach „Kurse jetzt laden“ bzw. Fonds & OeKB → "
+                       "Nichtmeldefonds-Kurse nutzen.")
+        except (PriceError, ValueError) as exc:
+            st.error(str(exc))
     st.subheader("Datenschutz")
-    st.write("Es werden keine Dokumente oder Finanzdaten an externe KI-, OCR- oder Cloud-Dienste übertragen. Einziger "
-             "Internetzugriff: Download der öffentlichen EZB-Kursdatei (abschaltbar, siehe oben). Keine Broker-Zugangsdaten werden gespeichert. Streamlit-Telemetrie ist in "
+    st.write("Es werden keine Dokumente oder Finanzdaten an externe KI-, OCR- oder Cloud-Dienste übertragen. Internetzugriffe "
+             "(beide abschaltbar, siehe oben): Download der öffentlichen EZB-Kursdatei und – nur mit API-Schlüssel – "
+             "Wertpapierkurse von EODHD (übertragen werden nur ISIN/Kürzel und Zeitraum). Keine Broker-Zugangsdaten werden gespeichert. Streamlit-Telemetrie ist in "
              "`.streamlit/config.toml` abgeschaltet, die Oberfläche lauscht nur auf 127.0.0.1.")
     st.subheader("Backup und Wiederherstellung")
     col1, col2 = st.columns(2)

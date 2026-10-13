@@ -14,9 +14,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 import streamlit as st  # noqa: E402
 
 from kest_tool import __version__  # noqa: E402
+from kest_tool.config import load_env_file  # noqa: E402
 from kest_tool.ui import common as C  # noqa: E402
 from kest_tool.ui import pages_basic, pages_data, pages_import, pages_tax  # noqa: E402
 
+load_env_file()  # optionale API-Schlüssel aus .env (nie in config.yaml)
 st.set_page_config(page_title="KESt-Tool", page_icon="🧾", layout="wide")
 
 pages = [
