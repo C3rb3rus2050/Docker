@@ -1,6 +1,0 @@
-# Docker-Grundkonfiguration. Kein Headless-Login ohne Benutzerinteraktion.
-output_dir = "/data/collector"
-profile_dir = "/data/browser-profiles"
-ui_host = "0.0.0.0"
-ui_port = 8765
-open_browser_ui = false
