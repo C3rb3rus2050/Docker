@@ -105,7 +105,10 @@ class App:
         if path == "/api/login":
             if broker not in BROKERS:
                 return 400, {"error": "Unbekannter Broker"}
-            return self._accepted(m.login(broker))
+            return self._accepted(m.login(broker, bool(body.get("auto_scan", True)), body.get("mode", "sync")))
+        if path == "/api/confirm_login":
+            m.confirm_login()
+            return 200, {"ok": True}
         if path == "/api/check":
             if broker not in BROKERS:
                 return 400, {"error": "Unbekannter Broker"}
@@ -302,7 +305,8 @@ select,input[type=text],input[type=number]{padding:5px;border:1px solid var(--bd
 <div id="warnings"></div>
 <main>
 <section class="card"><h2>1. Anmeldung</h2>
-<p class="muted">Sie melden sich selbst im geöffneten Browserfenster an (inkl. 2FA/Passkey). Das Programm fragt nie nach Passwörtern.</p>
+<p class="muted">Sie melden sich selbst im geöffneten Browserfenster an (inkl. 2FA/Passkey). Danach startet der Scan automatisch. Das Programm fragt nie nach Passwörtern.</p>
+<div id="confirm"></div>
 <table id="login"></table></section>
 
 <section class="card"><h2>2. Scan</h2>
@@ -357,9 +361,14 @@ function doDelete(){const what=document.getElementById("delwhat").value;const c=
 function render(){const m=state.manager;document.getElementById("ver").textContent="v"+state.version;
  document.getElementById("warnings").innerHTML=state.warnings.map(w=>`<p class="banner">${esc(w)}</p>`).join("");
  document.getElementById("login").innerHTML=Object.keys(BN).map(b=>`<tr><td><b>${BN[b]}</b><br><span class="muted">${esc(m.login[b])}</span></td>
-  <td style="text-align:right"><button onclick="post('/api/login',{broker:'${b}'})" ${m.busy?"disabled":""}>Anmeldung starten</button>
+  <td style="text-align:right"><button onclick="post('/api/login',{broker:'${b}',auto_scan:true,mode:document.getElementById('mode').value})" ${m.busy?"disabled":""}>Anmelden &amp; Dokumente holen</button>
   <button class="sec" onclick="post('/api/check',{broker:'${b}'})" ${m.busy?"disabled":""}>Status prüfen</button></td></tr>`).join("")+
   `<tr><td colspan=2><button class="sec" onclick="post('/api/close_browsers',{})" ${m.busy?"disabled":""}>Browserfenster schließen</button></td></tr>`;
+ document.getElementById("confirm").innerHTML=m.waiting_login?`<div class="banner" style="margin:0 0 10px">
+  <b>Warte auf Anmeldung bei ${esc(BN[m.waiting_login]||m.waiting_login)}.</b> Bitte im geöffneten Browserfenster anmelden (inkl. 2FA).
+  Wird die Anmeldung nicht automatisch erkannt, nach dem Login hier klicken:<br>
+  <button onclick="post('/api/confirm_login',{})">Ich bin angemeldet – weiter</button>
+  <button class="dan" onclick="post('/api/cancel',{})">Abbrechen</button></div>`:"";
  const s=m.status||{};const pct=s.areas_total?Math.round(100*s.areas_done/s.areas_total):0;
  const st={running:"läuft",paused:"pausiert",waiting_user:"wartet auf Ihre Aktion im Browser",finished:"beendet",failed:"fehlgeschlagen",cancelled:"abgebrochen"}[m.paused?"paused":s.state]||"bereit";
  document.getElementById("progress").innerHTML=`<div class="bar"><div style="width:${pct}%"></div></div>

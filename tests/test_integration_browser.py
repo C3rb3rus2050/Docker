@@ -113,7 +113,13 @@ def test_session_detection(settings, browser):
     assert adapter.check_session() is True
     page.set_content("<html><body><form><input type='password'></form></body></html>")
     assert adapter.check_session() is False
-    page.set_content("<html><body><iframe src='https://www.google.com/recaptcha/api2/anchor'></iframe></body></html>")
+    # unsichtbarer reCAPTCHA-Frame (wie auf vielen angemeldeten Seiten) darf nicht als Captcha gelten
+    page.goto("https://app.broker.test/")
+    page.evaluate("""() => { const f = document.createElement('iframe'); f.src = 'https://www.google.com/recaptcha/api2/anchor';
+                            f.style.width = '0'; f.style.height = '0'; f.style.border = '0'; document.body.appendChild(f); }""")
+    assert adapter.check_session() is True
+    page.set_content("<html><body><iframe width='300' height='150' src='https://www.google.com/recaptcha/api2/anchor'>"
+                     "</iframe></body></html>")
     from broker_collector.broker_adapter import UserActionRequired
 
     with pytest.raises(UserActionRequired) as exc:
@@ -218,3 +224,33 @@ def test_trade_republic_websocket_source(settings, db, browser):
     assert details == []
     assert db2.get_run(run2)["status"] == "finished"
     db2.close()
+
+
+def test_manual_login_confirmation(settings, browser):
+    """Wird die Anmeldung nicht automatisch erkannt, genügt die Bestätigung in der Oberfläche –
+    solange kein Anmeldeformular sichtbar ist."""
+    import threading
+
+    sparse = "<!doctype html><html><body><div>Portfolio</div></body></html>"
+    login = "<!doctype html><html><body><input type='tel' name='phoneNumber'></body></html>"
+    pages = {"/": sparse, "/login": login}
+
+    def handler(route, request):
+        path = request.url.split("app.broker.test", 1)[-1].split("?")[0] or "/"
+        return route.fulfill(status=200, body=pages.get(path, sparse), content_type="text/html")
+
+    adapter = MockBrokerAdapter(browser, settings)
+    ctx, page = browser.open(adapter.broker_id)
+    ctx.route("https://app.broker.test/**", handler)
+    adapter.connect()
+    page.goto("https://app.broker.test/login")
+    assert adapter.check_session() is False
+    threading.Timer(0.5, adapter.control.user_confirmed.set).start()
+    assert adapter.wait_for_login(3) is False  # Loginfeld sichtbar → Bestätigung reicht nicht
+    page.goto("https://app.broker.test/")
+    assert adapter.check_session() is True  # Bestätigung bleibt für diese Sitzung gültig
+    adapter.user_confirmed_login = False
+    assert adapter.check_session() is False  # zu wenig Inhalt für automatische Erkennung
+    timer = threading.Timer(1.0, adapter.control.user_confirmed.set)
+    timer.start()
+    assert adapter.wait_for_login(10) is True

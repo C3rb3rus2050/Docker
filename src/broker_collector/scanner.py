@@ -301,6 +301,7 @@ class ScanManager:
         self.messages: deque[dict[str, str]] = deque(maxlen=200)
         self.last_command: tuple[list[str], str] | None = None
         self.last_reports: dict[str, dict[str, str]] = {}
+        self.waiting_login: str | None = None
         self._browser: Any = None
         self._adapters: dict[str, BrokerAdapter] = {}
         self._thread = threading.Thread(target=self._worker, name="bdc-browser-worker", daemon=True)
@@ -373,18 +374,26 @@ class ScanManager:
     # ------------------------------------------------------------------ #
     # Befehle (laufen im Worker-Thread)
     # ------------------------------------------------------------------ #
-    def _do_login(self, broker: str) -> None:
+    def _do_login(self, broker: str, auto_scan: bool = True, mode: str = "sync") -> None:
         adapter = self._adapter(broker)
         adapter.connect()
+        self.waiting_login = broker
         self.login_state[broker] = "Anmeldung läuft – bitte im Browser anmelden"
-        self._msg(f"Browser für {adapter.display_name} geöffnet. Bitte selbst anmelden (inkl. 2FA).")
+        self._msg(f"Browser für {adapter.display_name} geöffnet. Bitte selbst anmelden (inkl. 2FA). Falls die "
+                  "Anmeldung nicht automatisch erkannt wird: „Ich bin angemeldet – weiter“ klicken.")
 
         def on_wait(m: str) -> None:
             self.login_state[broker] = m
 
-        ok = adapter.wait_for_login(self.settings.login_wait_timeout_s, on_wait)  # type: ignore[attr-defined]
+        try:
+            ok = adapter.wait_for_login(self.settings.login_wait_timeout_s, on_wait)  # type: ignore[attr-defined]
+        finally:
+            self.waiting_login = None
         self.login_state[broker] = "angemeldet" if ok else "nicht angemeldet (Zeitlimit)"
         self._msg(f"{adapter.display_name}: {self.login_state[broker]}")
+        if ok and auto_scan:
+            self._msg(f"Anmeldung erkannt – starte automatisch den Dokumenten-Scan für {adapter.display_name}.")
+            self._do_scan([broker], mode)
 
     def _do_check(self, broker: str) -> None:
         adapter = self._adapter(broker)
@@ -414,8 +423,12 @@ class ScanManager:
         self._adapters.clear()
 
     # ------------------------------------------------------------------ #
-    def login(self, broker: str) -> bool:
-        return self.submit("login", broker)
+    def login(self, broker: str, auto_scan: bool = True, mode: str = "sync") -> bool:
+        return self.submit("login", broker, auto_scan=auto_scan, mode=mode if mode in MODES else "sync")
+
+    def confirm_login(self) -> None:
+        """Benutzer bestätigt in der Oberfläche, dass die Anmeldung im Browser abgeschlossen ist."""
+        self.control.user_confirmed.set()
 
     def check(self, broker: str) -> bool:
         return self.submit("check", broker)
@@ -458,6 +471,8 @@ class ScanManager:
         with self._lock:
             return {
                 "busy": self.busy, "task": self.current_task, "status": dict(self.status),
-                "paused": self.control.paused, "login": dict(self.login_state), "messages": list(self.messages)[:50],
+                "paused": self.control.paused, "login": dict(self.login_state),
+                "waiting_login": self.waiting_login or (self.status.get("broker")
+                                                        if self.status.get("state") == "waiting_user" else None), "messages": list(self.messages)[:50],
                 "last_reports": dict(self.last_reports),
             }

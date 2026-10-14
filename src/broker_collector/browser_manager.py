@@ -59,11 +59,19 @@ SESSION_PROBE_JS = r"""
     passwordInputs: q('input[type=password]'),
     otpInputs: q('input[autocomplete=one-time-code], input[name*=otp i], input[name*=code i][inputmode=numeric]'),
     pinInputs: q('input[inputmode=numeric][maxlength="1"], input[type=tel][maxlength="1"]'),
-    captchaFrames: Array.from(document.querySelectorAll('iframe')).map(f => f.src || '').filter(Boolean),
+    // nur sichtbare, ausreichend große Frames – unsichtbare reCAPTCHA/WAF-Frames gibt es auch im angemeldeten Zustand
+    captchaFrames: Array.from(document.querySelectorAll('iframe')).filter(f => {
+      const r = f.getBoundingClientRect(); return vis(f) && r.width > 60 && r.height > 60; })
+      .map(f => f.src || '').filter(Boolean),
     captchaText: /captcha|ich bin kein roboter|i am not a robot|sicherheitsüberprüfung|verify you are human/.test(text),
     logoutPresent: /abmelden|ausloggen|log out|logout|sign out/.test(all),
     reconfirmText: /erneut bestätigen|bitte bestätige|in der app bestätigen|confirm in (the )?app|zwei-faktor|2fa|sms-code|bestätigungscode/.test(text),
     navLinks: q('nav a, [role=navigation] a, nav button'),
+    // Anmeldeformular-Felder (Telefonnummer/E-Mail/Benutzername) – typisch für Loginseiten
+    loginInputs: q('input[type=tel], input[type=email], input[autocomplete=username], input[autocomplete=email], ' +
+                   'input[autocomplete=tel], input[name*=phone i], input[name*=email i]'),
+    links: q('a[href]'),
+    textLength: text.length,
   };
 }
 """
@@ -173,7 +181,8 @@ class BrowserManager:
         if probe.get("captchaText") or any(h in frames for h in CAPTCHA_HINTS):
             raise UserActionRequired("captcha", "Die Seite zeigt eine Sicherheitsprüfung (Captcha). "
                                                 "Bitte im Browserfenster selbst lösen.")
-        if probe.get("otpInputs") or (probe.get("reconfirmText") and not probe.get("logoutPresent")):
+        # Nur bei sichtbarem Codefeld – ein bloßer Text wie "2FA" (z. B. in Sicherheitshinweisen) reicht nicht.
+        if probe.get("otpInputs"):
             raise UserActionRequired("2fa", "Der Broker verlangt eine Bestätigung (2FA/App/SMS). "
                                             "Bitte im Browser bzw. in der App bestätigen.")
 

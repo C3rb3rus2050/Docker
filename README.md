@@ -68,8 +68,8 @@ Pfad zu `tesseract.exe` angeben. OCR läuft vollständig lokal und ist standardm
 
 | Schritt | Aktion |
 |---|---|
-| 1 | **Anmeldung starten** (je Broker) – es öffnet sich ein Chromium‑Fenster mit der offiziellen Seite. Selbst anmelden, 2FA bestätigen. Der Status wechselt auf „angemeldet“. |
-| 2 | Broker auswählen, Modus wählen, **Automatischen Scan starten**. Beide Broker werden nacheinander gescannt. |
+| 1 | **Anmelden & Dokumente holen** (je Broker) – es öffnet sich ein Chromium‑Fenster mit der offiziellen Seite. Selbst anmelden, 2FA bestätigen. Sobald die Anmeldung erkannt ist, **startet der Scan automatisch**. Wird sie nicht erkannt, nach dem Login auf **„Ich bin angemeldet – weiter“** klicken. |
+| 2 | Alternativ (wenn bereits angemeldet): Broker auswählen, Modus wählen, **Automatischen Scan starten**. Beide Broker werden nacheinander gescannt. |
 | 3 | Fortschritt, Bereiche, Downloads, Duplikate und Fehler live verfolgen. **Pausieren / Fortsetzen / Abbrechen** jederzeit möglich. |
 | 4 | **Bericht exportieren** (HTML, Markdown, JSON im Ordner `reports`). |
 
@@ -340,7 +340,7 @@ Ehrliche Liste dessen, was **ohne Zugang zu echten Konten nicht live geprüft** 
 | Problem | Lösung |
 |---|---|
 | „Chromium konnte nicht gestartet werden“ | Ein anderes Fenster nutzt dasselbe Profil → „Browserfenster schließen“ oder Programm neu starten. |
-| Status bleibt „nicht angemeldet“ | Im Browserfenster anmelden; danach „Status prüfen“. Hilft das nicht: Profil löschen und neu anmelden. |
+| Nach dem Login passiert nichts / Status bleibt „Anmeldung läuft“ | Auf **„Ich bin angemeldet – weiter“** klicken. Bleibt die Meldung, ist im Browser noch ein Anmeldefeld (Telefon/PIN/Code) sichtbar – Anmeldung abschließen. Die Zeile „Sitzungsprüfung …“ in `logs\collector.log` zeigt, was erkannt wurde (nur Pfad und Zähler, keine Daten). |
 | „Host nicht erlaubt“ bei Downloads | Offiziellen Speicher‑Host des Brokers in `extra_document_hosts` eintragen. |
 | Viele „Zu prüfen“ | Klassifizierung unsicher – Dateien liegen sicher in `Zu_pruefen`, Originale unverändert. |
 | Bereich „teilweise untersucht“ | Limits in `config.toml` erhöhen (`max_pages_per_area`, `max_load_more_clicks`) und „Fortsetzen“. |

@@ -235,3 +235,38 @@ def test_scan_manager_background(settings, db):
 def test_invalid_mode(settings, db):
     with pytest.raises(ValueError):
         Collector(settings, db).run_broker(FakeAdapter(docs()), "brute")
+
+
+def test_login_starts_scan_automatically(settings, db):
+    def factory(broker, browser, s, control):
+        a = FakeAdapter(docs(), logged_in=False)
+        a.broker_id = broker
+        return a
+
+    manager = ScanManager(settings, db, headless=True, adapter_factory=factory)
+    try:
+        assert manager.login("trade_republic")
+        manager._queue.join()
+        assert manager.login_state["trade_republic"] in ("angemeldet",)
+        runs = db.query("SELECT * FROM scan_runs")
+        assert len(runs) == 1 and runs[0]["broker"] == "trade_republic" and runs[0]["downloaded"] == 3
+    finally:
+        manager.shutdown()
+
+
+def test_session_heuristic_without_nav_or_logout(settings):
+    from broker_collector.trade_republic import TradeRepublicAdapter
+
+    a = TradeRepublicAdapter(browser=None, settings=settings)  # type: ignore[arg-type]
+    base = {"url": "https://app.traderepublic.com/portfolio", "passwordInputs": 0, "pinInputs": 0, "otpInputs": 0,
+            "loginInputs": 0, "navLinks": 0, "links": 2, "textLength": 800, "logoutPresent": False}
+    assert a.is_logged_in(base)  # gerenderte App ohne <nav>/Abmelden-Text
+    assert not a.is_logged_in({**base, "url": "https://app.traderepublic.com/login"})
+    assert not a.is_logged_in({**base, "loginInputs": 1})  # Telefonnummernfeld sichtbar
+    assert not a.is_logged_in({**base, "pinInputs": 4})
+    assert not a.is_logged_in({**base, "url": "https://evil.example.com/portfolio"})
+    sparse = {**base, "textLength": 20}
+    assert not a.is_logged_in(sparse)
+    a.user_confirmed_login = True  # Benutzer hat bestätigt
+    assert a.is_logged_in(sparse)
+    assert not a.is_logged_in({**sparse, "passwordInputs": 1})  # Bestätigung überstimmt kein Loginformular

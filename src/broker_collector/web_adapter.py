@@ -72,6 +72,7 @@ class WebBrokerAdapter(BrokerAdapter):
             action_delay_ms=settings.action_delay_ms,
         )
         self.dom: DomDiscovery | None = None
+        self.user_confirmed_login = False
         self._emitted_network: set[str] = set()
         self._list_url = ""
 
@@ -97,7 +98,11 @@ class WebBrokerAdapter(BrokerAdapter):
             return ""
 
     def is_logged_in(self, probe: dict[str, Any]) -> bool:
-        """Heuristik – Unterklassen können verfeinern."""
+        """Heuristik – bewusst ohne Annahmen über konkrete Selektoren der Brokerseite.
+
+        Angemeldet, wenn: Seite auf einem Host der Webapp, kein Login-Pfad, keine sichtbaren
+        Anmeldefelder (Passwort/PIN/Code/Telefon/E-Mail) UND entweder Abmelden-Element, Navigation,
+        gerenderter App-Inhalt – oder der Benutzer hat die Anmeldung in der Oberfläche bestätigt."""
         url = probe.get("url", "")
         host = (urlsplit(url).hostname or "").lower()
         if not any(host == h or host.endswith("." + h) for h in self.app_hosts):
@@ -105,18 +110,36 @@ class WebBrokerAdapter(BrokerAdapter):
         path = urlsplit(url).path
         if self.login_path_pattern.search(path):
             return False
-        if probe.get("passwordInputs") or probe.get("pinInputs"):
+        if probe.get("passwordInputs") or probe.get("pinInputs") or probe.get("otpInputs") \
+                or probe.get("loginInputs"):
             return False
-        return bool(probe.get("logoutPresent") or probe.get("navLinks", 0) >= 3)
+        if self.user_confirmed_login:
+            return True
+        return bool(probe.get("logoutPresent") or probe.get("navLinks", 0) >= 3 or probe.get("links", 0) >= 5
+                    or probe.get("textLength", 0) >= 300)
+
+    def describe_probe(self, probe: dict[str, Any]) -> str:
+        """Diagnose ohne sensible Daten (nur Pfad, keine Query-Parameter)."""
+        u = urlsplit(probe.get("url", ""))
+        return (f"Host={u.hostname} Pfad={u.path} Passwort={probe.get('passwordInputs')} PIN={probe.get('pinInputs')} "
+                f"Code={probe.get('otpInputs')} Loginfelder={probe.get('loginInputs')} Links={probe.get('links')} "
+                f"Nav={probe.get('navLinks')} Text={probe.get('textLength')} Abmelden={probe.get('logoutPresent')}")
 
     def check_session(self) -> bool:
         if self.page is None:
             return False
         probe = self.browser.probe_session(self.page)
         if probe.get("error"):
+            log.info("Sitzungsprüfung %s: Seite nicht auswertbar (%s)", self.display_name, probe.get("error"))
             return False
         self.browser.raise_for_user_action(probe)
-        return self.is_logged_in(probe)
+        ok = self.is_logged_in(probe)
+        diag = self.describe_probe(probe)
+        if diag != getattr(self, "_last_diag", ""):
+            self._last_diag = diag
+            log.info("Sitzungsprüfung %s: %s → %s", self.display_name, diag,
+                     "angemeldet" if ok else "nicht angemeldet")
+        return ok
 
     def ensure_session(self) -> None:
         try:
@@ -132,8 +155,25 @@ class WebBrokerAdapter(BrokerAdapter):
 
         deadline = time.monotonic() + timeout_s
         last_msg = ""
+        self.control.user_confirmed.clear()
         while time.monotonic() < deadline:
             self.control.checkpoint()
+            if self.control.user_confirmed.is_set():
+                # Der Benutzer hat in der Oberfläche bestätigt, dass er angemeldet ist.
+                self.control.user_confirmed.clear()
+                self.user_confirmed_login = True
+                log.info("Anmeldung bei %s vom Benutzer bestätigt", self.display_name)
+                try:
+                    if self.check_session():
+                        return True
+                    msg = ("Noch kein angemeldeter Zustand erkennbar: Im Browser ist weiterhin eine Anmeldeseite bzw. "
+                           "ein Anmeldefeld sichtbar. Bitte Anmeldung abschließen und erneut bestätigen.")
+                except UserActionRequired as exc:
+                    msg = str(exc)
+                if on_wait:
+                    on_wait(msg)
+                last_msg = msg
+                continue
             try:
                 if self.check_session():
                     return True

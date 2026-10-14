@@ -30,7 +30,7 @@ class FakeManager:
         self.calls.append(("scan", brokers, mode))
         return True
 
-    def login(self, broker):
+    def login(self, broker, auto_scan=True, mode="sync"):
         self.calls.append(("login", broker))
         return True
 
@@ -67,7 +67,7 @@ def test_index_contains_token_and_german_ui(server):
     status, body = request(port, "/")
     text = body.decode()
     assert status == 200 and app.token in text
-    for label in ("Anmeldung starten", "Automatischen Scan starten", "Pausieren", "Abbrechen", "Duplikate",
+    for label in ("Anmelden &amp; Dokumente holen", "Ich bin angemeldet – weiter", "Automatischen Scan starten", "Pausieren", "Abbrechen", "Duplikate",
                   "Ausgabeordner öffnen", "Bericht exportieren", "Einstellungen"):
         assert label in text
     assert "http://" not in text.replace("http://127.0.0.1", "") and "https://" not in text  # keine externen Quellen
