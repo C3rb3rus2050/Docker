@@ -362,23 +362,34 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const BN={trade_republic:"Trade Republic",scalable_capital:"Scalable Capital"};
 async function post(url,body){const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","X-BDC-Token":TOKEN},body:JSON.stringify(body)});
  const j=await r.json().catch(()=>({}));if(!r.ok||j.error){alert(j.error||("Fehler "+r.status));}else if(j.paths){alert("Bericht gespeichert:\n"+j.paths.html);}else if(j.note){alert(j.note);}refresh();return j;}
-let webBroker=null,webTimer=null,webPending=false;
-async function webAction(action, data={}){
- if(!webBroker||webPending)return null;
- webPending=true;
- try{
- const r=await fetch("/api/browser",{method:"POST",headers:{"Content-Type":"application/json","X-BDC-Token":TOKEN},body:JSON.stringify({broker:webBroker,action,...data})});
- const j=await r.json();
- if(j.error){if(action!=="screenshot")alert(j.error);return null;}
- if(j.image){document.getElementById("webBrowserImage").src="data:image/jpeg;base64,"+j.image;document.getElementById("webBrowserUrl").textContent=j.url||"";document.getElementById("webBrowserDiagnostics").textContent="Titel: "+(j.title||"(leer)")+" | Status: "+(j.ready_state||"?")+" | Frames: "+(j.frame_count??"?")+"\nSeiteninhalt: "+(j.body_text||"(leer)")+"\nDOM: "+JSON.stringify(j.dom||{});}
- return j;
- }catch(e){console.error(e);return null;}finally{webPending=false;}
+let webBroker=null,webTimer=null,webQueue=Promise.resolve(),webBusy=false;
+async function webAction(action,data={}){
+ if(!webBroker)return null;
+ const broker=webBroker;
+ const perform=async()=>{
+  webBusy=true;
+  try{
+   const r=await fetch("/api/browser",{method:"POST",headers:{"Content-Type":"application/json","X-BDC-Token":TOKEN},body:JSON.stringify({broker,action,...data})});
+   const j=await r.json();
+   if(j.error){if(action!=="screenshot")alert(j.error);return null;}
+   if(j.image&&webBroker===broker){
+    document.getElementById("webBrowserImage").src="data:image/jpeg;base64,"+j.image;
+    document.getElementById("webBrowserUrl").textContent=j.url||"";
+    document.getElementById("webBrowserDiagnostics").textContent="Titel: "+(j.title||"(leer)")+" | Status: "+(j.ready_state||"?")+" | Frames: "+(j.frame_count??"?")+"\\nSeiteninhalt: "+(j.body_text||"(leer)")+"\\nDOM: "+JSON.stringify(j.dom||{});
+   }
+   return j;
+  }catch(e){console.error(e);return null;}finally{webBusy=false;}
+ };
+ if(action==="screenshot"&&webBusy)return Promise.resolve(null);
+ const next=webQueue.then(perform,perform);
+ webQueue=next.catch(()=>null);
+ return next;
 }
 function openWebBrowser(broker){webBroker=broker;document.getElementById("webBrowserPanel").style.display="block";clearInterval(webTimer);webTimer=setInterval(()=>webAction("screenshot"),1800);webAction("screenshot");}
 function closeWebBrowser(){clearInterval(webTimer);webTimer=null;webBroker=null;document.getElementById("webBrowserPanel").style.display="none";}
 async function startWebLogin(broker){const result=await post("/api/login",{broker});if(result.ok)openWebBrowser(broker);}
 function webClick(e){const r=e.currentTarget.getBoundingClientRect();webAction("click",{x:Math.round((e.clientX-r.left)*1366/r.width),y:Math.round((e.clientY-r.top)*900/r.height)});}
-function webType(){const input=document.getElementById("webInput");webAction("type",{text:input.value});input.value="";}
+async function webType(){const input=document.getElementById("webInput");const value=input.value;if(!value)return;const result=await webAction("type",{text:value});if(result&&result.ok)input.value="";}
 function webKey(key){webAction("key",{key});}
 function webScroll(dy){webAction("scroll",{dy});}
 function startScan(){const b=[];if(document.getElementById("b_tr").checked)b.push("trade_republic");if(document.getElementById("b_sc").checked)b.push("scalable_capital");
