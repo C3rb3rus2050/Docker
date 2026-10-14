@@ -212,7 +212,7 @@ def make_handler(app: App, port: int) -> type[BaseHTTPRequestHandler]:
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
             self.send_header("Content-Security-Policy",
-                             "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
+                             "default-src 'self'; img-src 'self' data:; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
                              " connect-src 'self'; frame-ancestors 'none'")
             self.end_headers()
             self.wfile.write(data)
