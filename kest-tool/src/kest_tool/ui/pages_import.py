@@ -245,34 +245,37 @@ def pdf_review_form(doc: dict, extraction: dict, depot_id: int | None, key: str)
     with st.form(f"pdfform_{key}"):
         dl = list(deps)
         di = list(deps.values()).index(depot_id) if depot_id in deps.values() else 0
-        depot_label = st.selectbox("Depot", dl, index=di)
-        cols = st.columns(3)
+        st.markdown("#### 1. Depot und Buchungsart")
+        depot_label = st.selectbox("Depot", dl, index=di, help="Wählen Sie das Depot, dem diese Abrechnung zugeordnet wird.")
+        cols = st.columns(2)
         types = [t.value for t in TxType]
         t = cols[0].selectbox("Buchungsart", types, index=types.index(extraction.get("tx_type"))
                               if extraction.get("tx_type") in types else 0)
         d_raw = v("trade_date")
         d_val = date.fromisoformat(d_raw) if isinstance(d_raw, str) else (d_raw or date.today())
         trade_date = cols[1].date_input("Buchungsdatum" + conf("trade_date"), value=d_val, format="DD.MM.YYYY")
-        isin = cols[2].text_input("ISIN" + conf("isin"), value=v("isin", "") or "")
+        isin = st.text_input("ISIN" + conf("isin"), value=v("isin", "") or "", placeholder="12-stellige ISIN")
         name = st.text_input("Wertpapiername" + conf("security_name"), value=v("security_name", "") or "")
-        cols = st.columns(4)
+        st.markdown("#### 2. Wertpapier und Beträge")
+        cols = st.columns(2)
         qty = cols[0].number_input("Stückzahl" + conf("quantity"), value=float(v("quantity", 0) or 0), format="%.6f")
         price = cols[1].number_input("Kurs" + conf("price"), value=float(v("price", 0) or 0), format="%.4f")
-        amount = cols[2].number_input("Bruttobetrag" + conf("amount"), value=float(v("amount", 0) or 0),
+        amount = cols[0].number_input("Bruttobetrag" + conf("amount"), value=float(v("amount", 0) or 0),
                                       format="%.2f")
-        fees = cols[3].number_input("Gebühren" + conf("fees"), value=float(v("fees", 0) or 0), format="%.2f")
-        cols = st.columns(5)
+        fees = cols[1].number_input("Gebühren" + conf("fees"), value=float(v("fees", 0) or 0), format="%.2f")
+        st.markdown("#### 3. Währung und Steuern")
+        cols = st.columns(2)
         curs = C.ctx().settings.currencies
         cur = cols[0].selectbox("Währung", curs, index=curs.index(v("currency", "EUR")) if v("currency", "EUR") in curs
                                 else 0)
         fx = cols[1].number_input("Devisenkurs (Währung je EUR)", value=float(v("fx_rate", 0) or 0), format="%.6f")
-        wht = cols[2].number_input("Quellensteuer" + conf("withholding_tax"),
+        wht = cols[0].number_input("Quellensteuer" + conf("withholding_tax"),
                                    value=float(v("withholding_tax", 0) or 0), format="%.2f")
-        country = cols[3].text_input("Quellenstaat", value=v("withholding_country", "") or "", max_chars=2)
-        kest = cols[4].number_input("Österr. KESt (EUR)" + conf("kest_at_eur"), value=float(v("kest_at_eur", 0) or 0),
+        country = cols[1].text_input("Quellenstaat", value=v("withholding_country", "") or "", max_chars=2)
+        kest = cols[0].number_input("Österr. KESt (EUR)" + conf("kest_at_eur"), value=float(v("kest_at_eur", 0) or 0),
                                     format="%.2f")
         checked = st.checkbox("Ich habe die Werte mit dem Originaldokument abgeglichen")
-        submitted = st.form_submit_button("Als Buchung übernehmen", type="primary")
+        submitted = st.form_submit_button("Geprüfte Buchung übernehmen", type="primary", use_container_width=True)
     if submitted:
         try:
             tx = TransactionIn(depot_id=deps[depot_label], tx_type=TxType(t), trade_date=trade_date,
