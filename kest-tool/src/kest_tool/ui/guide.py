@@ -45,11 +45,11 @@ def quickstart() -> bool:
 def upload_box(y: int, key: str, expanded: bool = True) -> None:
     """Drag-and-drop für mehrere PDFs, ZIP-Archive und CSV/Excel-Dateien."""
     c = C.ctx()
-    with st.expander("📥 Dokumente hinzufügen (PDF, ZIP, CSV)", expanded=expanded):
+    with st.expander("📥 Dokumente per Drag & Drop importieren", expanded=expanded):
         st.caption("PDF-Abrechnungen werden gelesen, geprüft und – wenn alle Werte sicher erkannt und stimmig sind – "
                    "automatisch als Buchung übernommen. Alles andere erscheint mit Grund und „Was tun?“ zur Prüfung. "
                    "ZIP-Archive aus Ihren eigenen Downloads werden entpackt. Fehlende oder widersprüchliche Angaben bleiben zur manuellen Prüfung offen.")
-        files = st.file_uploader("Dateien auswählen oder hierher ziehen", type=["pdf", "zip", "csv", "txt", "xlsx"],
+        files = st.file_uploader("PDFs, ZIP-Archive oder Tabellen hierher ziehen (Mehrfachauswahl möglich)", type=["pdf", "zip", "csv", "txt", "xlsx"],
                                  accept_multiple_files=True, key=f"upl_{key}")
         deps = C.depot_options()
         dflt = st.selectbox("Depot, falls es nicht automatisch erkannt wird", ["automatisch"] + list(deps),
@@ -58,7 +58,8 @@ def upload_box(y: int, key: str, expanded: bool = True) -> None:
                                  "Depots desselben Brokers hier das richtige wählen.")
         if files:
             st.caption(f"{len(files)} ausgewählte Datei(en) – die Originale bleiben erhalten; Dubletten werden erkannt.")
-        if files and st.button("Hochladen und verarbeiten", type="primary", key=f"upl_go_{key}"):
+        if files and st.button(f"{len(files)} Datei(en) importieren und prüfen", type="primary",
+                               use_container_width=True, key=f"upl_go_{key}"):
             items, problems = [], []
             max_mb = int(c.settings.get("import.max_upload_mb", 50))
             for up in files:
