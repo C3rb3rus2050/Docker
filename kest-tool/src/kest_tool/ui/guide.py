@@ -49,9 +49,10 @@ def upload_box(y: int, key: str, expanded: bool = True) -> None:
         st.caption("PDF-Abrechnungen werden gelesen, geprüft und – wenn alle Werte sicher erkannt und stimmig sind – "
                    "automatisch als Buchung übernommen. Alles andere erscheint mit Grund und „Was tun?“ zur Prüfung. "
                    "ZIP-Archive aus Ihren eigenen Downloads werden entpackt. Fehlende oder widersprüchliche Angaben bleiben zur manuellen Prüfung offen.")
-        mode = st.radio("Was möchten Sie hochladen?",
-                        ["Einzeldateien / ZIP", "Kompletten Ordner"], horizontal=True,
-                        key=f"upl_mode_{key}")
+        mode = st.selectbox("Upload-Art auswählen",
+                            ["Einzeldateien / ZIP", "Kompletten Ordner"],
+                            key=f"upl_mode_{key}",
+                            help="Wählen Sie einzelne Dateien bzw. ZIP-Archive oder einen ganzen Ordner.")
         folder_mode = mode == "Kompletten Ordner"
         if folder_mode:
             st.caption("Ordner dürfen Unterordner und ZIP-Dateien enthalten. Alle unterstützten Dateien werden "
