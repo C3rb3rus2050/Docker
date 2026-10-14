@@ -43,12 +43,12 @@ def quickstart() -> bool:
 
 
 def upload_box(y: int, key: str, expanded: bool = True) -> None:
-    """Ein Upload-Feld für alles: PDF-Abrechnungen, ZIP-Archive (z. B. vom Collector) und CSV/Excel."""
+    """Drag-and-drop für mehrere PDFs, ZIP-Archive und CSV/Excel-Dateien."""
     c = C.ctx()
     with st.expander("📥 Dokumente hinzufügen (PDF, ZIP, CSV)", expanded=expanded):
         st.caption("PDF-Abrechnungen werden gelesen, geprüft und – wenn alle Werte sicher erkannt und stimmig sind – "
                    "automatisch als Buchung übernommen. Alles andere erscheint mit Grund und „Was tun?“ zur Prüfung. "
-                   "ZIP-Archive (z. B. aus dem Broker Document Collector) werden entpackt.")
+                   "ZIP-Archive aus Ihren eigenen Downloads werden entpackt. Fehlende oder widersprüchliche Angaben bleiben zur manuellen Prüfung offen.")
         files = st.file_uploader("Dateien auswählen oder hierher ziehen", type=["pdf", "zip", "csv", "txt", "xlsx"],
                                  accept_multiple_files=True, key=f"upl_{key}")
         deps = C.depot_options()
@@ -56,6 +56,8 @@ def upload_box(y: int, key: str, expanded: bool = True) -> None:
                             key=f"upl_depot_{key}",
                             help="Trade Republic und Scalable Capital werden aus dem Dokument erkannt. Bei mehreren "
                                  "Depots desselben Brokers hier das richtige wählen.")
+        if files:
+            st.caption(f"{len(files)} ausgewählte Datei(en) – die Originale bleiben erhalten; Dubletten werden erkannt.")
         if files and st.button("Hochladen und verarbeiten", type="primary", key=f"upl_go_{key}"):
             items, problems = [], []
             max_mb = int(c.settings.get("import.max_upload_mb", 50))
