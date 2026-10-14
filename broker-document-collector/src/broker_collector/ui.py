@@ -68,6 +68,7 @@ class App:
             warnings.append("Der Ausgabeordner liegt vermutlich in einem Cloud-Sync-Ordner (z. B. OneDrive). "
                             "Dokumente würden dadurch in die Cloud übertragen. Bitte einen lokalen Ordner wählen.")
         return {
+            "web_only": os.environ.get("BDC_WEB_ONLY") == "1",
             "version": __version__, "manager": snap, "runs": runs, "counts": counts,
             "alternative_locations": dup[0]["n"] if dup else 0,
             "settings": {k: v for k, v in self.settings.to_public_dict().items() if k in EDITABLE_SETTINGS},
@@ -103,6 +104,8 @@ class App:
         m = self.manager
         broker = body.get("broker")
         if path == "/api/login":
+            if os.environ.get("BDC_WEB_ONLY") == "1":
+                return 409, {"error": "Interaktive Broker-Anmeldung ist im Web-only-Modus noch nicht verfügbar."}
             if broker not in BROKERS:
                 return 400, {"error": "Unbekannter Broker"}
             return self._accepted(m.login(broker))
@@ -357,7 +360,7 @@ function doDelete(){const what=document.getElementById("delwhat").value;const c=
 function render(){const m=state.manager;document.getElementById("ver").textContent="v"+state.version;
  document.getElementById("warnings").innerHTML=state.warnings.map(w=>`<p class="banner">${esc(w)}</p>`).join("");
  document.getElementById("login").innerHTML=Object.keys(BN).map(b=>`<tr><td><b>${BN[b]}</b><br><span class="muted">${esc(m.login[b])}</span></td>
-  <td style="text-align:right"><button onclick="post('/api/login',{broker:'${b}'})" ${m.busy?"disabled":""}>Anmeldung starten</button>
+  <td style="text-align:right"><button onclick="post('/api/login',{broker:'${b}'})" ${(m.busy||state.web_only)?"disabled":""}>Anmeldung starten</button>
   <button class="sec" onclick="post('/api/check',{broker:'${b}'})" ${m.busy?"disabled":""}>Status prüfen</button></td></tr>`).join("")+
   `<tr><td colspan=2><button class="sec" onclick="post('/api/close_browsers',{})" ${m.busy?"disabled":""}>Browserfenster schließen</button></td></tr>`;
  const s=m.status||{};const pct=s.areas_total?Math.round(100*s.areas_done/s.areas_total):0;
