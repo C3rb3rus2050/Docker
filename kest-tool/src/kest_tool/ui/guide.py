@@ -49,8 +49,17 @@ def upload_box(y: int, key: str, expanded: bool = True) -> None:
         st.caption("PDF-Abrechnungen werden gelesen, geprüft und – wenn alle Werte sicher erkannt und stimmig sind – "
                    "automatisch als Buchung übernommen. Alles andere erscheint mit Grund und „Was tun?“ zur Prüfung. "
                    "ZIP-Archive aus Ihren eigenen Downloads werden entpackt. Fehlende oder widersprüchliche Angaben bleiben zur manuellen Prüfung offen.")
-        files = st.file_uploader("PDFs, ZIP-Archive oder Tabellen hierher ziehen (Mehrfachauswahl möglich)", type=["pdf", "zip", "csv", "txt", "xlsx"],
-                                 accept_multiple_files=True, key=f"upl_{key}")
+        mode = st.radio("Was möchten Sie hochladen?",
+                        ["Einzeldateien / ZIP", "Kompletten Ordner"], horizontal=True,
+                        key=f"upl_mode_{key}")
+        folder_mode = mode == "Kompletten Ordner"
+        st.caption("Ordner dürfen Unterordner und ZIP-Dateien enthalten. Alle unterstützten Dateien werden "
+                   "gemeinsam verarbeitet; nicht unterstützte Dateien werden übersprungen.") if folder_mode else None
+        files = st.file_uploader(
+            "Ordner auswählen" if folder_mode else "PDFs, ZIP-Archive oder Tabellen hierher ziehen",
+            type=["pdf", "zip", "csv", "txt", "xlsx"],
+            accept_multiple_files="directory" if folder_mode else True,
+            key=f"upl_{key}_{mode}")
         deps = C.depot_options()
         dflt = st.selectbox("Depot, falls es nicht automatisch erkannt wird", ["automatisch"] + list(deps),
                             key=f"upl_depot_{key}",
