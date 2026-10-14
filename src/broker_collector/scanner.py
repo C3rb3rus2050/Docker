@@ -475,4 +475,6 @@ class ScanManager:
                 "waiting_login": self.waiting_login or (self.status.get("broker")
                                                         if self.status.get("state") == "waiting_user" else None), "messages": list(self.messages)[:50],
                 "last_reports": dict(self.last_reports),
+                # Letzte Sitzungsprüfung je Broker (nur Pfad und Zähler, keine Daten) – hilft bei der Fehlersuche
+                "diagnostics": {b: getattr(a, "_last_diag", "") for b, a in list(self._adapters.items())},
             }

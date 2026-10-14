@@ -360,7 +360,8 @@ function doDelete(){const what=document.getElementById("delwhat").value;const c=
  post("/api/delete",{what,broker:document.getElementById("delbroker").value,confirm:c});}
 function render(){const m=state.manager;document.getElementById("ver").textContent="v"+state.version;
  document.getElementById("warnings").innerHTML=state.warnings.map(w=>`<p class="banner">${esc(w)}</p>`).join("");
- document.getElementById("login").innerHTML=Object.keys(BN).map(b=>`<tr><td><b>${BN[b]}</b><br><span class="muted">${esc(m.login[b])}</span></td>
+ document.getElementById("login").innerHTML=Object.keys(BN).map(b=>`<tr><td><b>${BN[b]}</b><br><span class="muted">${esc(m.login[b])}</span>
+  ${(m.diagnostics||{})[b]?`<br><span class="muted" style="font-size:11px">Erkannt: ${esc(m.diagnostics[b])}</span>`:""}</td>
   <td style="text-align:right"><button onclick="post('/api/login',{broker:'${b}',auto_scan:true,mode:document.getElementById('mode').value})" ${m.busy?"disabled":""}>Anmelden &amp; Dokumente holen</button>
   <button class="sec" onclick="post('/api/check',{broker:'${b}'})" ${m.busy?"disabled":""}>Status prüfen</button></td></tr>`).join("")+
   `<tr><td colspan=2><button class="sec" onclick="post('/api/close_browsers',{})" ${m.busy?"disabled":""}>Browserfenster schließen</button></td></tr>`;

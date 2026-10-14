@@ -20,6 +20,8 @@ haben, die über das aktuelle Konto nicht erreichbar sind. Das wird im Bericht a
 from __future__ import annotations
 
 import re
+from typing import Any
+from urllib.parse import urlsplit
 
 from .security import UrlPolicy
 from .web_adapter import WebBrokerAdapter
@@ -33,6 +35,25 @@ class ScalableCapitalAdapter(WebBrokerAdapter):
     url_policy = UrlPolicy(allowed_suffixes=("scalable.capital",))
     login_path_pattern = re.compile(r"(login|signin|sign-in|anmelden|/u/|/auth)", re.I)
     expand_area_pattern = None  # Postfach-Einträge sind i. d. R. selbst Dokumente
+
+    # Auf de.scalable.capital liegt auch die öffentliche Website (Startseite, Produktseiten). Dort gilt man nur
+    # in den App-Bereichen als angemeldet – sonst würde die Werbeseite fälschlich als "angemeldet" erkannt.
+    MARKETING_HOSTS = ("de.scalable.capital", "scalable.capital")
+    APP_PATH = re.compile(
+        r"^/(broker|cockpit|wealth|interest|app|portfolio|overview|dashboard|account|konto|mailbox|postbox|postfach"
+        r"|inbox|documents|dokumente|tax|steuer|transactions|transaktionen|settings|profile|profil|savings)(/|$)",
+        re.I,
+    )
+
+    def is_logged_in(self, probe: dict[str, Any]) -> bool:
+        if not super().is_logged_in(probe):
+            return False
+        if self.user_confirmed_login:
+            return True
+        u = urlsplit(probe.get("url", ""))
+        if (u.hostname or "").lower() in self.MARKETING_HOSTS and not self.APP_PATH.search(u.path or "/"):
+            return False
+        return True
 
     LEGACY_NOTE = ("Hinweis: Dokumente früherer Kontomodelle oder Bankpartner sind nur enthalten, wenn sie im "
                    "aktuellen Kundenkonto angezeigt werden. Nicht angezeigte Altbestände müssen ggf. beim "

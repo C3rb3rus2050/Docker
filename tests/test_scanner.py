@@ -270,3 +270,19 @@ def test_session_heuristic_without_nav_or_logout(settings):
     a.user_confirmed_login = True  # Benutzer hat bestätigt
     assert a.is_logged_in(sparse)
     assert not a.is_logged_in({**sparse, "passwordInputs": 1})  # Bestätigung überstimmt kein Loginformular
+
+
+def test_scalable_marketing_page_is_not_logged_in(settings):
+    from broker_collector.scalable_capital import ScalableCapitalAdapter
+
+    a = ScalableCapitalAdapter(browser=None, settings=settings)  # type: ignore[arg-type]
+    base = {"passwordInputs": 0, "pinInputs": 0, "otpInputs": 0, "loginInputs": 0, "navLinks": 8, "links": 40,
+            "textLength": 5000, "logoutPresent": False}
+    assert not a.is_logged_in({**base, "url": "https://de.scalable.capital/"})  # öffentliche Website
+    assert not a.is_logged_in({**base, "url": "https://de.scalable.capital/preise"})
+    assert not a.is_logged_in({**base, "url": "https://secure.scalable.capital/u/login"})
+    assert a.is_logged_in({**base, "url": "https://de.scalable.capital/broker/portfolio"})
+    assert a.is_logged_in({**base, "url": "https://de.scalable.capital/cockpit/"})
+    assert not a.is_logged_in({**base, "url": "https://de.scalable.capital/broker/", "loginInputs": 1})
+    a.user_confirmed_login = True
+    assert a.is_logged_in({**base, "url": "https://de.scalable.capital/irgendwo"})
