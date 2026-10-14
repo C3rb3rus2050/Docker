@@ -329,23 +329,28 @@ def transactions() -> None:
     if not deps:
         st.warning("Kein Depot vorhanden.")
         return
-    tab_new, tab_edit = st.tabs(["Manuelle Buchung / Korrektur", "Buchung bearbeiten"])
+    tab_new, tab_edit = st.tabs(["➕ Neue Buchung", "✏️ Vorhandene Buchung bearbeiten"])
     with tab_new:
+        st.caption("Pflichtangaben: Depot, Buchungsart, Datum und je nach Buchungsart ISIN, Stückzahl oder Betrag. "
+                   "Nicht benötigte Felder können leer bleiben. Alle Änderungen werden protokolliert.")
         with st.form("tx_new"):
-            cols = st.columns(4)
+            st.markdown("#### 1. Grunddaten")
+            cols = st.columns(2)
             depot = cols[0].selectbox("Depot", list(deps))
             t = cols[1].selectbox("Art", [x.value for x in TxType])
             d = cols[2].date_input("Datum", value=date(y, 12, 31), format="DD.MM.YYYY")
-            isin = cols[3].text_input("ISIN")
-            name = st.text_input("Wertpapiername")
-            cols = st.columns(6)
+            isin = st.text_input("ISIN", placeholder="z. B. AT0000A0E9W5", help="12-stellige internationale Wertpapierkennnummer")
+            name = st.text_input("Wertpapiername", placeholder="Name laut Abrechnung")
+            st.markdown("#### 2. Betrag und Währung")
+            cols = st.columns(3)
             qty = cols[0].number_input("Stück", value=0.0, format="%.6f")
             price = cols[1].number_input("Kurs", value=0.0, format="%.4f")
             amount = cols[2].number_input("Bruttobetrag", value=0.0, format="%.2f")
             fees = cols[3].number_input("Gebühren", value=0.0, format="%.2f")
             cur = cols[4].selectbox("Währung", c.settings.currencies)
             fx = cols[5].number_input("Devisenkurs (je EUR)", value=0.0, format="%.6f")
-            cols = st.columns(5)
+            st.markdown("#### 3. Steuern und Sonderfälle")
+            cols = st.columns(3)
             wht = cols[0].number_input("Quellensteuer", value=0.0, format="%.2f")
             country = cols[1].text_input("Quellenstaat", max_chars=2)
             kest = cols[2].number_input("Österr. KESt EUR", value=0.0, format="%.2f")
@@ -353,16 +358,17 @@ def transactions() -> None:
             cats = [x.value for x in IncomeCategory]
             cat = cols[4].selectbox("Ertragsart", cats)
             cat_ver = st.checkbox("Ertragsart ist durch Beleg bestätigt (z. B. Kapitalrückzahlung, REIT-Bestandteile)")
-            notes = st.text_input("Begründung/Notiz (Pflicht für manuelle Buchungen)")
-            if st.form_submit_button("Buchung anlegen"):
+            notes = st.text_area("Begründung/Notiz (Pflicht für manuelle Buchungen)",
+                                 placeholder="Quelle und Grund der manuellen Erfassung", height=80)
+            if st.form_submit_button("Buchung anlegen", type="primary", use_container_width=True):
                 if not notes.strip():
                     st.error("Bitte eine Begründung angeben.")
                 else:
                     try:
-                        tx = TransactionIn(depot_id=deps[depot], tx_type=TxType(t), trade_date=d, isin=isin or None,
+                        tx = TransactionIn(depot_id=deps[depot], tx_type=TxType(t), trade_date=d, isin=isin.strip().upper() or None,
                                            security_name=name or None, quantity=qty or None, price=price or None,
                                            amount=amount or None, fees=fees, currency=cur, fx_rate=fx or None,
-                                           withholding_tax=wht, withholding_country=country or None, kest_at_eur=kest,
+                                           withholding_tax=wht, withholding_country=country.strip().upper() or None, kest_at_eur=kest,
                                            ratio=ratio or None, income_category=IncomeCategory(cat),
                                            income_category_verified=cat_ver, notes=notes, source_type="manuell",
                                            review_status=ReviewStatus.UNCHECKED)
