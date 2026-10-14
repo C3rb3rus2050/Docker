@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
+.env.*
+config.toml
+config.local.yaml
+data/
+browser-profile/
+downloads/
+*.sqlite3
+*.db

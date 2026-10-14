@@ -26,3 +26,7 @@ KESt-Tool/
 KESt-Tool-Demo/
 *.xlsx
 
+
+# Runtime data and sensitive browser sessions
+data/
+secrets/

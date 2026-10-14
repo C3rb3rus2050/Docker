@@ -1,4 +1,4 @@
-"""Lokale, deutschsprachige Weboberfläche (nur 127.0.0.1, keine externen Ressourcen).
+"""Deutschsprachige Weboberfläche (Docker-Port nur via SSH-Tunnel, keine externen Ressourcen).
 
 - Läuft im Hauptthread; alle Browseraktionen laufen im Worker des ScanManagers → die
   Oberfläche bleibt während eines Scans bedienbar.
@@ -255,7 +255,7 @@ def serve(settings: Settings, db: Database, manager: ScanManager, config_path: P
     server = None
     for candidate in range(port, port + 20):
         try:
-            server = ThreadingHTTPServer(("127.0.0.1", candidate), make_handler(app, candidate))
+            server = ThreadingHTTPServer((settings.ui_host, candidate), make_handler(app, candidate))
             port = candidate
             break
         except OSError:
