@@ -116,7 +116,7 @@ class BrowserManager:
         profile.mkdir(parents=True, exist_ok=True)
         kwargs: dict[str, Any] = dict(
             user_data_dir=str(profile), headless=self.headless, accept_downloads=True, locale="de-DE",
-            viewport=None if not self.headless else {"width": 1366, "height": 900},
+            viewport={"width": 1366, "height": 900} if self.headless else None,
             args=["--disable-features=Translate", "--no-default-browser-check"],
         )
         if self.channel:
