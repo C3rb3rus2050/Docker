@@ -522,13 +522,6 @@ def _bulk_document_editor(repo, docs: list[dict], key: str) -> None:
         selected = st.multiselect(
             "Dokumente auswählen", list(labels), format_func=lambda i: labels[i],
             key=f"{key}_selected", placeholder="Dokumente markieren …")
-        b1, b2 = st.columns(2)
-        if b1.button("Alle angezeigten markieren", key=f"{key}_all"):
-            st.session_state[f"{key}_selected"] = list(labels)
-            st.rerun()
-        if b2.button("Auswahl aufheben", key=f"{key}_clear"):
-            st.session_state[f"{key}_selected"] = []
-            st.rerun()
         st.caption(f"{len(selected)} von {len(docs)} Dokumenten ausgewählt. Nur aktivierte Felder werden geändert.")
         if not selected:
             return
