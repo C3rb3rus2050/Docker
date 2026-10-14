@@ -53,8 +53,9 @@ def upload_box(y: int, key: str, expanded: bool = True) -> None:
                         ["Einzeldateien / ZIP", "Kompletten Ordner"], horizontal=True,
                         key=f"upl_mode_{key}")
         folder_mode = mode == "Kompletten Ordner"
-        st.caption("Ordner dürfen Unterordner und ZIP-Dateien enthalten. Alle unterstützten Dateien werden "
-                   "gemeinsam verarbeitet; nicht unterstützte Dateien werden übersprungen.") if folder_mode else None
+        if folder_mode:
+            st.caption("Ordner dürfen Unterordner und ZIP-Dateien enthalten. Alle unterstützten Dateien werden "
+                       "gemeinsam verarbeitet; nicht unterstützte Dateien werden übersprungen.")
         files = st.file_uploader(
             "Ordner auswählen" if folder_mode else "PDFs, ZIP-Archive oder Tabellen hierher ziehen",
             type=["pdf", "zip", "csv", "txt", "xlsx"],
