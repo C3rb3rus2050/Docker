@@ -38,7 +38,7 @@ from . import common as C
 NONE = "— nicht zugeordnet —"
 IMPORT_TYPES = ["CSV/Excel – Transaktionen", "PDF – Abrechnungen (Kauf/Verkauf/Dividende/…)",
                 "PDF – Jahressteuerbescheinigung/sonstige Belege", "OeKB – Fondsdaten (CSV/Excel)",
-                "OeKB – Fondsmeldung (PDF)", "Ordner einlesen (z. B. Broker Document Collector)"]
+                "OeKB – Fondsmeldung (PDF)", "Ordner einlesen (manuell heruntergeladene Dokumente)"]
 
 
 def _check_upload(name: str, data: bytes) -> str | None:
@@ -66,7 +66,9 @@ def render() -> None:
     c = C.ctx()
     y = C.year_selector()
     st.title("Import (erweitert)")
-    st.info("Für PDFs und ZIP-Archive genügt das Feld **„Dokumente hinzufügen“** auf der Übersicht. Diese Seite brauchen "
+    from .guide import upload_box
+    upload_box(y, "import_page", expanded=True)
+    st.info("PDFs und ZIP-Archive können direkt oben per Drag & Drop importiert werden. Die erweiterten Importarten unten benötigen Sie für "
             "Sie für CSV/Excel-Exporte (Spaltenzuordnung), OeKB-Daten und Ordner auf der Festplatte.")
     C.link("dashboard", "Zur Übersicht")
     st.caption("Originaldateien werden unverändert in der Ablage gespeichert. Erneut importierte Dateien werden über "
