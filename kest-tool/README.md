@@ -9,10 +9,7 @@ mehrerer Depots (Trade Republic, Scalable Capital, weitere Broker), berechnet si
 > „manuell steuerlich zu prüfen“ ausgewiesen. Siehe [Steuerregeln](docs/STEUERREGELN.md) und
 > [Einschränkungen](#einschränkungen).
 
-Das KESt-Tool ist ein eigenständiges Projekt. Der **Broker Document Collector** im Nachbarordner
-[`../broker-document-collector`](../broker-document-collector) ist ein separates Werkzeug zum Herunterladen der
-Broker-Dokumente. Es wird nicht benötigt; seinen Ausgabeordner (oder jeden anderen Ordner mit PDFs/CSVs) kann das
-KESt-Tool aber über **Import → Ordner einlesen** übernehmen.
+PDFs, ZIP-Archive, CSV- und Excel-Dateien werden manuell heruntergeladen und direkt im Browser über **Dokumente hinzufügen** oder **Import** eingelesen. Ein automatischer Broker-Download ist nicht Bestandteil des Projekts.
 
 ---
 
@@ -99,7 +96,7 @@ Regeln der Ablage:
 
 1. **Schnellstart** auf der Übersicht: Broker anhaken (Trade Republic, Scalable Capital, anderer) → Depots werden
    angelegt. Das geht auch automatisch: Lädt man Abrechnungen hoch, legt das Tool erkannte Broker samt Depot selbst an.
-2. **Dokumente hinzufügen** (Übersicht): PDFs, ZIP-Archive (z. B. vom Broker Document Collector) und CSV-Dateien in
+2. **Dokumente hinzufügen** (Übersicht): PDFs, ZIP-Archive (z. B. vom manuellen Broker-Downloads) und CSV-Dateien in
    *ein* Feld ziehen. Jedes PDF wird gelesen und geprüft. Ist alles sicher erkannt und stimmig, entsteht automatisch
    eine Buchung. Alles andere landet unter **Dokumente → Zu prüfen**, mit Prüfbericht und „Was tun?“.
 3. **Status und Datenprüfung** auf der Übersicht abarbeiten (jeweils mit „Beheben“-Link), dann **Excel-Export**.
