@@ -316,7 +316,7 @@ select,input[type=text],input[type=number]{padding:5px;border:1px solid var(--bd
 <p class="muted">Anmeldung starten und Browseransicht öffnen. Zugangsdaten werden nicht von der Anwendung gespeichert.</p>
 <table id="login"></table></section>
 
-<section class="card wide" id="webBrowserPanel" style="display:none"><h2>Interaktive Broker-Anmeldung</h2><p class="muted">Klicken Sie in das Bild, um Felder zu fokussieren. Geben Sie Text über das Eingabefeld ein. 2FA bestätigen Sie wie gewohnt.</p><img id="webBrowserImage" alt="Browseransicht" style="width:100%;max-width:1100px;cursor:crosshair" onclick="webClick(event)"><p id="webBrowserUrl" class="muted"></p><input id="webInput" type="password" autocomplete="off" placeholder="Text für das fokussierte Feld"><label><input type="checkbox" onchange="document.getElementById('webInput').type=this.checked?'text':'password'"> Eingabe anzeigen</label><button onclick="webType()">Text eingeben</button><button onclick="webKey('Tab')">Tab</button><button onclick="webKey('Enter')">Enter</button><button onclick="webKey('Backspace')">Backspace</button><button onclick="webScroll(500)">Scroll ↓</button><button onclick="webScroll(-500)">Scroll ↑</button><button onclick="closeWebBrowser()">Schließen</button></section>
+<section class="card wide" id="webBrowserPanel" style="display:none"><h2>Interaktive Broker-Anmeldung</h2><p class="muted">Klicken Sie in das Bild, um Felder zu fokussieren. Geben Sie Text über das Eingabefeld ein. 2FA bestätigen Sie wie gewohnt.</p><img id="webBrowserImage" alt="Browseransicht" style="width:100%;max-width:1100px;cursor:crosshair" onclick="webClick(event)"><p id="webBrowserUrl" class="muted"></p><pre id="webBrowserDiagnostics" class="muted" style="white-space:pre-wrap"></pre><input id="webInput" type="password" autocomplete="off" placeholder="Text für das fokussierte Feld"><label><input type="checkbox" onchange="document.getElementById('webInput').type=this.checked?'text':'password'"> Eingabe anzeigen</label><button onclick="webType()">Text eingeben</button><button onclick="webKey('Tab')">Tab</button><button onclick="webKey('Enter')">Enter</button><button onclick="webKey('Backspace')">Backspace</button><button onclick="webScroll(500)">Scroll ↓</button><button onclick="webScroll(-500)">Scroll ↑</button><button onclick="closeWebBrowser()">Schließen</button></section>
 <section class="card"><h2>2. Scan</h2>
 <div><label><input type="checkbox" id="b_tr" checked> Trade Republic</label>
 <label><input type="checkbox" id="b_sc" checked> Scalable Capital</label></div>
@@ -370,7 +370,7 @@ async function webAction(action, data={}){
  const r=await fetch("/api/browser",{method:"POST",headers:{"Content-Type":"application/json","X-BDC-Token":TOKEN},body:JSON.stringify({broker:webBroker,action,...data})});
  const j=await r.json();
  if(j.error){if(action!=="screenshot")alert(j.error);return null;}
- if(j.image){document.getElementById("webBrowserImage").src="data:image/jpeg;base64,"+j.image;document.getElementById("webBrowserUrl").textContent=j.url||"";}
+ if(j.image){document.getElementById("webBrowserImage").src="data:image/jpeg;base64,"+j.image;document.getElementById("webBrowserUrl").textContent=j.url||"";document.getElementById("webBrowserDiagnostics").textContent="Titel: "+(j.title||"(leer)")+" | Status: "+(j.ready_state||"?")+" | Frames: "+(j.frame_count??"?")+"\nSeiteninhalt: "+(j.body_text||"(leer)");}
  return j;
  }catch(e){console.error(e);return null;}finally{webPending=false;}
 }
