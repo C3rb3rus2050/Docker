@@ -27,11 +27,14 @@ services:
     environment:
       BDC_OUTPUT_DIR: /data/collector
       BDC_CONFIG: /app/config.docker.toml
+      BDC_VNC_PASSWORD_FILE: /run/secrets/bdc_vnc_password
     volumes:
       - ./data/collector:/data/collector
       - ./data/browser-profiles:/data/browser-profiles
+      - ./secrets/vnc_password:/run/secrets/bdc_vnc_password:ro
     ports:
       - "127.0.0.1:${COLLECTOR_PORT:-8765}:8765"
+      - "127.0.0.1:${BROWSER_PORT:-6080}:6080"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/',timeout=5)"]
       interval: 30s
