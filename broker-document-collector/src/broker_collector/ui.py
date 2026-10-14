@@ -1,4 +1,4 @@
-"""Lokale, deutschsprachige Weboberfläche (nur 127.0.0.1, keine externen Ressourcen).
+"""Deutschsprachige Weboberfläche (Docker-Port nur via SSH-Tunnel, keine externen Ressourcen).
 
 - Läuft im Hauptthread; alle Browseraktionen laufen im Worker des ScanManagers → die
   Oberfläche bleibt während eines Scans bedienbar.
