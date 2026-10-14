@@ -405,7 +405,7 @@ class ScanManager:
                 x, y = data.get("x"), data.get("y")
                 if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not 0 <= x <= 1366 or not 0 <= y <= 900:
                     raise ValueError("Ungültige Koordinaten")
-                page.mouse.click(x, y, timeout=5000)
+                page.mouse.click(x, y)
             elif action == "scroll":
                 dy = data.get("dy")
                 if not isinstance(dy, (int, float)) or abs(dy) > 1500:
