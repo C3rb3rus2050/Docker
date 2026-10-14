@@ -50,7 +50,7 @@ nav = st.navigation({
     "System": [P["einstellungen"]],
 })
 with st.sidebar:
-    st.markdown("[Broker-Dokumente synchronisieren](/broker/)")
+    st.page_link(P["import"], label="Dokumente hochladen", icon="📥")
     st.caption(f"KESt-Tool {__version__} · lokal · Ablage: `{C.ctx().store.base}`")
     st.caption(C.DISCLAIMER)
 try:
