@@ -370,7 +370,7 @@ async function webAction(action, data={}){
  const r=await fetch("/api/browser",{method:"POST",headers:{"Content-Type":"application/json","X-BDC-Token":TOKEN},body:JSON.stringify({broker:webBroker,action,...data})});
  const j=await r.json();
  if(j.error){if(action!=="screenshot")alert(j.error);return null;}
- if(j.image){document.getElementById("webBrowserImage").src="data:image/jpeg;base64,"+j.image;document.getElementById("webBrowserUrl").textContent=j.url||"";document.getElementById("webBrowserDiagnostics").textContent="Titel: "+(j.title||"(leer)")+" | Status: "+(j.ready_state||"?")+" | Frames: "+(j.frame_count??"?")+"\nSeiteninhalt: "+(j.body_text||"(leer)");}
+ if(j.image){document.getElementById("webBrowserImage").src="data:image/jpeg;base64,"+j.image;document.getElementById("webBrowserUrl").textContent=j.url||"";document.getElementById("webBrowserDiagnostics").textContent="Titel: "+(j.title||"(leer)")+" | Status: "+(j.ready_state||"?")+" | Frames: "+(j.frame_count??"?")+"\nSeiteninhalt: "+(j.body_text||"(leer)")+"\nDOM: "+JSON.stringify(j.dom||{});}
  return j;
  }catch(e){console.error(e);return null;}finally{webPending=false;}
 }
