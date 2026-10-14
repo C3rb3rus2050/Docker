@@ -389,7 +389,18 @@ class ScanManager:
             page = browser.pages.get(broker)
             if page is None or page.is_closed():
                 raise ValueError("Bitte zuerst Anmeldung starten")
-            if action == "screenshot":
+            if action == "diagnose":
+                result = {"url": page.url, "title": page.title(),
+                          "document": page.evaluate("""() => ({
+                            ready: document.readyState,
+                            scripts: [...document.scripts].map(s => ({src: (s.src || '').split('?')[0].slice(0,180), type: s.type})).slice(0,15),
+                            html: document.documentElement.outerHTML.slice(0,1400),
+                            resources: performance.getEntriesByType('resource').filter(r => r.initiatorType === 'script').slice(-15).map(r => ({name: r.name.split('?')[0].slice(0,180), duration: Math.round(r.duration), transferSize: r.transferSize}))
+                          })""")}
+            elif action == "reload":
+                page.reload(wait_until="domcontentloaded", timeout=30000)
+                result = {"ok": True, "url": page.url}
+            elif action == "screenshot":
                 import base64
                 result = {"image": base64.b64encode(page.screenshot(type="jpeg", quality=65, timeout=8000)).decode("ascii"),
                           "url": page.url, "title": page.title(), "ready_state": page.evaluate("document.readyState"),
@@ -432,7 +443,7 @@ class ScanManager:
 
     def web_action(self, broker: str, action: str, data: dict[str, Any]) -> dict[str, Any]:
         import uuid
-        if broker not in BROKERS or action not in {"screenshot", "click", "scroll", "type", "key"}:
+        if broker not in BROKERS or action not in {"screenshot", "click", "scroll", "type", "key", "diagnose", "reload"}:
             return {"error": "Ungültige Browseraktion"}
         if self.busy or not self._queue.empty():
             return {"error": "Browser ist beschäftigt; bitte kurz warten"}
