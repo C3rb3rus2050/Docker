@@ -38,7 +38,7 @@ from . import common as C
 NONE = "— nicht zugeordnet —"
 IMPORT_TYPES = ["CSV/Excel – Transaktionen", "PDF – Abrechnungen (Kauf/Verkauf/Dividende/…)",
                 "PDF – Jahressteuerbescheinigung/sonstige Belege", "OeKB – Fondsdaten (CSV/Excel)",
-                "OeKB – Fondsmeldung (PDF)", "Ordner einlesen (z. B. Broker Document Collector)"]
+                "OeKB – Fondsmeldung (PDF)", "Ordner einlesen (manuell heruntergeladene Dokumente)"]
 
 
 def _check_upload(name: str, data: bytes) -> str | None:
