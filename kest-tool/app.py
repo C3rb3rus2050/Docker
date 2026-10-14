@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 import streamlit as st  # noqa: E402
 
 from kest_tool import __version__  # noqa: E402
+from kest_tool.diagnostics import record_error  # noqa: E402
 from kest_tool.config import load_env_file  # noqa: E402
 from kest_tool.ui import common as C  # noqa: E402
 from kest_tool.ui import pages_basic, pages_data, pages_import, pages_tax  # noqa: E402
@@ -58,10 +59,9 @@ try:
 except ScriptControlException:
     raise
 except Exception as exc:  # noqa: BLE001 – verständliche Fehlerseite statt Traceback
-    logging.getLogger("kest_tool.ui").exception("Unerwarteter Fehler auf Seite %s", nav.title)
+    error_id = record_error(str(nav.title), exc)
     st.error("**Hier ist leider etwas schiefgelaufen.** Ihre Daten sind nicht betroffen – es wurde nichts "
              "gespeichert, was nicht bestätigt war.\n\n"
              "Was Sie tun können: Seite neu laden (F5). Tritt der Fehler erneut auf, finden Sie Details im Protokoll "
              "unter Einstellungen → Protokolle → Anwendungslog.")
-    with st.expander("Technische Details"):
-        st.code(f"{type(exc).__name__}: {exc}")
+    st.caption(f"Fehlerkennung: {error_id}. Unter Einstellungen → Diagnose können Sie einen Bericht exportieren.")
