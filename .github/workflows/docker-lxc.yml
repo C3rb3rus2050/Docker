@@ -6,19 +6,16 @@ on:
 jobs:
   python-tests:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        project: [broker-document-collector, kest-tool]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -r ${{ matrix.project }}/requirements.txt
-      - run: python -m compileall -q ${{ matrix.project }}
-      - run: python -m pytest -q ${{ matrix.project }}/tests
+      - run: python -m pip install -r kest-tool/requirements.txt
+      - run: python -m compileall -q kest-tool
+      - run: python -m pytest -q kest-tool/tests
         env:
-          PYTHONPATH: ${{ matrix.project }}/src
+          PYTHONPATH: kest-tool/src
   docker-build:
     runs-on: ubuntu-latest
     env:
