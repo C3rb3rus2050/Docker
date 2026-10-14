@@ -66,7 +66,9 @@ def render() -> None:
     c = C.ctx()
     y = C.year_selector()
     st.title("Import (erweitert)")
-    st.info("Für PDFs und ZIP-Archive genügt das Feld **„Dokumente hinzufügen“** auf der Übersicht. Diese Seite brauchen "
+    from .guide import upload_box
+    upload_box(y, "import_page", expanded=True)
+    st.info("PDFs und ZIP-Archive können direkt oben per Drag & Drop importiert werden. Die erweiterten Importarten unten benötigen Sie für "
             "Sie für CSV/Excel-Exporte (Spaltenzuordnung), OeKB-Daten und Ordner auf der Festplatte.")
     C.link("dashboard", "Zur Übersicht")
     st.caption("Originaldateien werden unverändert in der Ablage gespeichert. Erneut importierte Dateien werden über "
