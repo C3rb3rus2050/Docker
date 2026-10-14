@@ -80,7 +80,8 @@ TOTAL_LABELS = ["Gesamt", "Endbetrag", "Zu Lasten", "Zu Gunsten", "Ausmachender 
                 "Betrag zu Ihren Gunsten", "Total"]
 WHT_LABELS = ["Quellensteuer", "Ausländische Quellensteuer", "US-Quellensteuer", "Withholding Tax",
               "Anrechenbare Quellensteuer"]
-KEST_LABELS = ["Kapitalertragsteuer Österreich", "KESt Österreich", "KESt", "Kapitalertragsteuer"]
+KEST_LABELS = ["Kapitalertragsteuer Österreich", "KESt Österreich", "KESt"]
+GERMAN_TAX_LABELS = ["Kapitalertragsteuer", "Solidaritätszuschlag", "Kirchensteuer"]
 
 
 @dataclass
@@ -102,6 +103,12 @@ class Extraction:
     text_excerpt: str = ""
     complete: bool = False
     creates_transaction: bool = True
+    checks: list[dict] = field(default_factory=list)   # Prüfbericht: name, result (ok|info|warn|error), detail, action
+
+    def check(self, name: str, result: str, detail: str = "", action: str = "") -> None:
+        self.checks.append({"name": name, "result": result, "detail": detail, "action": action})
+        if result in ("warn", "error") and detail:
+            self.warnings.append(detail)
 
     def value(self, name: str, default=None):
         f = self.fields.get(name)
@@ -353,8 +360,7 @@ def parse_text(text: str) -> Extraction:
             ex.warnings.append("Quellenstaat nur aus ISIN-Präfix abgeleitet – Sitzstaat prüfen")
     kest = _all_labeled_amounts(text, KEST_LABELS)
     if kest:
-        f["kest_at_eur"] = Field(round(sum(abs(v) for v, _, _ in kest), 2), 0.5, ", ".join(l for *_, l in kest))
-        ex.warnings.append("Kapitalertragsteuer gefunden – prüfen, ob es sich um österreichische KESt handelt")
+        f["kest_at_eur"] = Field(round(sum(abs(v) for v, _, _ in kest), 2), 0.7, ", ".join(l for *_, l in kest))
 
     m = re.search(rf"(?i)(?:Devisenkurs|Wechselkurs|Umrechnungskurs)[^\n\d]{{0,20}}(?:1\s*EUR\s*=\s*)?({NUM})", text) \
         or re.search(rf"(?<![\w.,])(\d+,\d{{2,6}}|\d+\.\d{{2,6}})[ \t]*EUR/[A-Z]{{3}}\b", text) \
@@ -366,41 +372,170 @@ def parse_text(text: str) -> Extraction:
         if m:
             f["currency"] = Field(m.group(1).replace("€", "EUR"), 0.5, "erste Währungsangabe")
 
-    # Plausibilität
+    _run_checks(ex, text)
+    return ex
+
+
+SPECIAL_DOCS = [
+    # (Muster, Dokumenttyp, erzeugt Buchung?, Ergebnis, Erklärung, Was tun)
+    (r"\bstorno\b|stornierung|stornobuchung|\bcancellation\b", "Storno", False, "error",
+     "Storno-Abrechnung: hebt eine frühere Buchung auf.",
+     "Ursprüngliche Buchung unter „Transaktionen“ suchen und löschen bzw. korrigieren (mit Begründung)."),
+    (r"aktiensplit|\bsplit\b|spin-?off|abspaltung|fusion|verschmelzung|umtausch|bezugsrecht|kapitalerhöhung"
+     r"|kapitalmaßnahme|reverse split|zusammenlegung", "Kapitalmaßnahme", False, "error",
+     "Kapitalmaßnahme (Split, Abspaltung, Umtausch …): verändert Bestand bzw. Anschaffungskosten.",
+     "Unter „Transaktionen“ als Split (mit Verhältnis) oder Kapitalmaßnahme erfassen; steuerliche Folgen prüfen."),
+    (r"vorabpauschale", "Vorabpauschale (DE)", False, "info",
+     "Deutsche Vorabpauschale – für die österreichische Besteuerung nicht relevant.",
+     "Keine Buchung nötig. Für österreichische Fondserträge sind die OeKB-Meldungen maßgeblich."),
+    (r"steuerkorrektur|steuerausgleich|steuerliche korrektur|nachträgliche steuer", "Steuerkorrektur", False, "warn",
+     "Steuerkorrektur: ändert früher einbehaltene Steuern.",
+     "Betroffene Buchung suchen und Steuerbeträge (Quellensteuer/KESt) manuell anpassen."),
+    (r"depotauszug|kontoauszug|vermögensübersicht|kosteninformation|ex-ante|ex-post|basisinformationsblatt"
+     r"|kundeninformation|wesentliche anlegerinformation", "Informationsdokument", False, "info",
+     "Informations- bzw. Übersichtsdokument ohne einzelne Buchung.",
+     "Keine Aktion nötig – Dokument bleibt als Beleg abgelegt."),
+]
+
+
+def _run_checks(ex: Extraction, text: str) -> None:
+    """Prüfbericht: Vollständigkeit, Plausibilität und Sonderfälle. Fehler/Warnungen verhindern die
+    automatische Übernahme – das Dokument wird dann zur manuellen Prüfung vorgelegt."""
+    t = text.lower()
+    f = ex.fields
+    # Sonderdokumente zuerst
+    head = t[:600]  # Dokumentkopf: Titel/Betreff
+    for rx, dtype, creates, result, detail, action in SPECIAL_DOCS:
+        # Informationsdokumente nur anhand des Dokumentkopfs (sie enthalten oft Wörter wie „Kauf“)
+        hit = re.search(rx, head) if dtype == "Informationsdokument" else re.search(rx, t)
+        if hit:
+            ex.doc_type = dtype
+            ex.creates_transaction = creates
+            ex.check("Dokumentart", result, detail, action)
+            break
     if ex.doc_type in ("Jahressteuerbescheinigung", "OeKB-Fondsmeldung"):
         ex.creates_transaction = False
-        ex.warnings.append(f"{ex.doc_type}: keine einzelne Buchung – Werte bitte manuell prüfen und als Beleg "
-                           "verknüpfen bzw. im Bereich Fonds/OeKB erfassen")
-    if ex.tx_type is None and ex.creates_transaction:
-        ex.warnings.append("Buchungsart nicht erkannt")
-    q, p, a = ex.value("quantity"), ex.value("price"), ex.value("amount")
-    if q and p and a and ex.tx_type in (TxType.BUY.value, TxType.SELL.value):
-        if abs(q * p - a) > max(0.02, 0.01 * a):
-            ex.warnings.append(f"Stück × Kurs ({q * p:.2f}) weicht vom Kurswert ({a:.2f}) ab")
-    tot = ex.value("total")
-    if a and tot and ex.tx_type == TxType.BUY.value:
-        exp = a + (ex.value("fees") or 0)
-        if abs(exp - tot) > 0.02:
-            ex.warnings.append(f"Kurswert + Gebühren ({exp:.2f}) ≠ Endbetrag ({tot:.2f})")
-    if a and tot and ex.tx_type == TxType.SELL.value:
-        exp = a - (ex.value("fees") or 0) - (ex.value("kest_at_eur") or 0)
-        if abs(exp - tot) > 0.02:
-            ex.warnings.append(f"Kurswert − Gebühren − Steuern ({exp:.2f}) ≠ Endbetrag ({tot:.2f})")
-    if a and tot and ex.tx_type in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value):
-        exp = a - (ex.value("withholding_tax") or 0) - (ex.value("kest_at_eur") or 0)
-        if abs(exp - tot) > 0.02 and not ex.value("fx_rate"):
-            ex.warnings.append(f"Brutto − Steuern ({exp:.2f}) ≠ Gutschrift ({tot:.2f}) – Währungsumrechnung?")
-    cur = ex.value("currency")
-    if cur and cur != "EUR" and not ex.value("fx_rate"):
-        ex.warnings.append(f"Betrag in {cur} ohne Devisenkurs – EUR-Wert fehlt")
+        ex.check("Dokumentart", "info", f"{ex.doc_type}: keine einzelne Buchung.",
+                 "Als Beleg verknüpfen (Seite Dokumente) bzw. Werte unter „Fonds & OeKB“ erfassen.")
+    if not ex.creates_transaction:
+        ex.missing = []
+        ex.complete = False
+        return
+    if ex.tx_type is None:
+        ex.check("Buchungsart", "error", "Buchungsart (Kauf, Verkauf, Dividende …) nicht erkannt.",
+                 "Im Prüfformular die richtige Buchungsart auswählen.")
+    else:
+        ex.check("Buchungsart", "ok", f"{ex.tx_type} ({ex.doc_type})")
 
-    req = REQUIRED.get(ex.tx_type or "", []) if ex.creates_transaction else []
+    # Pflichtfelder
+    req = REQUIRED.get(ex.tx_type or "", [])
     ex.missing = [FIELD_LABELS[r] for r in req if ex.value(r) is None]
-    low = [FIELD_LABELS.get(r, r) for r in req if r in f and f[r].confidence < 0.8]
-    if low:
-        ex.warnings.append("Unsichere Werte: " + ", ".join(low))
-    ex.complete = bool(ex.creates_transaction and ex.tx_type and not ex.missing and not low)
-    return ex
+    for r in req:
+        label = FIELD_LABELS[r]
+        fld = f.get(r)
+        if fld is None or fld.value is None:
+            ex.check(label, "error", f"{label} nicht im Dokument gefunden.",
+                     f"{label} aus dem Original ablesen und im Prüfformular eintragen.")
+        elif fld.confidence < 0.8:
+            ex.check(label, "warn", f"{label} nur unsicher erkannt ({fld.source}).",
+                     f"{label} mit dem Original vergleichen.")
+        else:
+            ex.check(label, "ok", f"{fld.value} ({fld.source})")
+
+    # ISIN-Eindeutigkeit (Prüfziffer wird bereits bei der Erkennung verlangt)
+    if "isin" in f and f["isin"].confidence < 0.8:
+        ex.check("ISIN eindeutig", "error", f["isin"].source, "Richtige ISIN im Prüfformular wählen.")
+
+    # Datum plausibel
+    d = ex.value("trade_date")
+    if d:
+        if d > date.today():
+            ex.check("Datum plausibel", "error", f"Datum {d.isoformat()} liegt in der Zukunft.",
+                     "Datum im Original prüfen (Lesefehler?).")
+        elif d.year < 2000:
+            ex.check("Datum plausibel", "warn", f"Datum {d.isoformat()} ungewöhnlich alt.", "Datum prüfen.")
+
+    a, q, p = ex.value("amount"), ex.value("quantity"), ex.value("price")
+    if a is not None and a <= 0:
+        ex.check("Betrag", "error", "Betrag ist 0 oder negativ.", "Bruttobetrag im Original prüfen.")
+    if ex.tx_type in (TxType.BUY.value, TxType.SELL.value):
+        if q is not None and q <= 0:
+            ex.check("Stückzahl", "error", "Stückzahl ist 0.", "Stückzahl im Original prüfen.")
+        if q and p and a:
+            if abs(q * p - a) > max(0.02, 0.01 * a):
+                ex.check("Stück × Kurs = Kurswert", "warn", f"Stück × Kurs ({q * p:.2f}) weicht vom Kurswert "
+                         f"({a:.2f}) ab.", "Stückzahl, Kurs und Kurswert im Original vergleichen.")
+            else:
+                ex.check("Stück × Kurs = Kurswert", "ok", f"{q:g} × {p:g} ≈ {a:.2f}")
+    fees = ex.value("fees") or 0
+    if a and fees > max(5.0, 0.05 * a):
+        ex.check("Gebühren plausibel", "warn", f"Gebühren {fees:.2f} sind hoch im Verhältnis zum Betrag {a:.2f}.",
+                 "Prüfen, ob eine Steuer oder ein anderer Betrag als Gebühr erkannt wurde.")
+
+    # Endbetrag abgleichen
+    tot, fx = ex.value("total"), ex.value("fx_rate")
+    wht, kest = ex.value("withholding_tax") or 0, ex.value("kest_at_eur") or 0
+    if a and tot:
+        if ex.tx_type == TxType.BUY.value:
+            exp, what = a + fees, "Kurswert + Gebühren"
+        elif ex.tx_type == TxType.SELL.value:
+            exp, what = a - fees - kest, "Kurswert − Gebühren − Steuern"
+        elif ex.tx_type in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value):
+            exp, what = a - wht, "Brutto − Quellensteuer"
+            if fx and ex.value("currency") not in (None, "EUR"):
+                exp, what = exp / fx - kest, "(Brutto − Quellensteuer) / Devisenkurs − KESt"
+            else:
+                exp -= kest
+        else:
+            exp = None
+        if exp is not None:
+            tol = max(0.02, 0.005 * tot)
+            if abs(exp - tot) > tol:
+                ex.check("Endbetrag stimmt", "warn", f"{what} = {exp:.2f}, Endbetrag laut Dokument {tot:.2f}.",
+                         "Fehlende Gebühr/Steuer oder falsch erkannten Betrag im Original suchen.")
+            else:
+                ex.check("Endbetrag stimmt", "ok", f"{what} = {exp:.2f} ≈ {tot:.2f}")
+    elif a and ex.tx_type in (TxType.BUY.value, TxType.SELL.value):
+        ex.check("Endbetrag stimmt", "info", "Kein Endbetrag gefunden – Abgleich nicht möglich.")
+
+    # Währung
+    cur = ex.value("currency")
+    if cur and cur != "EUR":
+        if fx:
+            ex.check("Devisenkurs", "ok", f"{cur}: {fx} je EUR laut Dokument")
+        else:
+            ex.check("Devisenkurs", "info", f"Betrag in {cur} ohne Devisenkurs im Dokument.",
+                     "Wird automatisch mit dem EZB-Referenzkurs ergänzt (abschaltbar).")
+
+    # Quellensteuer
+    if wht:
+        if a and wht > a:
+            ex.check("Quellensteuer plausibel", "error", f"Quellensteuer {wht:.2f} größer als Bruttobetrag {a:.2f}.",
+                     "Beträge im Original prüfen.")
+        elif a and wht / a > 0.355:
+            ex.check("Quellensteuer plausibel", "warn", f"Quellensteuersatz {wht / a:.1%} ungewöhnlich hoch.",
+                     "Prüfen; nicht anrechenbare Teile ggf. im Quellenstaat zurückfordern.")
+        elif a:
+            ex.check("Quellensteuer plausibel", "ok", f"{wht / a:.1%} vom Bruttobetrag")
+        if not ex.value("withholding_country"):
+            ex.check("Quellenstaat", "warn", "Quellenstaat nicht erkannt.", "Land (ISO-2, z. B. US) eintragen.")
+
+    # Deutsche Abzugsteuern (bei österreichischer Ansässigkeit nicht vorgesehen)
+    german = [g for g in _all_labeled_amounts(text, GERMAN_TAX_LABELS)
+              if g[0] and not re.search(r"österreich", g[2], re.I)]
+    german = [g for g in german if g[0] != 0]
+    if german and not kest:
+        names = ", ".join(sorted({g[2] for g in german}))
+        ex.check("Deutsche Steuer", "error", f"Deutsche Abzugsteuer einbehalten ({names}: "
+                 f"{sum(abs(g[0]) for g in german):.2f}). Sie ist keine österreichische KESt.",
+                 "Beim Broker die österreichische Ansässigkeit prüfen; Erstattung beantragen. Betrag nicht als KESt "
+                 "erfassen.")
+    if kest:
+        ex.check("Österreichische KESt", "ok", f"{kest:.2f} einbehalten")
+
+    low = [c for c in ex.checks if c["result"] == "warn" and c["name"] in FIELD_LABELS.values()]
+    errors = [c for c in ex.checks if c["result"] == "error"]
+    ex.complete = bool(ex.tx_type and not ex.missing and not low and not errors)
 
 
 def extract_pdf(data: bytes, engine: str = "auto") -> Extraction:

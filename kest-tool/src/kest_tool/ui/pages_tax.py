@@ -100,7 +100,19 @@ def tax() -> None:
         C.df(res.e1kv)
     with tabs[6]:
         sev = st.multiselect("Schweregrad", ["Fehler", "Warnung", "Hinweis"], default=["Fehler", "Warnung"])
-        C.df([i.__dict__ for i in res.issues if i.severity in sev])
+        icon = {"Fehler": "🔴", "Warnung": "🟡", "Hinweis": "ℹ️"}
+        sel = [i for i in res.issues if i.severity in sev]
+        C.df([{"": icon.get(i.severity, ""), "Art": i.kind, "Meldung": i.message, "Was tun?": i.action,
+               "Bezug": i.ref} for i in sel])
+        pages = list(dict.fromkeys(i.page for i in sel if i.page))
+        if pages:
+            st.markdown("**Direkt beheben:**")
+            names = {"import": "Import", "transaktionen": "Transaktionen", "wertpapiere": "Wertpapiere",
+                     "fonds": "Fonds & OeKB", "depots": "Broker & Depots", "steuer": "Steuerberechnung"}
+            cols = st.columns(len(pages))
+            for col, pg in zip(cols, pages):
+                with col:
+                    C.link(pg, names.get(pg, pg))
     with tabs[7]:
         C.df(res.rules_used)
     with tabs[8]:

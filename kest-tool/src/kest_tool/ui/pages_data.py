@@ -29,6 +29,89 @@ from . import common as C
 
 
 # --------------------------------------------------------------------------- #
+TC_LABEL = {TaxClass.KAPITALGESELLSCHAFT.value: "Aktie/Kapitalgesellschaft", TaxClass.INVESTMENTFONDS.value:
+            "Investmentfonds", TaxClass.IMMOBILIENFONDS.value: "Immobilienfonds (manuell)",
+            TaxClass.FORDERUNGSWERTPAPIER.value: "Anleihe", TaxClass.DERIVAT.value: "Derivat/Zertifikat (manuell)",
+            TaxClass.SONSTIGE.value: "Sonstige (manuell)", TaxClass.UNGEKLAERT.value: "ungeklärt"}
+FS_LABEL = {FundStatus.NO_FUND.value: "kein Fonds", FundStatus.MELDEFONDS.value: "Meldefonds",
+            FundStatus.NICHTMELDEFONDS.value: "Nichtmeldefonds", FundStatus.UNKNOWN.value: "unbekannt"}
+TC_VALUE = {v: k for k, v in TC_LABEL.items()}
+FS_VALUE = {v: k for k, v in FS_LABEL.items()}
+
+
+def _suggest_type(name: str | None) -> str:
+    """Nur ein Vorschlag für die Wertpapierart (nicht für die steuerliche Einstufung)."""
+    n = (name or "").lower()
+    if any(k in n for k in ("etf", "ucits", "ishares", "xtrackers", "vanguard", "amundi", "lyxor", "spdr")):
+        return SecurityType.ETF_ACC.value if any(k in n for k in ("acc", "thes")) else SecurityType.ETF_DIST.value \
+            if any(k in n for k in ("dist", "aussch")) else SecurityType.ETF_ACC.value
+    if "reit" in n or "realty" in n:
+        return SecurityType.REIT.value
+    return SecurityType.STOCK.value
+
+
+def _bulk_classify(repo) -> None:
+    open_secs = repo.db.query(
+        "SELECT * FROM securities WHERE isin IS NOT NULL AND (tax_class_verified=0 OR security_type='Sonstige' OR "
+        "(security_type IN ('ETF ausschüttend','ETF thesaurierend','Investmentfonds (AT)','Investmentfonds (Ausland)')"
+        " AND fund_status IN ('unbekannt','kein_fonds'))) ORDER BY name")
+    if not open_secs:
+        st.success("Alle Wertpapiere sind vollständig eingestuft.")
+        return
+    with st.container(border=True):
+        st.subheader(f"Offene Wertpapiere ergänzen ({len(open_secs)})")
+        st.caption("Vorschläge (Art aus dem Namen, Sitzstaat aus dem ISIN-Länderkürzel) sind nur Hilfen. Eine Zeile "
+                   "gilt erst als **geprüft**, wenn Sie eine **Quelle** eintragen (z. B. „Factsheet“, „my.oekb.at "
+                   "Abfrage 03/2025“, „Jahressteuerbescheinigung“). REITs/BDCs werden nie automatisch eingestuft.")
+        rows = []
+        for sec in open_secs:
+            stype = sec["security_type"] if sec["security_type"] != "Sonstige" else _suggest_type(sec["name"])
+            is_fund = stype in [t.value for t in (SecurityType.ETF_ACC, SecurityType.ETF_DIST, SecurityType.FUND_AT,
+                                                  SecurityType.FUND_FOREIGN)]
+            tc = sec["tax_class"]
+            if tc == TaxClass.UNGEKLAERT.value and stype != SecurityType.REIT.value and stype != SecurityType.BDC.value:
+                tc = TaxClass.INVESTMENTFONDS.value if is_fund else TaxClass.KAPITALGESELLSCHAFT.value
+            fs = sec["fund_status"]
+            if is_fund and fs == FundStatus.NO_FUND.value:
+                fs = FundStatus.UNKNOWN.value
+            rows.append({"ISIN": sec["isin"], "Name": sec["name"] or "", "Wertpapierart": stype,
+                         "Steuerliche Einstufung": TC_LABEL[tc], "Meldefondsstatus": FS_LABEL[fs],
+                         "Sitzstaat": sec["country"] or sec["isin"][:2], "Quelle (Pflicht für „geprüft“)":
+                             sec["tax_class_source"] or ""})
+        edited = st.data_editor(pd.DataFrame(rows), hide_index=True, width="stretch", key="bulk_sec",
+                                column_config={
+                                    "ISIN": st.column_config.TextColumn(disabled=True),
+                                    "Wertpapierart": st.column_config.SelectboxColumn(
+                                        options=[t.value for t in SecurityType], required=True),
+                                    "Steuerliche Einstufung": st.column_config.SelectboxColumn(
+                                        options=list(TC_LABEL.values()), required=True),
+                                    "Meldefondsstatus": st.column_config.SelectboxColumn(
+                                        options=list(FS_LABEL.values()), required=True),
+                                    "Sitzstaat": st.column_config.TextColumn(max_chars=2),
+                                })
+        if st.button("Alle Änderungen speichern", type="primary"):
+            saved, problems = 0, []
+            for _, r in edited.iterrows():
+                src = str(r["Quelle (Pflicht für „geprüft“)"] or "").strip()
+                try:
+                    repo.upsert_security(SecurityIn(
+                        isin=r["ISIN"], name=r["Name"] or None, country=(r["Sitzstaat"] or "").upper() or None,
+                        security_type=SecurityType(r["Wertpapierart"]),
+                        tax_class=TaxClass(TC_VALUE[r["Steuerliche Einstufung"]]),
+                        tax_class_source=src or None, tax_class_verified=bool(src),
+                        fund_status=FundStatus(FS_VALUE[r["Meldefondsstatus"]]), fund_status_source=src or None,
+                        fund_status_verified=bool(src) and FS_VALUE[r["Meldefondsstatus"]] != FundStatus.UNKNOWN.value),
+                        reason="Tabelle „Offene Wertpapiere ergänzen“")
+                    saved += 1
+                except ValidationError as exc:
+                    problems.append((r["ISIN"], exc))
+            C.invalidate_results()
+            st.success(f"{saved} Wertpapier(e) gespeichert. Ohne Quelle bleiben sie als „ungeprüft“ markiert.")
+            for isin, exc in problems:
+                st.markdown(f"**{isin}:**")
+                C.form_error(exc)
+
+
 def securities() -> None:
     repo = C.ctx().repo
     C.year_selector()
@@ -36,13 +119,16 @@ def securities() -> None:
     st.caption("Wertpapierart und steuerliche Einstufung sind getrennte Felder. Eine Einstufung gilt nur als geprüft, "
                "wenn eine belastbare Quelle angegeben ist (z. B. Emittentenangabe, OeKB-Meldung, Steuerbescheinigung). "
                "Die Einstufung wird nie aus Ticker, Name oder der Bezeichnung REIT/BDC abgeleitet.")
+    _bulk_classify(repo)
+    st.subheader("Alle Wertpapiere")
     q = st.text_input("Suche (ISIN, Name, Ticker, WKN)")
     rows = repo.securities(q or None)
-    C.df([{"ISIN": s["isin"], "Name": s["name"], "Ticker": s["ticker"], "Art": s["security_type"],
-           "Steuerliche Einstufung": s["tax_class"], "Einstufung geprüft": bool(s["tax_class_verified"]),
-           "Quelle Einstufung": s["tax_class_source"], "Meldefondsstatus": s["fund_status"],
-           "Status geprüft": bool(s["fund_status_verified"]), "Quelle Status": s["fund_status_source"],
-           "Sitzstaat": s["country"], "Prüfstatus": s["review_status"]} for s in rows])
+    C.df([{"ISIN": s["isin"], "Name": s["name"] or "", "Art": s["security_type"],
+           "Steuerliche Einstufung": TC_LABEL.get(s["tax_class"], s["tax_class"]),
+           "Einstufung geprüft": "✅" if s["tax_class_verified"] else "–",
+           "Meldefondsstatus": FS_LABEL.get(s["fund_status"], s["fund_status"]),
+           "Quelle": s["tax_class_source"] or "", "Sitzstaat": s["country"] or "",
+           "Ticker": s["ticker"] or ""} for s in rows])
     isins = ["(neues Wertpapier)"] + [s["isin"] for s in rows]
     sel = st.selectbox("Bearbeiten", isins)
     cur = repo.security_by_isin(sel) if sel != "(neues Wertpapier)" else {}
@@ -68,7 +154,8 @@ def securities() -> None:
         tc_ver = cols[2].checkbox("Einstufung geprüft", bool(cur.get("tax_class_verified")))
         cols = st.columns(3)
         fss = [f.value for f in FundStatus]
-        fs = cols[0].selectbox("Meldefondsstatus", fss, index=fss.index(cur.get("fund_status", "kein_fonds")))
+        fs = cols[0].selectbox("Meldefondsstatus", fss, index=fss.index(cur.get("fund_status", "kein_fonds")),
+                               format_func=lambda v: FS_LABEL.get(v, v))
         fs_src = cols[1].text_input("Quelle Meldefondsstatus (z. B. OeKB-Suche vom …)", cur.get("fund_status_source")
                                     or "")
         fs_ver = cols[2].checkbox("Status geprüft", bool(cur.get("fund_status_verified")))
@@ -94,7 +181,7 @@ def securities() -> None:
                 st.success("Gespeichert")
                 st.rerun()
             except ValidationError as exc:
-                st.error("; ".join(e["msg"] for e in exc.errors()))
+                C.form_error(exc)
     if cur:
         with st.expander("Änderungshistorie"):
             C.df([a for a in repo.audit_entries() if a["entity"] == "security" and a["entity_id"] == cur["isin"]])
@@ -190,7 +277,7 @@ def funds() -> None:
                     C.invalidate_results()
                     st.success(f"Ergebnis: {res['status']} (Meldung #{res['id']})")
                 except ValidationError as exc:
-                    st.error("; ".join(e["msg"] for e in exc.errors()))
+                    C.form_error(exc)
     with tabs[3]:
         st.caption("Für die Pauschalbesteuerung von Nichtmeldefonds: erster und letzter Rücknahmepreis des "
                    "Kalenderjahres. Ob die Regel für das Jahr verifiziert ist, zeigt die Steuerberechnung.")
@@ -287,7 +374,7 @@ def transactions() -> None:
                             st.warning(f"Hinweis: ähnliche Buchungen vorhanden: "
                                        f"{[r['id'] for r in dup['exact'] + dup['possible']]}")
                     except ValidationError as exc:
-                        st.error("; ".join(e["msg"] for e in exc.errors()))
+                        C.form_error(exc)
     with tab_edit:
         if not rows:
             st.info("Keine Buchungen im Filter.")
@@ -334,6 +421,92 @@ def transactions() -> None:
 
 
 # --------------------------------------------------------------------------- #
+DOC_STATUS_LABEL = {"neu": "🔵 neu", "verarbeitet": "✅ verarbeitet", "teilweise": "🟡 teilweise",
+                    "pruefen": "🟡 zu prüfen", "fehlgeschlagen": "🔴 nicht lesbar", "ignoriert": "⚪ ignoriert"}
+
+
+def _open_documents(repo) -> list[dict]:
+    """Dokumente, die Aufmerksamkeit brauchen: nicht erledigt und ohne zugeordnete Buchung (alle Jahre)."""
+    return repo.db.query(
+        "SELECT d.* FROM documents d WHERE d.status IN ('neu','pruefen','teilweise','fehlgeschlagen') AND NOT EXISTS "
+        "(SELECT 1 FROM transactions t WHERE t.document_id=d.id AND t.deleted=0) AND NOT EXISTS "
+        "(SELECT 1 FROM document_links l WHERE l.document_id=d.id) ORDER BY d.tax_year DESC, d.id")
+
+
+def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = "") -> None:
+    from ..importers.pdf_importer import PdfError, extract_pdf
+    from .pages_import import pdf_review_form
+
+    did = doc["id"]
+    path = repo.document_path(doc)
+    b1, b2, b3 = st.columns(3)
+    with b1:
+        C.open_file_button(path, f"{prefix}open_{did}", "Original öffnen")
+    with b2:
+        C.download_button(path, f"{prefix}dl_{did}", "Original herunterladen")
+    with b3:
+        if doc["status"] != "verarbeitet" and st.button("Als erledigt markieren", key=f"{prefix}done_{did}",
+                                                        help="z. B. wenn das Dokument keine Buchung braucht"):
+            repo.update_document(did, status="verarbeitet")
+            repo.document_event(did, "manuell erledigt")
+            st.rerun()
+    if doc["file_type"] == "pdf":
+        try:
+            exd = extract_pdf(path.read_bytes()).to_dict()  # immer aktuell auslesen
+        except (PdfError, OSError) as exc:
+            st.error(f"Die Datei kann nicht gelesen werden ({exc}). Werte bitte manuell unter **Transaktionen** "
+                     "erfassen und das Dokument danach hier als erledigt markieren.")
+            exd = None
+        if exd:
+            exd.setdefault("status_text", "")
+            if review_first:
+                pdf_review_form(doc, exd, None, key=f"{prefix}doc{did}")
+            else:
+                with st.expander("Prüfbericht und Buchung anlegen"):
+                    pdf_review_form(doc, exd, None, key=f"{prefix}doc{did}")
+    elif doc["file_type"] in ("csv", "txt", "xlsx"):
+        st.info("CSV/Excel-Dateien werden über **Import (erweitert)** mit Spaltenzuordnung eingelesen. Datei dort "
+                "erneut auswählen – Dubletten werden erkannt.")
+        C.link("import", "Zum Import")
+    with st.expander("Ablage, Zuordnung und Verlauf"):
+        st.write(f"**Speicherort:** `{path}`  \n**SHA-256:** `{doc['sha256']}`  \n**Importiert:** "
+                 f"{doc['imported_at']} ({doc['import_method']})")
+        with st.form(f"{prefix}doc_edit_{did}"):
+            st.caption("Ändert nur Ablageort und Metadaten – der Dateiinhalt bleibt unverändert.")
+            cols = st.columns(4)
+            ny = cols[0].number_input("Steuerjahr", 2000, 2100, value=int(doc["tax_year"] or y))
+            ns = cols[1].selectbox("Quelle", DOC_SOURCES, index=DOC_SOURCES.index(doc["source"]))
+            nt = cols[2].selectbox("Typ", DOC_TYPES, index=DOC_TYPES.index(doc["doc_type"]) if doc["doc_type"]
+                                   in DOC_TYPES else DOC_TYPES.index("Unbekannt"))
+            nst = cols[3].selectbox("Status", DOC_STATUS, index=DOC_STATUS.index(doc["status"]),
+                                    format_func=lambda v: DOC_STATUS_LABEL.get(v, v))
+            notes = st.text_input("Notiz", doc["notes"] or "")
+            if st.form_submit_button("Speichern"):
+                try:
+                    repo.update_document(did, tax_year=int(ny), source=ns, doc_type=nt, status=nst,
+                                         notes=notes or None)
+                    st.success("Gespeichert")
+                    st.rerun()
+                except OSError as exc:
+                    st.error(f"Datei konnte nicht verschoben werden: {exc}")
+        st.markdown("**Zugeordnete Buchungen**")
+        C.df([{"ID": t["id"], "Datum": t["trade_date"], "Art": t["tx_type"], "ISIN": t["isin"],
+               "Betrag": t["amount"]} for t in repo.transactions_for_document(did)])
+        all_tx = repo.transactions(int(doc["tax_year"]) if doc["tax_year"] else None)
+        if all_tx:
+            cols = st.columns([3, 1])
+            tsel = cols[0].selectbox("Bestehende Buchung als Beleg zuordnen", [t["id"] for t in all_tx],
+                                     format_func=lambda i: next(f"#{t['id']} {t['trade_date']} {t['tx_type']} "
+                                                                f"{t['isin'] or ''} {t['amount']}" for t in all_tx
+                                                                if t["id"] == i), key=f"{prefix}link_{did}")
+            if cols[1].button("Zuordnen", key=f"{prefix}linkbtn_{did}"):
+                repo.link_document(did, int(tsel))
+                repo.update_document(did, status="verarbeitet")
+                st.rerun()
+        st.markdown("**Verlauf**")
+        C.df(repo.document_events(did))
+
+
 def documents() -> None:
     c = C.ctx()
     repo = c.repo
@@ -341,85 +514,45 @@ def documents() -> None:
     st.title("Dokumente")
     if "last_process_results" in st.session_state:
         C.show_process_results(st.session_state.pop("last_process_results"))
-    open_pdfs = repo.db.query(
-        "SELECT d.id FROM documents d WHERE d.file_type='pdf' AND d.status<>'ignoriert' AND NOT EXISTS "
-        "(SELECT 1 FROM transactions t WHERE t.document_id=d.id AND t.deleted=0) AND NOT EXISTS "
-        "(SELECT 1 FROM document_links l WHERE l.document_id=d.id)")
-    if open_pdfs:
-        with st.container(border=True):
-            st.markdown(f"**{len(open_pdfs)} PDF-Dokument(e) ohne Buchung.** Vollständig erkannte Abrechnungen können "
-                        "automatisch übernommen werden; der Rest bleibt mit Grund im Status „pruefen“.")
-            deps = C.depot_options()
-            cols = st.columns([2, 1])
-            dflt = cols[0].selectbox("Standarddepot, falls das Depot nicht eindeutig ist", ["—"] + list(deps),
-                                     key="doc_dflt_depot")
-            if cols[1].button("Offene PDFs automatisch verarbeiten", type="primary"):
-                from ..processing import process_documents
-                C.after_processing(process_documents(repo, [d["id"] for d in open_pdfs], deps.get(dflt)))
-    cols = st.columns(5)
-    fy = cols[0].selectbox("Steuerjahr", ["alle"] + c.settings.tax_years,
-                           index=(c.settings.tax_years.index(y) + 1) if y in c.settings.tax_years else 0)
-    fs = cols[1].selectbox("Quelle/Broker", ["alle"] + DOC_SOURCES)
-    ft = cols[2].selectbox("Typ", ["alle"] + DOC_TYPES)
-    fst = cols[3].selectbox("Status", ["alle"] + DOC_STATUS)
-    q = cols[4].text_input("Suche (Name/Hash)")
-    docs = repo.documents(None if fy == "alle" else int(fy), None if fs == "alle" else fs,
-                          None if ft == "alle" else ft, q or None, None if fst == "alle" else fst)
-    C.df([{"ID": d["id"], "Datei": d["original_filename"], "Typ": d["doc_type"], "Quelle": d["source"],
-           "Jahr": d["tax_year"], "Importiert": d["imported_at"], "Status": d["status"], "Buchungen": d["tx_count"],
-           "SHA-256": d["sha256"][:16] + "…", "Pfad": d["stored_path"]} for d in docs])
-    if not docs:
-        return
-    did = st.selectbox("Dokument", [d["id"] for d in docs],
-                       format_func=lambda i: next(f"#{d['id']} {d['original_filename']}" for d in docs if d["id"] == i))
-    doc = repo.document(did)
-    path = repo.document_path(doc)
-    st.write(f"**Speicherort:** `{path}`  \n**SHA-256:** `{doc['sha256']}`  \n**Importiert:** {doc['imported_at']} "
-             f"({doc['import_method']})")
-    b1, b2 = st.columns(2)
-    with b1:
-        C.open_file_button(path, f"open_{did}")
-    with b2:
-        C.download_button(path, f"dl_{did}", "Original herunterladen")
-    with st.form(f"doc_edit_{did}"):
-        st.caption("Kategorisierung/Verschiebung ändert nur Ablageort und Metadaten – der Dateiinhalt bleibt unverändert.")
-        cols = st.columns(4)
-        ny = cols[0].number_input("Steuerjahr", 2000, 2100, value=int(doc["tax_year"] or y))
-        ns = cols[1].selectbox("Quelle", DOC_SOURCES, index=DOC_SOURCES.index(doc["source"]))
-        nt = cols[2].selectbox("Typ", DOC_TYPES, index=DOC_TYPES.index(doc["doc_type"]) if doc["doc_type"] in DOC_TYPES
-                               else DOC_TYPES.index("Unbekannt"))
-        nst = cols[3].selectbox("Status", DOC_STATUS, index=DOC_STATUS.index(doc["status"]))
-        notes = st.text_input("Notiz", doc["notes"] or "")
-        if st.form_submit_button("Speichern"):
-            try:
-                repo.update_document(did, tax_year=int(ny), source=ns, doc_type=nt, status=nst, notes=notes or None)
-                st.success("Gespeichert")
-                st.rerun()
-            except OSError as exc:
-                st.error(str(exc))
-    st.subheader("Zugeordnete Transaktionen")
-    C.df([{"ID": t["id"], "Datum": t["trade_date"], "Art": t["tx_type"], "ISIN": t["isin"], "Betrag": t["amount"]}
-          for t in repo.transactions_for_document(did)])
-    all_tx = repo.transactions(int(doc["tax_year"]) if doc["tax_year"] else None)
-    if all_tx:
-        cols = st.columns([3, 1])
-        tsel = cols[0].selectbox("Transaktion zuordnen", [t["id"] for t in all_tx],
-                                 format_func=lambda i: next(f"#{t['id']} {t['trade_date']} {t['tx_type']} "
-                                                            f"{t['isin'] or ''} {t['amount']}" for t in all_tx
-                                                            if t["id"] == i))
-        if cols[1].button("Zuordnen"):
-            repo.link_document(did, int(tsel))
-            st.rerun()
-    if doc["file_type"] == "pdf":
-        with st.expander("PDF-Extraktion prüfen / Buchung anlegen", expanded=doc["status"] in ("pruefen", "neu")):
-            from .pages_import import pdf_review_form
-            from ..importers.pdf_importer import PdfError, extract_pdf
-            try:
-                exd = extract_pdf(path.read_bytes()).to_dict()  # immer aktuell auslesen
-            except (PdfError, OSError) as exc:
-                st.error(f"PDF nicht lesbar: {exc}")
-                return
-            exd.setdefault("status_text", "")
-            pdf_review_form(doc, exd, None, key=f"doc{did}")
-    with st.expander("Verlauf"):
-        C.df(repo.document_events(did))
+    open_docs = _open_documents(repo)
+    tab_open, tab_all = st.tabs([f"🟡 Zu prüfen ({len(open_docs)})", "Alle Dokumente"])
+    with tab_open:
+        if not open_docs:
+            st.success("Alle Dokumente sind verarbeitet. 🎉 Neue Dokumente fügen Sie auf der Übersicht hinzu.")
+        else:
+            st.caption("Diese Dokumente konnten nicht automatisch gebucht werden. Wählen Sie eines aus: Der Prüfbericht "
+                       "zeigt, was fehlt oder nicht stimmt, und darunter können Sie die Werte ergänzen.")
+            pdf_ids = [d["id"] for d in open_docs if d["file_type"] == "pdf"]
+            if pdf_ids:
+                deps = C.depot_options()
+                cols = st.columns([2, 1])
+                dflt = cols[0].selectbox("Depot, falls nicht eindeutig", ["automatisch"] + list(deps),
+                                         key="doc_dflt_depot")
+                if cols[1].button("Alle erneut automatisch prüfen", help="Nach Ergänzungen (z. B. neues Depot) "
+                                  "noch einmal versuchen"):
+                    from ..processing import process_documents
+                    C.after_processing(process_documents(repo, pdf_ids, deps.get(dflt)))
+            did = st.radio("Dokument", [d["id"] for d in open_docs], key="open_doc_sel",
+                           format_func=lambda i: next(
+                               f"{DOC_STATUS_LABEL.get(d['status'], d['status'])} · {d['original_filename']} "
+                               f"({d['doc_type']}, {d['tax_year'] or 'ohne Jahr'})" for d in open_docs if d["id"] == i))
+            st.divider()
+            _document_detail(repo, repo.document(did), y, review_first=True, prefix="o_")
+    with tab_all:
+        cols = st.columns(5)
+        fy = cols[0].selectbox("Steuerjahr", ["alle"] + c.settings.tax_years,
+                               index=(c.settings.tax_years.index(y) + 1) if y in c.settings.tax_years else 0)
+        fs = cols[1].selectbox("Quelle/Broker", ["alle"] + DOC_SOURCES)
+        ft = cols[2].selectbox("Typ", ["alle"] + DOC_TYPES)
+        fst = cols[3].selectbox("Status", ["alle"] + DOC_STATUS, format_func=lambda v: DOC_STATUS_LABEL.get(v, v))
+        q = cols[4].text_input("Suche (Name/Hash)")
+        docs = repo.documents(None if fy == "alle" else int(fy), None if fs == "alle" else fs,
+                              None if ft == "alle" else ft, q or None, None if fst == "alle" else fst)
+        C.df([{"Status": DOC_STATUS_LABEL.get(d["status"], d["status"]), "Datei": d["original_filename"],
+               "Typ": d["doc_type"], "Quelle": d["source"], "Jahr": d["tax_year"], "Buchungen": d["tx_count"],
+               "Importiert": d["imported_at"], "ID": d["id"]} for d in docs])
+        if docs:
+            did2 = st.selectbox("Dokument öffnen", [d["id"] for d in docs], key="all_doc_sel",
+                                format_func=lambda i: next(f"{d['original_filename']} (#{d['id']})" for d in docs
+                                                           if d["id"] == i))
+            _document_detail(repo, repo.document(did2), y, review_first=False, prefix="a_")

@@ -16,6 +16,16 @@ from ..tax.rules import YearNotSupported, load_rules
 
 log = logging.getLogger("kest_tool.ui")
 
+PAGES: dict = {}   # url_path -> st.Page (wird in app.py gesetzt)
+
+
+def link(page: str, label: str, icon: str = "➡️") -> None:
+    """Link auf eine andere Seite der Anwendung (falls registriert)."""
+    target = PAGES.get(page)
+    if target is not None:
+        st.page_link(target, label=label, icon=icon)
+
+
 DISCLAIMER = ("Arbeitshilfe zur Vorbereitung der Einkommensteuererklärung – ersetzt keine Steuerberatung. "
               "Es wird nichts an FinanzOnline übermittelt.")
 
@@ -66,18 +76,35 @@ def year_selector(location=st.sidebar) -> int:
 
 
 def show_process_results(results) -> None:
-    """Zeigt das Ergebnis der PDF-Stapelverarbeitung je Datei mit Status."""
+    """Zeigt das Ergebnis der Dokumentverarbeitung je Datei mit Status und „Was tun?“."""
     if not results:
         st.info("Keine offenen PDF-Dokumente.")
         return
-    icons = {"angelegt": "✅", "dublette": "🔁", "pruefen": "🟡", "uebersprungen": "⏭️", "fehler": "🔴"}
+    icons = {"angelegt": "✅", "dublette": "🔁", "beleg": "📎", "pruefen": "🟡", "uebersprungen": "⏭️", "fehler": "🔴"}
+    labels = {"angelegt": "Buchung angelegt", "dublette": "schon vorhanden", "beleg": "als Beleg abgelegt",
+              "pruefen": "bitte prüfen", "uebersprungen": "übersprungen", "fehler": "Fehler"}
     n_ok = sum(1 for r in results if r.status == "angelegt")
-    n_rev = sum(1 for r in results if r.status == "pruefen")
-    (st.success if n_ok else st.warning)(
-        f"{n_ok} Buchung(en) angelegt · {n_rev} Dokument(e) brauchen Ihre Prüfung (Seite Dokumente) · "
-        f"{sum(1 for r in results if r.status == 'dublette')} bereits vorhanden")
-    df([{"": icons.get(r.status, ""), "Datei": r.filename, "Status": r.status, "Ergebnis / Grund": r.message}
-        for r in results])
+    n_rev = sum(1 for r in results if r.status in ("pruefen", "fehler"))
+    parts = [f"{n_ok} Buchung(en) angelegt"]
+    if n_rev:
+        parts.append(f"{n_rev} Dokument(e) brauchen Ihre Prüfung")
+    if any(r.status == "dublette" for r in results):
+        parts.append(f"{sum(1 for r in results if r.status == 'dublette')} bereits vorhanden")
+    (st.success if not n_rev else st.warning)(" · ".join(parts))
+    for r in results:
+        if r.status in ("pruefen", "fehler"):
+            with st.container(border=True):
+                st.markdown(f"{icons[r.status]} **{r.filename}** – {labels[r.status]}  \n{r.message}")
+                if getattr(r, "action", ""):
+                    st.markdown(f"**Was tun?** {r.action}")
+    done = [r for r in results if r.status not in ("pruefen", "fehler")]
+    if done:
+        with st.expander(f"Erfolgreich verarbeitet ({len(done)})", expanded=len(done) <= 10):
+            for r in done:
+                st.markdown(f"{icons.get(r.status, '')} **{r.filename}** – {labels.get(r.status, r.status)}: "
+                            f"{r.message}" + (f"  \n→ {r.action}" if getattr(r, "action", "") else ""))
+    if n_rev:
+        link("dokumente", "Zu prüfende Dokumente öffnen und Werte ergänzen")
     invalidate_results()
 
 
@@ -171,12 +198,12 @@ def status_panel(y: int, key: str) -> None:
         if miss["nmf"]:
             rows.append(("🔴", "Kurse Nichtmeldefonds fehlen", f"{len(miss['nmf'])} Fonds ohne ersten/letzten Kurs {y} "
                                                                "– Schaltfläche unten oder Fonds & OeKB"))
-        if miss["year_end"]:
-            rows.append(("🟡", "Kurse zum 31.12. fehlen", f"{len(miss['year_end'])} Wertpapier(e) – nur für die "
+        if miss["year_end"] and price_service().provider.available:
+            rows.append(("ℹ️", "Kurse zum 31.12. fehlen", f"{len(miss['year_end'])} Wertpapier(e) – nur für die "
                                                           "Bestandsbewertung, nicht steuerrelevant"))
         n_open = len(stt["docs_open"])
         rows.append(("🟡" if n_open else "✅", "Dokumente ohne Buchung",
-                     f"{n_open} – unten automatisch verarbeiten oder auf der Seite **Dokumente** prüfen"
+                     f"{n_open} – auf der Seite **Dokumente** öffnen; dort zeigt der Prüfbericht, was fehlt"
                      if n_open else "keine"))
         if res:
             s = res.summary
@@ -191,12 +218,30 @@ def status_panel(y: int, key: str) -> None:
             warns = sum(1 for i in res.issues if i.severity == "Warnung")
             rows.append(("🔴" if errs else ("🟡" if warns else "✅"), "Prüfhinweise",
                          f"{errs} Fehler, {warns} Warnungen – Details: **Steuerberechnung → Prüfhinweise**"))
+        targets = {"Dokumente ohne Buchung": "dokumente", "Prüfhinweise": "steuer", "Depots angelegt": "depots",
+                   "Kurse Nichtmeldefonds fehlen": "fonds"}
         for icon, label, text in rows:
-            st.markdown(f"{icon} **{label}:** {text}")
+            if icon in ("✅", "🟢") or label not in targets:
+                st.markdown(f"{icon} **{label}:** {text}")
+            else:
+                cols = st.columns([5, 2])
+                cols[0].markdown(f"{icon} **{label}:** {text}")
+                with cols[1]:
+                    link(targets[label], "Öffnen")
+        from .guide import data_check
+        checks = data_check(y)
+        if checks:
+            st.markdown("**Datenprüfung – das sollten Sie noch ergänzen:**")
+            for icon, topic, text, page in checks:
+                cols = st.columns([5, 2])
+                cols[0].markdown(f"{icon} **{topic}:** {text}")
+                with cols[1]:
+                    link(page, "Beheben")
         if n_fx and st.button(f"Devisenkurse für {n_fx} Buchung(en) von der EZB ergänzen", key=f"fx_{key}"):
             fill_fx(y, allow_download=True)
             tax_result(y, force=True)
-        if (miss["nmf"] or miss["year_end"]) and st.button("Wertpapierkurse automatisch laden", key=f"px_{key}"):
+        if (miss["nmf"] or (miss["year_end"] and price_service().provider.available)) and \
+                st.button("Wertpapierkurse automatisch laden", key=f"px_{key}"):
             fill_prices(y)
             tax_result(y, force=True)
         pdf_open = [d for d in stt["docs_open"] if d["file_type"] == "pdf"]
@@ -205,8 +250,7 @@ def status_panel(y: int, key: str) -> None:
             cols = st.columns([2, 1])
             dflt = cols[0].selectbox("Standarddepot, falls das Depot nicht eindeutig ist", ["—"] + list(deps),
                                      key=f"dflt_depot_{key}")
-            if cols[1].button(f"{len(pdf_open)} offene PDFs automatisch verarbeiten", key=f"proc_{key}",
-                              type="primary"):
+            if cols[1].button(f"{len(pdf_open)} offene PDF(s) erneut verarbeiten", key=f"proc_{key}"):
                 results = process_documents(c.repo, [d["id"] for d in pdf_open], deps.get(dflt))
                 after_processing(results)
         if "last_process_results" in st.session_state:
@@ -336,3 +380,38 @@ def auto_fill_prices(y: int) -> None:
     if (miss["nmf"] or miss["year_end"]) and not st.session_state.get(marker):
         st.session_state[marker] = True
         fill_prices(y)
+
+
+FIELD_DE = {
+    "isin": "ISIN", "trade_date": "Datum", "quantity": "Stückzahl", "price": "Kurs", "amount": "Betrag",
+    "fees": "Gebühren", "currency": "Währung", "fx_rate": "Devisenkurs", "withholding_tax": "Quellensteuer",
+    "withholding_country": "Quellenstaat", "kest_at_eur": "KESt", "ratio": "Split-Verhältnis", "depot_id": "Depot",
+    "tx_type": "Buchungsart", "report_date": "Meldedatum", "age_per_unit": "AgE je Anteil", "name": "Name",
+    "tax_class_source": "Quelle der Einstufung", "fund_status_source": "Quelle des Meldefondsstatus",
+}
+MSG_DE = [
+    (r"^Value error, ", ""), (r"^Field required$", "fehlt"), (r"Input should be greater than 0", "muss größer als 0 sein"),
+    (r"Input should be a valid date.*", "ist kein gültiges Datum"), (r"Input should be a valid number.*",
+                                                                      "ist keine gültige Zahl"),
+    (r"String should have at most (\d+) characters", r"darf höchstens \1 Zeichen haben"),
+]
+
+
+def form_error(exc: Exception) -> None:
+    """Zeigt Validierungsfehler verständlich: je Feld eine Zeile auf Deutsch."""
+    import re
+
+    from pydantic import ValidationError
+
+    if not isinstance(exc, ValidationError):
+        st.error(f"Eingabe nicht übernommen: {exc}")
+        return
+    lines = []
+    for e in exc.errors():
+        msg = str(e.get("msg", ""))
+        for rx, repl in MSG_DE:
+            msg = re.sub(rx, repl, msg)
+        loc = [str(x) for x in e.get("loc", ()) if str(x) not in ("__root__",)]
+        field = FIELD_DE.get(loc[-1], loc[-1]) if loc else ""
+        lines.append(f"- **{field}:** {msg}" if field else f"- {msg}")
+    st.error("Bitte korrigieren:\n" + "\n".join(lines))

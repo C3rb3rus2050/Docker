@@ -65,7 +65,10 @@ def _source_for_depot(depot_id: int | None) -> str:
 def render() -> None:
     c = C.ctx()
     y = C.year_selector()
-    st.title("Import")
+    st.title("Import (erweitert)")
+    st.info("Für PDFs und ZIP-Archive genügt das Feld **„Dokumente hinzufügen“** auf der Übersicht. Diese Seite brauchen "
+            "Sie für CSV/Excel-Exporte (Spaltenzuordnung), OeKB-Daten und Ordner auf der Festplatte.")
+    C.link("dashboard", "Zur Übersicht")
     st.caption("Originaldateien werden unverändert in der Ablage gespeichert. Erneut importierte Dateien werden über "
                "SHA-256 erkannt. Vor jedem Import wird eine Vorschau angezeigt.")
     if "last_process_results" in st.session_state:
@@ -218,16 +221,24 @@ def pdf_review_form(doc: dict, extraction: dict, depot_id: int | None, key: str)
         fld = f.get(name)
         return f" (Konfidenz {fld['confidence']:.0%})" if fld else " (nicht gefunden)"
 
-    st.write(f"Broker: **{extraction.get('broker')}** · Dokumenttyp: **{extraction.get('doc_type')}** · "
-             f"Status: **{extraction.get('status_text', '')}**")
-    if extraction.get("missing"):
-        st.error("Fehlende Pflichtwerte: " + ", ".join(extraction["missing"]))
-    for w in extraction.get("warnings", []):
-        st.warning(w)
+    broker = {"TradeRepublic": "Trade Republic", "ScalableCapital": "Scalable Capital", "OeKB": "OeKB"}.get(
+        extraction.get("broker"), "nicht erkannt")
+    st.write(f"Erkannter Broker: **{broker}** · Dokumenttyp: **{extraction.get('doc_type')}**"
+             + (f" · {extraction['status_text']}" if extraction.get("status_text") else ""))
+    from .guide import show_check_report
+    if extraction.get("checks"):
+        show_check_report(extraction["checks"])
+    else:
+        if extraction.get("missing"):
+            st.error("Fehlende Pflichtwerte: " + ", ".join(extraction["missing"]))
+        for w in extraction.get("warnings", []):
+            st.warning(w)
     if not extraction.get("creates_transaction", True):
-        st.info("Dieses Dokument erzeugt keine einzelne Buchung. Es ist abgelegt und kann Buchungen als Beleg "
-                "zugeordnet werden (Seite Dokumente).")
+        st.info("Dieses Dokument erzeugt keine einzelne Buchung. Es bleibt als Beleg abgelegt und kann Buchungen "
+                "zugeordnet werden (unten auf der Seite Dokumente).")
         return
+    st.caption("Felder mit Konfidenz unter 80 % bzw. „nicht gefunden“ bitte mit dem Original vergleichen. Erst mit "
+               "„Als Buchung übernehmen“ wird gebucht.")
     deps = C.depot_options()
     with st.form(f"pdfform_{key}"):
         dl = list(deps)
@@ -271,7 +282,7 @@ def pdf_review_form(doc: dict, extraction: dict, depot_id: int | None, key: str)
                                review_status=ReviewStatus.CHECKED if checked and extraction.get("complete")
                                else ReviewStatus.TO_REVIEW)
         except ValidationError as exc:
-            st.error("; ".join(e["msg"] for e in exc.errors()))
+            C.form_error(exc)
             return
         dup = repo.find_duplicates(tx)
         if dup["exact"]:
@@ -294,24 +305,13 @@ def pdf_review_form(doc: dict, extraction: dict, depot_id: int | None, key: str)
 
 
 def _store_pdf(data: bytes, name: str, y: int, depot_id: int | None, method: str) -> tuple[dict, dict, bool]:
-    repo = C.ctx().repo
+    from ..processing import store_pdf
     try:
-        ex = extract_pdf(data, C.ctx().settings.get("pdf.engine", "auto"))
+        return store_pdf(C.ctx().repo, data, name, y, method, _source_for_depot(depot_id),
+                         C.ctx().settings.get("pdf.engine", "auto"))
     except PdfError as exc:
-        st.error(f"{name}: {exc}")
+        st.error(f"„{name}“ ist keine lesbare PDF-Datei ({exc}).")
         raise
-    exd = ex.to_dict()
-    exd["status_text"] = {"vollstaendig": "alle Pflichtwerte erkannt – trotzdem prüfen",
-                          "unvollstaendig": "unvollständig/unsicher – manuelle Prüfung erforderlich",
-                          "pruefen": "Beleg ohne Einzelbuchung – manuell prüfen",
-                          "fehlgeschlagen": "keine Werte erkannt"}[ex.status]
-    year = ex.value("trade_date").year if ex.value("trade_date") else y
-    source = ex.broker if ex.broker in DOC_SOURCES else _source_for_depot(depot_id)
-    doc, new = repo.add_document(data, name, doc_type=ex.doc_type, source=source, tax_year=year,
-                                 import_method=method, status="pruefen" if ex.status != "vollstaendig" else "neu")
-    if new:
-        repo.update_document(doc["id"], extraction_json=json.dumps(exd, ensure_ascii=False, default=str))
-    return repo.document(doc["id"]), exd, new
 
 
 def _pdf_import(y: int, deps: dict) -> None:
@@ -462,7 +462,7 @@ def _oekb_pdf(y: int) -> None:
                                age_per_unit=age, creditable_tax_per_unit=cred or None, ak_correction_per_unit=akk,
                                currency=cur, fx_rate=fx or None, source="import_pdf")
         except ValidationError as exc:
-            st.error("; ".join(e["msg"] for e in exc.errors()))
+            C.form_error(exc)
             return
         doc, _ = repo.add_document(data, up.name, doc_type="OeKB-Fondsmeldung", source="OeKB", tax_year=rdate.year,
                                    import_method="oekb-pdf")

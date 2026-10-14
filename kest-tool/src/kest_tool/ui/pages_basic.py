@@ -18,19 +18,23 @@ from . import common as C
 
 
 def dashboard() -> None:
+    from .guide import quickstart, upload_box
+
     c = C.ctx()
     y = C.year_selector()
-    st.title(f"Dashboard – Steuerjahr {y}")
+    st.title(f"Übersicht – Steuerjahr {y}")
     st.caption(C.DISCLAIMER)
+    first_run = quickstart()
     s = c.repo.stats(y)
-    cols = st.columns(5)
-    cols[0].metric("Broker", s["brokers"])
-    cols[1].metric("Depots", s["depots"])
-    cols[2].metric(f"Dokumente {y}", s["documents"], help=f"insgesamt {s['documents_total']}")
-    cols[3].metric(f"Transaktionen {y}", s["transactions"])
-    cols[4].metric("Offene Konflikte", s["open_conflicts"])
-    force = st.button("Neu berechnen")
-    if force:
+    upload_box(y, "dash", expanded=first_run or not s["transactions"])
+    if s["depots"]:
+        cols = st.columns(5)
+        cols[0].metric("Broker", s["brokers"])
+        cols[1].metric("Depots", s["depots"])
+        cols[2].metric(f"Dokumente {y}", s["documents"], help=f"insgesamt {s['documents_total']}")
+        cols[3].metric(f"Buchungen {y}", s["transactions"])
+        cols[4].metric("Offene Konflikte", s["open_conflicts"])
+    if st.button("Neu berechnen", help="Ergebnis nach Änderungen neu berechnen"):
         C.tax_result(y, force=True)
     C.auto_fill_fx(y)
     C.auto_fill_prices(y)
@@ -58,7 +62,7 @@ def dashboard() -> None:
         r = runs[0]
         st.write(f"**Letzter Import:** #{r['id']} {r['import_type']} am {r['started_at']} – Status "
                  f"**{r['status']}** ({r.get('message') or ''})")
-    if res and st.button("Excel-Export erstellen", type="primary"):
+    if res and res.lines and st.button("Excel-Export erstellen", type="primary"):
         p = export_excel(c.repo, c.store, res)
         st.success(f"Gespeichert: {p}")
         C.download_button(p, "dash_dl")
@@ -106,7 +110,12 @@ def brokers() -> None:
         st.subheader(f"Steuerliche Einstellungen je Depot für {y}")
         st.caption("Für jedes Steuerjahr getrennt: Führt der Broker österreichische KESt ab bzw. einen "
                    "Verlustausgleich durch? Diese Angaben verhindern Doppelzählungen und werden nicht auf andere "
-                   "Jahre übertragen. Quelle angeben (z. B. Jahressteuerbescheinigung).")
+                   "Jahre übertragen.")
+        st.info("**So finden Sie es heraus:** Steht auf Ihren Abrechnungen bzw. der Jahressteuerbescheinigung eine "
+                "Zeile „Kapitalertragsteuer Österreich“/„KESt“, führt der Broker österreichische KESt ab → **ja**. "
+                "Fehlt sie (typisch bei ausländischen Brokern ohne österreichische Steuerabwicklung) → **nein**. "
+                "Unsicher → **unbekannt** lassen; das Tool rechnet dann wie bei einem ausländischen Depot und zeigt "
+                "einen Hinweis.")
         rows = []
         for d in deps:
             s = repo.depot_tax_settings(d["id"], y)

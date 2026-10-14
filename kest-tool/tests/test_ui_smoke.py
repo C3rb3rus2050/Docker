@@ -41,7 +41,7 @@ def _run(at: AppTest) -> AppTest:
 
 def test_all_pages_render(demo_home):
     at = _run(AppTest.from_file(APP, default_timeout=120))
-    assert any("Dashboard" in t.value for t in at.title)
+    assert any("Übersicht" in t.value for t in at.title)
     for page in PAGES:
         _goto(at, page)
         _run(at)
@@ -67,3 +67,19 @@ def test_dashboard_excel_button(demo_home):
     btn.click()
     _run(at)
     assert list((demo_home / "exports" / "2024" / "excel").glob("KESt_Auswertung_2024_*.xlsx"))
+
+
+def test_quickstart_creates_depots(tmp_path, monkeypatch):
+    home = tmp_path / "leer"
+    monkeypatch.setenv("KEST_TOOL_HOME", str(home))
+    at = _run(AppTest.from_file(APP, default_timeout=120))
+    assert any("Schnellstart" in s.value for s in at.subheader)
+    at.checkbox[1].check()                                   # Scalable Capital zusätzlich zu Trade Republic
+    [b for b in at.button if b.label == "Depots anlegen"][0].click()
+    _run(at)
+    from kest_tool.db import Database
+    db = Database(home / "database" / "kest_tool.db")
+    assert {r["name"] for r in db.query("SELECT name FROM depots")} == {"Trade Republic Depot",
+                                                                         "Scalable Capital Depot"}
+    db.close()
+    assert not any("Schnellstart" in s.value for s in at.subheader)

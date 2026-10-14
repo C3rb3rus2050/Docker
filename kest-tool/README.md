@@ -95,18 +95,70 @@ Regeln der Ablage:
 
 ## Bedienung
 
+**In drei Schritten:**
+
+1. **Schnellstart** auf der Übersicht: Broker anhaken (Trade Republic, Scalable Capital, anderer) → Depots werden
+   angelegt. Das geht auch automatisch: Lädt man Abrechnungen hoch, legt das Tool erkannte Broker samt Depot selbst an.
+2. **Dokumente hinzufügen** (Übersicht): PDFs, ZIP-Archive (z. B. vom Broker Document Collector) und CSV-Dateien in
+   *ein* Feld ziehen. Jedes PDF wird gelesen und geprüft. Ist alles sicher erkannt und stimmig, entsteht automatisch
+   eine Buchung. Alles andere landet unter **Dokumente → Zu prüfen**, mit Prüfbericht und „Was tun?“.
+3. **Status und Datenprüfung** auf der Übersicht abarbeiten (jeweils mit „Beheben“-Link), dann **Excel-Export**.
+
+Die Navigation folgt diesen Schritten: *Daten erfassen* (Import, Dokumente, Transaktionen) → *Daten ergänzen*
+(Wertpapiere, Fonds & OeKB, Broker & Depots) → *Ergebnis* (Steuerberechnung, Exporte).
+
+**Prüfbericht je Dokument:** Jedes PDF wird mehrfach geprüft. Jede Prüfung zeigt ✅/ℹ️/⚠️/❌ und bei Problemen einen
+konkreten Hinweis „Was tun?“. Fehler und Warnungen verhindern die automatische Buchung. Geprüft wird:
+
+- Pflichtfelder je Buchungsart, mit Konfidenz
+- eindeutige ISIN mit gültiger Prüfziffer
+- Datum plausibel (nicht in der Zukunft)
+- Stück × Kurs = Kurswert
+- Endbetrag = Kurswert ± Gebühren und Steuern, bei Dividenden einschließlich Devisenkurs
+- Quellensteuersatz plausibel und Quellenstaat vorhanden
+- Gebühren nicht ungewöhnlich hoch
+
+Sonderfälle werden erkannt und nie automatisch gebucht:
+
+- **Storno** – die ursprüngliche Buchung muss korrigiert werden
+- **Kapitalmaßnahmen** (Split, Abspaltung, Umtausch …)
+- **Steuerkorrekturen**
+- **deutsche Abzugsteuern** (Kapitalertragsteuer/Solidaritätszuschlag/Kirchensteuer): Sie werden *nicht* als
+  österreichische KESt übernommen, das Tool weist auf eine mögliche Erstattung hin
+
+Reine Informationsdokumente (Kosteninformation, Depot-/Kontoauszug, deutsche Vorabpauschale) werden als Beleg
+abgelegt.
+
+**Datenprüfung:** Die Übersicht listet Lücken, die das Ergebnis verfälschen können:
+
+- fehlende Depot-Steuereinstellungen für das Jahr
+- ungeprüfte Wertpapier-Einstufungen
+- Fonds ohne Meldefondsstatus
+- Quellensteuer ohne Quellenstaat
+- Buchungen mit Prüfkennzeichen
+- offene Konflikte
+- Verkäufe ohne Kaufhistorie
+
+**Wertpapiere ergänzen:** Eine Tabelle zeigt alle offenen Wertpapiere zum gemeinsamen Ausfüllen. Vorschläge (Art aus
+dem Namen, Sitzstaat aus dem ISIN-Länderkürzel) sind nur Hilfen. Als geprüft gilt eine Zeile erst mit Quellenangabe.
+
+**Verständliche Meldungen:** Prüfhinweise der Steuerberechnung haben eine Spalte „Was tun?“ und Links zur
+richtigen Seite, auch im Excel-Prüfprotokoll. Eingabefehler werden je Feld auf Deutsch angezeigt. Unerwartete
+Fehler zeigen eine verständliche Seite mit Hinweis statt eines technischen Tracebacks; die Details stehen im
+Anwendungslog.
+
 | Seite | Funktionen |
 |---|---|
-| **Dashboard** | Steuerjahr, Anzahl Broker/Depots/Dokumente/Transaktionen, Erträge, Gewinne/Verluste, Quellensteuer, offene Prüfungen, letzter Import, Excel-Export |
-| **Broker & Depots** | Broker und Depots anlegen und deaktivieren. **Je Steuerjahr** festlegen, ob der Broker österreichische KESt abführt bzw. einen Verlustausgleich durchführt (wichtig gegen Doppelzählungen). Importhistorie |
-| **Import** | CSV/Excel mit Spaltenzuordnung und Vorschau, PDF-Abrechnungen mit Prüfformular, Belege (z. B. Jahressteuerbescheinigung), OeKB-CSV/PDF, Ordnerimport. Dublettenentscheidung je Zeile, Fehler-/Importprotokoll |
-| **Transaktionen** | Filter, manuelle Buchungen und Korrekturen (Begründung ist Pflicht, Audit-Log), Ertragsart bestätigen (z. B. Kapitalrückzahlung, REIT-Bestandteile) |
-| **Wertpapiere** | Suche nach ISIN, Name oder Ticker. Wertpapierart, steuerliche Einstufung, Meldefondsstatus, jeweils mit Quelle und Prüfstatus |
-| **Fonds & OeKB** | Fondsmeldungen, Prüfstatus, Konfliktentscheidungen, manuelle Erfassung, Kursdaten für Nichtmeldefonds |
-| **Dokumente** | Filter nach Jahr, Broker, Typ und Status. Original öffnen oder herunterladen, kategorisieren, Transaktionen zuordnen, PDF-Extraktion prüfen |
-| **Steuerberechnung** | Ergebnisse nach Kategorie, Rechenschritte und Quellen je Position, Verlustausgleich, Fonds, E 1kv, Prüfhinweise, Regeln |
-| **Exporte** | Excel, CSV, PDF-Jahresbericht, E 1kv-Arbeitshilfe, Exporthistorie, gespeicherte Dateien öffnen |
-| **Einstellungen** | Ablageordner, Steuerjahre, Währungen, Importoptionen, Backup/Wiederherstellung, Protokolle, Regelkatalog |
+| **Übersicht** | Schnellstart, Dokumente hinzufügen, Status und Datenprüfung mit „Beheben“-Links, Kennzahlen, Excel-Export |
+| **Import (erweitert)** | CSV/Excel mit Spaltenzuordnung und Vorschau, OeKB-CSV/PDF, Belege, Ordnerimport |
+| **Dokumente** | Reiter „Zu prüfen“ (alle Jahre) mit Prüfbericht und Formular; „Alle Dokumente“ mit Filtern, Original öffnen, Zuordnen, Verschieben |
+| **Transaktionen** | Filter, manuelle Buchungen und Korrekturen (Begründung Pflicht), Ertragsart bestätigen, Devisenkurse ergänzen |
+| **Wertpapiere** | Offene Wertpapiere tabellarisch ergänzen, Einzelbearbeitung, Kurssymbol |
+| **Fonds & OeKB** | Fondsmeldungen, Konflikte, manuelle Erfassung, Rücknahmepreise für Nichtmeldefonds |
+| **Broker & Depots** | Depots, Steuereinstellungen je Jahr (mit Erklärung), Importhistorie |
+| **Steuerberechnung** | Ergebnisse nach Kategorie, Rechenschritte, Verlustausgleich, E 1kv, Prüfhinweise mit „Was tun?“ |
+| **Exporte** | Excel, CSV, PDF-Jahresbericht, E 1kv-Arbeitshilfe, Exporthistorie |
+| **Einstellungen** | Ablageordner, Jahre, Devisen- und Wertpapierkurse, Backup, Protokolle, Regelkatalog |
 
 **Status:** Dashboard und Steuerberechnung zeigen einen Statusblock, der Folgendes ausweist:
 
@@ -302,7 +354,8 @@ src/kest_tool/
   models.py                    Enums + pydantic-Modelle (Validierung)
   fx.py                        EZB-Referenzkurse (Download, Cache, Import, Ergänzen fehlender Kurse)
   prices.py                    Wertpapierkurse (EODHD per ISIN, CSV-Import, Nichtmeldefonds, Bewertung 31.12.)
-  processing.py                Stapelverarbeitung abgelegter PDFs
+  processing.py                Upload (PDF/ZIP/CSV), Stapelverarbeitung, automatische Depots, „Was tun?“
+  ui/guide.py                  Schnellstart, zentraler Upload, Datenprüfung, Prüfbericht
   storage.py                   Dokumentenablage (SHA-256, kein Überschreiben, Pfadschutz)
   security.py                  Dateinamen-/Pfadschutz, Log-Redaktion
   importers/                   parsing, csv_importer, pdf_importer, oekb_importer
@@ -328,7 +381,7 @@ Datenbanktabellen:
 .venv\Scripts\python -m pytest -q
 ```
 
-`tests/` enthält 81 Tests. Sie decken unter anderem ab:
+`tests/` enthält 93 Tests. Sie decken unter anderem ab:
 
 - CSV mit deutschem Dezimalkomma und erneuten Import
 - Brokerzuordnung, Dubletten und Gebühren

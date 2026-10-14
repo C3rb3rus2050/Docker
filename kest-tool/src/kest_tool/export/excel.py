@@ -478,6 +478,7 @@ def build_workbook(repo: Repository, store: DocumentStore, res: TaxResult, rules
     # 10 Prüfprotokoll -----------------------------------------------------------------
     w = SheetWriter(ws["Prüfprotokoll"], f"Prüfprotokoll {year}", disclaimer)
     w.table([Col("Schweregrad", "severity", width=12), Col("Art", "kind", width=24), Col("Meldung", "message", width=100),
+             Col("Was tun?", "action", width=70),
              Col("Bezug", "ref", width=50), Col("Steuerjahr", "tax_year", "int", 9)],
             [i.__dict__ for i in res.issues], status_col="Schweregrad", totals=False)
     w.table([Col("ID", "id", "int", 6), Col("Objekt", "entity", width=14), Col("Schlüssel", "entity_key", width=26),

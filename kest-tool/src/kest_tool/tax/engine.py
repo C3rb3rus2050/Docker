@@ -61,6 +61,55 @@ class Issue:
     message: str
     ref: str = ""
     tax_year: int | None = None
+    action: str = ""       # Was tun?
+    page: str = ""         # Seite zur Behebung (url_path)
+
+
+# (Muster in der Meldung, Was tun?, Seite)
+ISSUE_ACTIONS: list[tuple[str, str, str]] = [
+    (r"Anschaffungskosten unbekannt|Kaufhistorie unvollständig",
+     "Fehlende Käufe bzw. Depoteingänge importieren (am besten die gesamte Historie) oder unter Transaktionen "
+     "manuell erfassen.", "import"),
+    (r"ohne Devisenkurs|EUR-Betrag fehlt|EUR-Erlös fehlt",
+     "Devisenkurse von der EZB ergänzen (Dashboard/Transaktionen) oder den Kurs aus dem Beleg eintragen.",
+     "transaktionen"),
+    (r"ohne Quellenstaat", "Unter Wertpapiere den Sitzstaat des Emittenten (z. B. US) eintragen.", "wertpapiere"),
+    (r"DBA-Höchstsatz nicht verifiziert",
+     "Anrechenbaren Satz laut Doppelbesteuerungsabkommen prüfen; bis dahin bleibt der Betrag ungeklärt.", "steuer"),
+    (r"Meldefondsstatus unbekannt",
+     "Unter Wertpapiere den Meldefondsstatus setzen (Fondssuche auf my.oekb.at) und die Quelle angeben.",
+     "wertpapiere"),
+    (r"OeKB-Meldung", "OeKB-Meldung importieren oder unter Fonds & OeKB erfassen.", "fonds"),
+    (r"nicht angegeben, ob der Broker",
+     "Unter Broker & Depots für dieses Jahr angeben, ob der Broker österreichische KESt abführt.", "depots"),
+    (r"Steuerliche Einstufung .* ungeprüft",
+     "Unter Wertpapiere die Einstufung prüfen und mit Quelle als geprüft markieren.", "wertpapiere"),
+    (r"Kursdaten .* fehlen", "Rücknahmepreise unter Fonds & OeKB laden oder als CSV importieren.", "fonds"),
+    (r"Pauschalbesteuerung .* nicht verifiziert",
+     "Pauschale manuell bzw. mit Steuerberatung ermitteln – das Tool rechnet hier bewusst nicht.", "fonds"),
+    (r"Kapitalrückzahlung|REIT|BDC|Ertragsart",
+     "Unter Transaktionen die Ertragsart anhand des Belegs festlegen und als belegt markieren.", "transaktionen"),
+    (r"Datenkonflikt|wartet auf Entscheidung|Meldung für .* vorhanden",
+     "Unter Fonds & OeKB → Konflikte entscheiden, welcher Wert gilt.", "fonds"),
+    (r"Depoteingang", "Anschaffungskosten aus dem Übertragsbeleg prüfen und eintragen.", "transaktionen"),
+    (r"Depotausgang", "Prüfen, ob ein steuerpflichtiger Vorgang (z. B. Schenkung, Wegzug) vorliegt.", "transaktionen"),
+    (r"Kapitalmaßnahme", "Als Split (mit Verhältnis) bzw. Kapitalmaßnahme unter Transaktionen erfassen.",
+     "transaktionen"),
+    (r"Österreichische KESt gebucht", "Unter Broker & Depots die KESt-Einstellung für das Jahr prüfen.", "depots"),
+    (r"Steuererstattung", "Erstattete Steuer bei der betroffenen Dividende berücksichtigen.", "transaktionen"),
+    (r"manuell gebuchte AgE", "Keine Aktion nötig – die OeKB-Meldung wird verwendet.", ""),
+    (r"Zinsposition", "Keine Aktion nötig – gesetzliche Einschränkung.", ""),
+    (r"^Regel ", "Information: Ergebnis vorläufig – Quellen siehe docs/STEUERREGELN.md.", ""),
+]
+
+
+def _issue_action(message: str) -> tuple[str, str]:
+    import re as _re
+
+    for rx, action, page in ISSUE_ACTIONS:
+        if _re.search(rx, message):
+            return action, page
+    return "", ""
 
 
 @dataclass
@@ -166,7 +215,8 @@ class Context:
         self._line_no = 0
 
     def issue(self, severity: str, kind: str, message: str, ref: str = "") -> None:
-        self.issues.append(Issue(severity, kind, message, ref, self.year))
+        action, page = _issue_action(message)
+        self.issues.append(Issue(severity, kind, message, ref, self.year, action, page))
 
     def next_id(self, prefix: str) -> str:
         self._line_no += 1
