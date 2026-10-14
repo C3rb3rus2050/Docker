@@ -104,11 +104,11 @@ class App:
         m = self.manager
         broker = body.get("broker")
         if path == "/api/login":
-            if os.environ.get("BDC_WEB_ONLY") == "1":
-                return 409, {"error": "Interaktive Broker-Anmeldung ist im Web-only-Modus noch nicht verfügbar."}
             if broker not in BROKERS:
                 return 400, {"error": "Unbekannter Broker"}
             return self._accepted(m.login(broker))
+        if path == "/api/browser":
+            return 200, m.web_action(body.get("broker"), body.get("action"), body)
         if path == "/api/check":
             if broker not in BROKERS:
                 return 400, {"error": "Unbekannter Broker"}
@@ -312,10 +312,11 @@ select,input[type=text],input[type=number]{padding:5px;border:1px solid var(--bd
 <button class="sec" onclick="post('/api/open_folder',{which:'reports'})">Berichte</button></header>
 <div id="warnings"></div>
 <main>
-<section class="card"><h2>1. Anmeldung</h2><p class="muted">Webservermodus: Neue Broker-Anmeldungen und 2FA sind noch nicht verfügbar. Vorhandene Sitzungen können geprüft werden.</p>
-<p class="muted">Sie melden sich selbst im geöffneten Browserfenster an (inkl. 2FA/Passkey). Das Programm fragt nie nach Passwörtern.</p>
+<section class="card"><h2>1. Anmeldung</h2><p class="muted">Webservermodus: Anmeldung in der integrierten Browseransicht. Einige Broker-Sicherheitsprüfungen können die Bedienung einschränken.</p>
+<p class="muted">Anmeldung starten und Browseransicht öffnen. Zugangsdaten werden nicht von der Anwendung gespeichert.</p>
 <table id="login"></table></section>
 
+<section class="card wide" id="webBrowserPanel" style="display:none"><h2>Interaktive Broker-Anmeldung</h2><p class="muted">Klicken Sie in das Bild, um Felder zu fokussieren. Geben Sie Text über das Eingabefeld ein. 2FA bestätigen Sie wie gewohnt.</p><img id="webBrowserImage" alt="Browseransicht" style="width:100%;max-width:1100px;cursor:crosshair" onclick="webClick(event)"><p id="webBrowserUrl" class="muted"></p><input id="webInput" type="text" autocomplete="off" placeholder="Text für das fokussierte Feld"><button onclick="webType()">Text eingeben</button><button onclick="webKey('Tab')">Tab</button><button onclick="webKey('Enter')">Enter</button><button onclick="webKey('Backspace')">Backspace</button><button onclick="webScroll(500)">Scroll ↓</button><button onclick="webScroll(-500)">Scroll ↑</button><button onclick="closeWebBrowser()">Schließen</button></section>
 <section class="card"><h2>2. Scan</h2>
 <div><label><input type="checkbox" id="b_tr" checked> Trade Republic</label>
 <label><input type="checkbox" id="b_sc" checked> Scalable Capital</label></div>
@@ -361,6 +362,25 @@ const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&
 const BN={trade_republic:"Trade Republic",scalable_capital:"Scalable Capital"};
 async function post(url,body){const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json","X-BDC-Token":TOKEN},body:JSON.stringify(body)});
  const j=await r.json().catch(()=>({}));if(!r.ok||j.error){alert(j.error||("Fehler "+r.status));}else if(j.paths){alert("Bericht gespeichert:\n"+j.paths.html);}else if(j.note){alert(j.note);}refresh();return j;}
+let webBroker=null,webTimer=null,webPending=false;
+async function webAction(action, data={}){
+ if(!webBroker||webPending)return null;
+ webPending=true;
+ try{
+ const r=await fetch("/api/browser",{method:"POST",headers:{"Content-Type":"application/json","X-BDC-Token":TOKEN},body:JSON.stringify({broker:webBroker,action,...data})});
+ const j=await r.json();
+ if(j.error){if(action!=="screenshot")alert(j.error);return null;}
+ if(j.image){document.getElementById("webBrowserImage").src="data:image/jpeg;base64,"+j.image;document.getElementById("webBrowserUrl").textContent=j.url||"";}
+ return j;
+ }catch(e){console.error(e);return null;}finally{webPending=false;}
+}
+function openWebBrowser(broker){webBroker=broker;document.getElementById("webBrowserPanel").style.display="block";clearInterval(webTimer);webTimer=setInterval(()=>webAction("screenshot"),1800);webAction("screenshot");}
+function closeWebBrowser(){clearInterval(webTimer);webTimer=null;webBroker=null;document.getElementById("webBrowserPanel").style.display="none";}
+async function startWebLogin(broker){const result=await post("/api/login",{broker});if(result.ok)openWebBrowser(broker);}
+function webClick(e){const r=e.currentTarget.getBoundingClientRect();webAction("click",{x:Math.round((e.clientX-r.left)*1366/r.width),y:Math.round((e.clientY-r.top)*900/r.height)});}
+function webType(){const input=document.getElementById("webInput");webAction("type",{text:input.value});input.value="";}
+function webKey(key){webAction("key",{key});}
+function webScroll(dy){webAction("scroll",{dy});}
 function startScan(){const b=[];if(document.getElementById("b_tr").checked)b.push("trade_republic");if(document.getElementById("b_sc").checked)b.push("scalable_capital");
  if(!b.length){alert("Bitte mindestens einen Broker wählen");return;}post("/api/scan",{brokers:b,mode:document.getElementById("mode").value});}
 function doDelete(){const what=document.getElementById("delwhat").value;const c=prompt("Zum Bestätigen LÖSCHEN eingeben:");if(c===null)return;
@@ -368,8 +388,8 @@ function doDelete(){const what=document.getElementById("delwhat").value;const c=
 function render(){const m=state.manager;document.getElementById("ver").textContent="v"+state.version;
  document.getElementById("warnings").innerHTML=state.warnings.map(w=>`<p class="banner">${esc(w)}</p>`).join("");
  document.getElementById("login").innerHTML=Object.keys(BN).map(b=>`<tr><td><b>${BN[b]}</b><br><span class="muted">${esc(m.login[b])}</span></td>
-  <td style="text-align:right"><button onclick="post('/api/login',{broker:'${b}'})" ${(m.busy||state.web_only)?"disabled":""}>Anmeldung starten</button>
-  <button class="sec" onclick="post('/api/check',{broker:'${b}'})" ${m.busy?"disabled":""}>Status prüfen</button></td></tr>`).join("")+
+  <td style="text-align:right"><button onclick="startWebLogin('${b}')" ${m.busy?"disabled":""}>Anmeldung starten</button>
+  <button class="sec" onclick="post('/api/check',{broker:'${b}'})" ${m.busy?"disabled":""}>Status prüfen</button><button class="sec" onclick="openWebBrowser('${b}')">Browseransicht</button></td></tr>`).join("")+
   `<tr><td colspan=2><button class="sec" onclick="post('/api/close_browsers',{})" ${m.busy?"disabled":""}>Browserfenster schließen</button></td></tr>`;
  const s=m.status||{};const pct=s.areas_total?Math.round(100*s.areas_done/s.areas_total):0;
  const st={running:"läuft",paused:"pausiert",waiting_user:"wartet auf Ihre Aktion im Browser",finished:"beendet",failed:"fehlgeschlagen",cancelled:"abgebrochen"}[m.paused?"paused":s.state]||"bereit";
