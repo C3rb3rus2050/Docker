@@ -6,8 +6,6 @@ import json
 import logging
 import os
 import platform
-import re
-import traceback
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,23 +24,13 @@ def _directory() -> Path:
     return directory
 
 
-def _safe_message(message: str) -> str:
-    """Conservatively remove likely private values; do not include stack traces in exports."""
-    message = re.sub(r"(?i)(password|token|secret|api[_-]?key|authorization)\\s*[:=]\\s*\\S+",
-                     r"\\1=[REDACTED]", message)
-    message = re.sub(r"(?i)bearer\\s+\\S+", "Bearer [REDACTED]", message)
-    message = re.sub(r"(?i)[A-Z]:\\\\[^\\s]+|/(?:home|data|mnt|opt|users)/[^\\s]+", "[PATH]", message)
-    message = re.sub(r"\\b[A-Z]{2}[A-Z0-9]{10}\\b", "[ISIN]", message)
-    return message[:500]
-
-
 def record_error(area: str, exc: Exception) -> str:
     """Record exception type and safe context, not exception values or document content."""
     identifier = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     event = {
         "id": identifier,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "area": re.sub(r"[^a-zA-Z0-9_.-]", "_", area)[:80],
+        "area": "application",
         "exception": type(exc).__name__,
     }
     try:
