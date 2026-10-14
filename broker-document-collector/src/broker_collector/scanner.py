@@ -302,6 +302,8 @@ class ScanManager:
         self.last_command: tuple[list[str], str] | None = None
         self.last_reports: dict[str, dict[str, str]] = {}
         self._browser: Any = None
+        self._web_result: dict[str, Any] = {}
+        self._web_result_lock = threading.Lock()
         self._adapters: dict[str, BrokerAdapter] = {}
         self._thread = threading.Thread(target=self._worker, name="bdc-browser-worker", daemon=True)
         self._thread.start()
@@ -376,15 +378,67 @@ class ScanManager:
     def _do_login(self, broker: str) -> None:
         adapter = self._adapter(broker)
         adapter.connect()
-        self.login_state[broker] = "Anmeldung läuft – bitte im Browser anmelden"
-        self._msg(f"Browser für {adapter.display_name} geöffnet. Bitte selbst anmelden (inkl. 2FA).")
+        self.login_state[broker] = "Browser bereit – bitte in der Webansicht anmelden"
+        self._msg(f"Browser für {adapter.display_name} geöffnet. Anmeldung in der Webansicht durchführen.")
 
-        def on_wait(m: str) -> None:
-            self.login_state[broker] = m
+    def _do_web_action(self, broker: str, action: str, data: dict[str, Any], request_id: str) -> None:
+        """Alle Playwright-Interaktionen laufen im einzigen Browser-Worker."""
+        result: dict[str, Any] = {}
+        try:
+            browser = self._get_browser()
+            page = browser.pages.get(broker)
+            if page is None or page.is_closed():
+                raise ValueError("Bitte zuerst Anmeldung starten")
+            if action == "screenshot":
+                import base64
+                result = {"image": base64.b64encode(page.screenshot(type="jpeg", quality=65, timeout=8000)).decode("ascii"),
+                          "url": page.url}
+            elif action == "click":
+                x, y = data.get("x"), data.get("y")
+                if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not 0 <= x <= 1366 or not 0 <= y <= 900:
+                    raise ValueError("Ungültige Koordinaten")
+                page.mouse.click(x, y, timeout=5000)
+            elif action == "scroll":
+                dy = data.get("dy")
+                if not isinstance(dy, (int, float)) or abs(dy) > 1500:
+                    raise ValueError("Ungültiger Scrollwert")
+                page.mouse.wheel(0, dy)
+            elif action == "type":
+                value = data.get("text")
+                if not isinstance(value, str) or len(value) > 256:
+                    raise ValueError("Ungültige Eingabe")
+                page.keyboard.insert_text(value)
+            elif action == "key":
+                key = data.get("key")
+                if key not in {"Enter", "Tab", "Backspace", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Delete", "Space", "Home", "End"}:
+                    raise ValueError("Nicht erlaubte Taste")
+                page.keyboard.press(key)
+            else:
+                raise ValueError("Unbekannte Browseraktion")
+            result.setdefault("ok", True)
+        except Exception as exc:
+            result = {"error": redact(str(exc))}
+        finally:
+            with self._web_result_lock:
+                self._web_result[request_id] = result
 
-        ok = adapter.wait_for_login(self.settings.login_wait_timeout_s, on_wait)  # type: ignore[attr-defined]
-        self.login_state[broker] = "angemeldet" if ok else "nicht angemeldet (Zeitlimit)"
-        self._msg(f"{adapter.display_name}: {self.login_state[broker]}")
+    def web_action(self, broker: str, action: str, data: dict[str, Any]) -> dict[str, Any]:
+        import uuid
+        if broker not in BROKERS or action not in {"screenshot", "click", "scroll", "type", "key"}:
+            return {"error": "Ungültige Browseraktion"}
+        if self.busy or not self._queue.empty():
+            return {"error": "Browser ist beschäftigt; bitte kurz warten"}
+        request_id = uuid.uuid4().hex
+        self._queue.put(("web_action", (broker, action, data, request_id), {}))
+        import time
+        deadline = time.monotonic() + 12
+        while time.monotonic() < deadline:
+            with self._web_result_lock:
+                result = self._web_result.pop(request_id, None)
+            if result is not None:
+                return result
+            time.sleep(0.04)
+        return {"error": "Browseraktion hat zu lange gedauert"}
 
     def _do_check(self, broker: str) -> None:
         adapter = self._adapter(broker)
