@@ -39,6 +39,7 @@ services:
     environment:
       BDC_OUTPUT_DIR: /data/collector
       BDC_CONFIG: /app/config.docker.toml
+      BDC_WEB_ONLY: "1"
     volumes:
       - ./data/collector:/data/collector
       - ./data/browser-profiles:/data/browser-profiles
