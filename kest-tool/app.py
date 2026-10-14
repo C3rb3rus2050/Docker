@@ -50,6 +50,7 @@ nav = st.navigation({
     "System": [P["einstellungen"]],
 })
 with st.sidebar:
+    st.link_button("Broker-Dokumente synchronisieren", "http://127.0.0.1:8765", use_container_width=True)
     st.caption(f"KESt-Tool {__version__} · lokal · Ablage: `{C.ctx().store.base}`")
     st.caption(C.DISCLAIMER)
 try:
