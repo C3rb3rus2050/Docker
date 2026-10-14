@@ -394,7 +394,13 @@ class ScanManager:
                 result = {"image": base64.b64encode(page.screenshot(type="jpeg", quality=65, timeout=8000)).decode("ascii"),
                           "url": page.url, "title": page.title(), "ready_state": page.evaluate("document.readyState"),
                           "body_text": page.evaluate("(document.body && document.body.innerText || '').slice(0, 500)"),
-                          "frame_count": len(page.frames)}
+                          "frame_count": len(page.frames),
+                          "dom": page.evaluate("""() => ({
+                              scripts: document.scripts.length,
+                              body_elements: document.body ? document.body.querySelectorAll('*').length : 0,
+                              root_html: (document.querySelector('#root, #app, #__next') || document.body)?.innerHTML.slice(0, 350) || '',
+                              resources: performance.getEntriesByType('resource').filter(r => r.initiatorType === 'script').length
+                          })""")}
             elif action == "click":
                 x, y = data.get("x"), data.get("y")
                 if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not 0 <= x <= 1366 or not 0 <= y <= 900:
