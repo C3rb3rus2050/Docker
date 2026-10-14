@@ -2,7 +2,7 @@ name: Docker LXC validation
 on:
   pull_request:
   push:
-    branches: [feature/lxc-docker-compose]
+    branches: [main, feature/lxc-docker-compose, feature/web-only-portal]
 jobs:
   python-tests:
     runs-on: ubuntu-latest
@@ -21,6 +21,8 @@ jobs:
           PYTHONPATH: ${{ matrix.project }}/src
   docker-build:
     runs-on: ubuntu-latest
+    env:
+      PORTAL_PASSWORD_HASH: "$2a$14$examplehashonlyforcomposeconfig000000000000000000000000000"
     steps:
       - uses: actions/checkout@v4
       - run: docker compose config -q

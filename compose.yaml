@@ -1,18 +1,31 @@
 services:
+  portal:
+    image: caddy:2.9-alpine
+    restart: unless-stopped
+    depends_on:
+      - kest-tool
+      - broker-collector
+    environment:
+      PORTAL_PASSWORD_HASH: ${PORTAL_PASSWORD_HASH:?Generate a Caddy bcrypt hash; see WEB-DEPLOY.md}
+      PORTAL_USERNAME: ${PORTAL_USERNAME:-admin}
+    volumes:
+      - ./portal/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./portal/index.html:/srv/index.html:ro
+    ports:
+      - "127.0.0.1:${PORTAL_PORT:-8080}:8080"
+
   kest-tool:
     build:
       context: ./kest-tool
-      dockerfile: Dockerfile
     restart: unless-stopped
     environment:
       KEST_TOOL_HOME: /data/kest
     volumes:
       - ./data/kest:/data/kest
       - ./data/collector:/data/collector:ro
-    ports:
-      - "127.0.0.1:${KEST_PORT:-8501}:8501"
+    command: ["python", "-m", "streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true", "--server.baseUrlPath=steuer"]
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health',timeout=5)"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/steuer/_stcore/health',timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -20,21 +33,17 @@ services:
   broker-collector:
     build:
       context: ./broker-document-collector
-      dockerfile: Dockerfile
     restart: unless-stopped
     init: true
     shm_size: "1gb"
     environment:
       BDC_OUTPUT_DIR: /data/collector
       BDC_CONFIG: /app/config.docker.toml
-      BDC_VNC_PASSWORD_FILE: /run/secrets/bdc_vnc_password
+      BDC_WEB_ONLY: "1"
     volumes:
       - ./data/collector:/data/collector
       - ./data/browser-profiles:/data/browser-profiles
-      - ./secrets/vnc_password:/run/secrets/bdc_vnc_password:ro
-    ports:
-      - "127.0.0.1:${COLLECTOR_PORT:-8765}:8765"
-      - "127.0.0.1:${BROWSER_PORT:-6080}:6080"
+    command: ["python", "app.py", "--no-browser-ui", "--headless"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/',timeout=5)"]
       interval: 30s

@@ -68,6 +68,7 @@ class App:
             warnings.append("Der Ausgabeordner liegt vermutlich in einem Cloud-Sync-Ordner (z. B. OneDrive). "
                             "Dokumente würden dadurch in die Cloud übertragen. Bitte einen lokalen Ordner wählen.")
         return {
+            "web_only": os.environ.get("BDC_WEB_ONLY") == "1",
             "version": __version__, "manager": snap, "runs": runs, "counts": counts,
             "alternative_locations": dup[0]["n"] if dup else 0,
             "settings": {k: v for k, v in self.settings.to_public_dict().items() if k in EDITABLE_SETTINGS},
@@ -103,6 +104,8 @@ class App:
         m = self.manager
         broker = body.get("broker")
         if path == "/api/login":
+            if os.environ.get("BDC_WEB_ONLY") == "1":
+                return 409, {"error": "Interaktive Broker-Anmeldung ist im Web-only-Modus noch nicht verfügbar."}
             if broker not in BROKERS:
                 return 400, {"error": "Unbekannter Broker"}
             return self._accepted(m.login(broker))
@@ -126,6 +129,8 @@ class App:
             return 200, {"ok": True}
         if path == "/api/close_browsers":
             return self._accepted(m.close_browsers())
+        if path == "/api/open_folder" and os.environ.get("BDC_WEB_ONLY") == "1":
+            return 409, {"error": "Serverordner können nicht auf dem Client geöffnet werden."}
         if path == "/api/open_folder":
             target = {"reports": self.settings.reports_dir, "logs": self.settings.logs_dir}.get(
                 body.get("which", ""), self.settings.output_dir)
@@ -137,6 +142,8 @@ class App:
                 return 400, {"error": "Noch kein Scanlauf vorhanden"}
             paths = write_report(self.db, int(run_id), self.settings.reports_dir)
             return 200, {"ok": True, "paths": paths}
+        if path == "/api/settings" and os.environ.get("BDC_WEB_ONLY") == "1":
+            return 409, {"error": "Docker-Einstellungen bitte über die Konfiguration verwalten."}
         if path == "/api/settings":
             values = {k: v for k, v in (body.get("settings") or {}).items() if k in EDITABLE_SETTINGS}
             if m.busy:
@@ -145,6 +152,8 @@ class App:
             self.settings.ensure_dirs()
             save_settings(self.settings, self.config_path)
             return 200, {"ok": True, "note": "Gespeichert. Änderungen am Ausgabeordner wirken nach Neustart."}
+        if path == "/api/delete" and os.environ.get("BDC_WEB_ONLY") == "1":
+            return 409, {"error": "Löschfunktionen sind im Webservermodus aus Sicherheitsgründen deaktiviert."}
         if path == "/api/delete":
             if m.busy:
                 return 409, {"error": "Bitte zuerst den laufenden Vorgang beenden"}
@@ -162,6 +171,8 @@ class App:
                 return 200, {"ok": False, "error": "Die Datenbank kann nur bei beendetem Programm gelöscht werden: "
                                                    "start.bat --delete-database"}
             return 400, {"error": "Unbekannte Löschaktion"}
+        if path == "/api/scheduler" and os.environ.get("BDC_WEB_ONLY") == "1":
+            return 409, {"error": "Der Windows-Aufgabenplaner steht unter Docker nicht zur Verfügung."}
         if path == "/api/scheduler":
             from .scheduler import SchedulerError, create_task, delete_task
 
@@ -301,7 +312,7 @@ select,input[type=text],input[type=number]{padding:5px;border:1px solid var(--bd
 <button class="sec" onclick="post('/api/open_folder',{which:'reports'})">Berichte</button></header>
 <div id="warnings"></div>
 <main>
-<section class="card"><h2>1. Anmeldung</h2>
+<section class="card"><h2>1. Anmeldung</h2><p class="muted">Webservermodus: Neue Broker-Anmeldungen und 2FA sind noch nicht verfügbar. Vorhandene Sitzungen können geprüft werden.</p>
 <p class="muted">Sie melden sich selbst im geöffneten Browserfenster an (inkl. 2FA/Passkey). Das Programm fragt nie nach Passwörtern.</p>
 <table id="login"></table></section>
 
@@ -357,7 +368,7 @@ function doDelete(){const what=document.getElementById("delwhat").value;const c=
 function render(){const m=state.manager;document.getElementById("ver").textContent="v"+state.version;
  document.getElementById("warnings").innerHTML=state.warnings.map(w=>`<p class="banner">${esc(w)}</p>`).join("");
  document.getElementById("login").innerHTML=Object.keys(BN).map(b=>`<tr><td><b>${BN[b]}</b><br><span class="muted">${esc(m.login[b])}</span></td>
-  <td style="text-align:right"><button onclick="post('/api/login',{broker:'${b}'})" ${m.busy?"disabled":""}>Anmeldung starten</button>
+  <td style="text-align:right"><button onclick="post('/api/login',{broker:'${b}'})" ${(m.busy||state.web_only)?"disabled":""}>Anmeldung starten</button>
   <button class="sec" onclick="post('/api/check',{broker:'${b}'})" ${m.busy?"disabled":""}>Status prüfen</button></td></tr>`).join("")+
   `<tr><td colspan=2><button class="sec" onclick="post('/api/close_browsers',{})" ${m.busy?"disabled":""}>Browserfenster schließen</button></td></tr>`;
  const s=m.status||{};const pct=s.areas_total?Math.round(100*s.areas_done/s.areas_total):0;
