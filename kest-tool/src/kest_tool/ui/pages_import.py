@@ -477,14 +477,7 @@ def _oekb_pdf(y: int) -> None:
 # --------------------------------------------------------------------------- #
 def _folder_import(y: int, deps: dict) -> None:
     repo = C.ctx().repo
-    st.caption("Liest alle PDF/CSV-Dateien eines lokalen Ordners (z. B. Ausgabeordner des manuellen Broker-Downloadss) "
-               "ein. Dateien werden in die Ablage kopiert (Original bleibt unverändert) und zur Prüfung vorgemerkt. "
-               "Buchungen werden erst nach Prüfung auf der Seite Dokumente angelegt.")
-    collector_path = Path("/data/collector")
-    if collector_path.is_dir():
-        st.success("manuellen Broker-Downloads erkannt – Dokumente können direkt übernommen werden.")
-        if st.button("Collector-Ordner auswählen", key="collector_pick"):
-            st.session_state["folder_path"] = str(collector_path)
+    st.caption("Liest PDF- und CSV-Dateien aus einem frei gewählten lokalen Ordner ein. Die Originale bleiben unverändert.")
     folder = st.text_input("Ordnerpfad", placeholder="Pfad zu den Dokumenten", key="folder_path")
     recursive = st.checkbox("Unterordner einbeziehen", value=True)
     auto = st.checkbox("Vollständig erkannte Abrechnungen danach automatisch als Buchung übernehmen", value=True)
