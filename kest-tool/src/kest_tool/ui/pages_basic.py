@@ -152,6 +152,16 @@ def brokers() -> None:
 def settings_page() -> None:
     c = C.ctx()
     st.title("Einstellungen")
+    from ..diagnostics import event_count, export_report
+    with st.expander("🩺 Diagnose und Fehlerbericht", expanded=False):
+        st.write(f"Erfasste Anwendungsfehler: **{event_count()}**")
+        st.caption("Der Bericht enthält nur Fehlerkennungen, Zeitpunkte, betroffene Bereiche, "
+                   "Fehlertypen und technische Versionsangaben. Keine Dokumente, Buchungen, "
+                   "Zugangsdaten oder vollständigen Serverlogs.")
+        st.download_button("Diagnosebericht als ZIP herunterladen", data=export_report(),
+                           file_name="kest-diagnose.zip", mime="application/zip",
+                           use_container_width=True)
+        st.info("Browserseitige Darstellungsprobleme ohne Python-Fehler werden nicht automatisch erkannt.")
     st.subheader("Ablageordner")
     st.write(f"Aktuell: `{c.store.base}`")
     if is_probably_cloud_synced(c.store.base):
