@@ -19,12 +19,11 @@ docker run --rm -it caddy:2.9-alpine caddy hash-password
 ```
 
 Den ausgegebenen Hash in eine lokale `.env`-Datei eintragen.
-**Wichtig:** Dollarzeichen im bcrypt-Hash für Docker Compose als `$$` escapen,
-damit Compose diese nicht als Variablen interpretiert.
+**Wichtig:** Den bcrypt-Hash in der `.env` in **einfache Anführungszeichen** setzen. Dadurch bleiben die Dollarzeichen im Hash erhalten. Keine doppelten Dollarzeichen im `.env`-Wert verwenden.
 
 ```dotenv
 PORTAL_USERNAME=admin
-PORTAL_PASSWORD_HASH=<BCRYPT_HASH_MIT_DOPPELTEN_DOLLARZEICHEN>
+PORTAL_PASSWORD_HASH='<BCRYPT_HASH_UNVERAENDERT>'
 PORTAL_PORT=8080
 ```
 
