@@ -392,7 +392,9 @@ class ScanManager:
             if action == "screenshot":
                 import base64
                 result = {"image": base64.b64encode(page.screenshot(type="jpeg", quality=65, timeout=8000)).decode("ascii"),
-                          "url": page.url}
+                          "url": page.url, "title": page.title(), "ready_state": page.evaluate("document.readyState"),
+                          "body_text": page.evaluate("(document.body && document.body.innerText || '').slice(0, 500)"),
+                          "frame_count": len(page.frames)}
             elif action == "click":
                 x, y = data.get("x"), data.get("y")
                 if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or not 0 <= x <= 1366 or not 0 <= y <= 900:
