@@ -6,17 +6,6 @@
     handle /steuer/* {
         reverse_proxy kest-tool:8501
     }
-    handle /api/* {
-        reverse_proxy broker-collector:8765 {
-            header_up Host 127.0.0.1:8765
-        }
-    }
-    handle /broker/* {
-        uri strip_prefix /broker
-        reverse_proxy broker-collector:8765 {
-            header_up Host 127.0.0.1:8765
-        }
-    }
     handle {
         root * /srv
         file_server
