@@ -12,8 +12,7 @@ Erreichbarkeit von einem anderen Gerät per SSH-Tunnel oder vorgeschaltetem auth
 ```bash
 git clone https://github.com/C3rb3rus2050/Docker.git
 cd Docker
-mkdir -p data/kest data/collector data/browser-profiles
-chmod 700 data/browser-profiles
+mkdir -p data/kest
 # Passwort-Hash erzeugen (Passwort wird interaktiv abgefragt):
 docker run --rm -it caddy:2.9-alpine caddy hash-password
 ```
@@ -46,14 +45,8 @@ Für direkten LAN-Zugriff muss die Portbindung in `compose.yaml` bewusst geände
 HTTPS mit Zugriffsschutz konfiguriert werden. **HTTP Basic Auth ohne TLS nur über
 einen SSH-Tunnel benutzen.**
 
-## Grenzen
+## Import
 
-Der Collector benutzt bisher Playwright mit persistenten Chromium-Profilen.
-Im Web-only-Container läuft Chromium headless; bestehende gültige Sitzungen können
-gegebenenfalls weiterverwendet werden. Eine neue Anmeldung mit 2FA kann **nicht**
-über das Webportal abgeschlossen werden. Die Login-Schaltfläche wird deaktiviert.
-Das ist eine bewusst dokumentierte Funktionseinschränkung und keine Umgehung von 2FA.
-Ein vollständig webbasierter, sicherer Broker-Login muss separat entwickelt und mit
-den realen Brokern validiert werden.
+Broker-PDFs und CSV-/Excel-Dateien werden manuell heruntergeladen und im KESt-Tool unter `/steuer/` importiert. Es gibt keinen Broker-Collector mehr.
 
-Broker-Downloads und Container-Build sind noch nicht live getestet.
+**Bestehende Daten in `data/collector` und `data/browser-profiles` werden durch das Deployment nicht gelöscht.** Vor einer manuellen Löschung prüfen, ob noch Dokumente benötigt werden.
