@@ -513,6 +513,67 @@ def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = 
         C.df(repo.document_events(did))
 
 
+def _bulk_document_editor(repo, docs: list[dict], key: str) -> None:
+    """Edit document metadata in bulk; never create tax transactions implicitly."""
+    if not docs:
+        return
+    labels = {d["id"]: f"{d['original_filename']} (#{d['id']})" for d in docs}
+    with st.expander("Mehrere Dokumente markieren und gemeinsam bearbeiten", expanded=False):
+        selected = st.multiselect(
+            "Dokumente auswählen", list(labels), format_func=lambda i: labels[i],
+            key=f"{key}_selected", placeholder="Dokumente markieren …")
+        b1, b2 = st.columns(2)
+        if b1.button("Alle angezeigten markieren", key=f"{key}_all"):
+            st.session_state[f"{key}_selected"] = list(labels)
+            st.rerun()
+        if b2.button("Auswahl aufheben", key=f"{key}_clear"):
+            st.session_state[f"{key}_selected"] = []
+            st.rerun()
+        st.caption(f"{len(selected)} von {len(docs)} Dokumenten ausgewählt. Nur aktivierte Felder werden geändert.")
+        if not selected:
+            return
+        with st.form(f"{key}_bulk_form"):
+            change_year = st.checkbox("Steuerjahr ändern", key=f"{key}_change_year")
+            year = st.number_input("Neues Steuerjahr", min_value=2000, max_value=2100,
+                                   value=date.today().year, disabled=not change_year, key=f"{key}_year")
+            change_type = st.checkbox("Dokumenttyp ändern", key=f"{key}_change_type")
+            dtype = st.selectbox("Neuer Dokumenttyp", DOC_TYPES, disabled=not change_type, key=f"{key}_type")
+            change_source = st.checkbox("Quelle/Broker ändern", key=f"{key}_change_source")
+            source = st.selectbox("Neue Quelle", DOC_SOURCES, disabled=not change_source, key=f"{key}_source")
+            change_notes = st.checkbox("Notiz für alle setzen", key=f"{key}_change_notes")
+            notes = st.text_area("Neue Notiz", disabled=not change_notes, key=f"{key}_notes")
+            st.warning("Diese Aktion ändert nur Dokument-Metadaten, keine Buchungen oder Steuerberechnungen.")
+            confirmed = st.checkbox("Änderungen für alle markierten Dokumente bestätigen",
+                                    key=f"{key}_confirm")
+            submit = st.form_submit_button(f"{len(selected)} Dokument(e) aktualisieren",
+                                           type="primary", disabled=not confirmed)
+        if submit:
+            changes = {}
+            if change_year:
+                changes["tax_year"] = int(year)
+            if change_type:
+                changes["doc_type"] = dtype
+            if change_source:
+                changes["source"] = source
+            if change_notes:
+                changes["notes"] = notes
+            if not changes:
+                st.warning("Bitte mindestens ein Feld zur Änderung aktivieren.")
+                return
+            success, errors = 0, []
+            for doc_id in selected:
+                try:
+                    repo.update_document(doc_id, **changes)
+                    success += 1
+                except (OSError, ValueError) as exc:
+                    errors.append(f"#{doc_id}: {exc}")
+            C.invalidate_results()
+            if success:
+                st.success(f"{success} Dokument(e) aktualisiert.")
+            for err in errors:
+                st.error(err)
+
+
 def documents() -> None:
     c = C.ctx()
     repo = c.repo
@@ -538,6 +599,7 @@ def documents() -> None:
                                   "noch einmal versuchen"):
                     from ..processing import process_documents
                     C.after_processing(process_documents(repo, pdf_ids, deps.get(dflt)))
+            _bulk_document_editor(repo, open_docs, "open_docs")
             did = st.radio("Dokument", [d["id"] for d in open_docs], key="open_doc_sel",
                            format_func=lambda i: next(
                                f"{DOC_STATUS_LABEL.get(d['status'], d['status'])} · {d['original_filename']} "
@@ -558,6 +620,7 @@ def documents() -> None:
                "Typ": d["doc_type"], "Quelle": d["source"], "Jahr": d["tax_year"], "Buchungen": d["tx_count"],
                "Importiert": d["imported_at"], "ID": d["id"]} for d in docs])
         if docs:
+            _bulk_document_editor(repo, docs, "all_docs")
             did2 = st.selectbox("Dokument öffnen", [d["id"] for d in docs], key="all_doc_sel",
                                 format_func=lambda i: next(f"{d['original_filename']} (#{d['id']})" for d in docs
                                                            if d["id"] == i))
