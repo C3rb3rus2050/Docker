@@ -478,7 +478,12 @@ def _folder_import(y: int, deps: dict) -> None:
     st.caption("Liest alle PDF/CSV-Dateien eines lokalen Ordners (z. B. Ausgabeordner des Broker Document Collectors) "
                "ein. Dateien werden in die Ablage kopiert (Original bleibt unverändert) und zur Prüfung vorgemerkt. "
                "Buchungen werden erst nach Prüfung auf der Seite Dokumente angelegt.")
-    folder = st.text_input("Ordnerpfad", placeholder=r"C:\Users\<Name>\Documents\BrokerDocumentCollector")
+    collector_path = Path("/data/collector")
+    if collector_path.is_dir():
+        st.success("Broker Document Collector erkannt – Dokumente können direkt übernommen werden.")
+        if st.button("Collector-Ordner auswählen", key="collector_pick"):
+            st.session_state["folder_path"] = str(collector_path)
+    folder = st.text_input("Ordnerpfad", placeholder="Pfad zu den Dokumenten", key="folder_path")
     recursive = st.checkbox("Unterordner einbeziehen", value=True)
     auto = st.checkbox("Vollständig erkannte Abrechnungen danach automatisch als Buchung übernehmen", value=True)
     dflt = st.selectbox("Standarddepot, falls das Depot nicht eindeutig ist", ["—"] + list(deps), key="folder_depot")
