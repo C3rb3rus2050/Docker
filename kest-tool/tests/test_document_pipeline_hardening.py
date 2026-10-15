@@ -7,7 +7,7 @@ import zipfile
 
 import pytest
 
-from kest_helpers import depot, repo  # noqa: F401
+from kest_helpers import ctx, depot, repo  # noqa: F401
 from kest_tool import demo
 from kest_tool.importers.pdf_importer import PdfError, extract_pdf
 from kest_tool.processing import (
