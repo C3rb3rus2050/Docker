@@ -135,3 +135,16 @@ def test_unexpected_document_error_does_not_stop_batch(repo, depot, monkeypatch)
     assert [r.status for r in results] == ["fehler", "angelegt"]
     assert repo.document(first["id"])["status"] == "fehlgeschlagen"
     assert repo.document(second["id"])["status"] == "verarbeitet"
+
+
+def test_document_with_only_deleted_links_returns_to_review(repo, depot):
+    from kest_tool.processing import data_status
+    from kest_tool.ui.pages_data import _open_documents
+
+    doc, _ = repo.add_document(demo.tr_buy_pdf(), "kauf.pdf", tax_year=2024)
+    result = process_documents(repo, [doc["id"]], default_depot=depot)
+    assert result[0].status == "angelegt"
+    repo.delete_transaction(result[0].transaction_id, "test correction")
+    repo.update_document(doc["id"], status="pruefen")
+    assert doc["id"] in [item["id"] for item in data_status(repo, 2024)["docs_open"]]
+    assert doc["id"] in [item["id"] for item in _open_documents(repo)]
