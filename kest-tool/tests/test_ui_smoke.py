@@ -115,3 +115,45 @@ def test_upload_runs_without_import_button_and_survives_reruns(tmp_path, monkeyp
     _run(at)
     assert db.one('SELECT COUNT(*) n FROM transactions')['n'] == 2
     db.close()
+
+
+def test_transaction_grid_saves_and_opens_linked_pdf(demo_home, monkeypatch):
+    import streamlit as st
+    from kest_tool.db import Database
+    from kest_tool.config import load_settings
+    from kest_tool.context import create_context
+    from kest_tool import demo
+    context = create_context(load_settings(local_file=demo_home / 'none.yaml'), base_dir=demo_home)
+    document, _ = context.repo.add_document(demo.tr_buy_pdf(), 'Original-Muster.pdf', tax_year=2024)
+    tid = context.db.one('SELECT id FROM transactions ORDER BY id LIMIT 1')['id']
+    context.repo.link_document(document['id'], tid)
+    context.close()
+    original = st.data_editor
+    target = {}
+    def editor(data, **kwargs):
+        if str(kwargs.get('key', '')).startswith('tx_grid_'):
+            frame = data.copy()
+            choices = frame.index[frame['Beleg'] != ''].tolist()
+            if choices:
+                i = choices[0]
+                target.setdefault('id', int(frame.at[i, 'ID']))
+                target.setdefault('amount', float(frame.at[i, 'amount']))
+                frame.at[i, 'Auswahl'] = True
+                frame.at[i, 'amount'] = target['amount'] + 10
+            return frame
+        return original(data, **kwargs)
+    monkeypatch.setattr(st, 'data_editor', editor)
+    at = _run(AppTest.from_file(APP, default_timeout=120))
+    at.selectbox(key='tax_year_select_0').set_value(2024)
+    _run(at)
+    _goto(at, 'transaktionen')
+    _run(at)
+    assert target
+    at.text_input(key='tx_grid_reason').set_value('Original geprüft')
+    at.button(key='tx_grid_save').click()
+    _run(at)
+    db = Database(demo_home / 'database' / 'kest_tool.db')
+    assert db.one('SELECT amount FROM transactions WHERE id=?', (target['id'],))['amount'] == target['amount'] + 10
+    db.close()
+    at.button(key=f'tx_grid_doc_{document["id"]}_open').click()
+    _run(at)

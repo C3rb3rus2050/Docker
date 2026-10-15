@@ -97,6 +97,12 @@ def _auto_map(columns: list[str]) -> dict[str, str | None]:
     out: dict[str, str | None] = {k: None for k in FUND_FIELDS}
     used: set[str] = set()
     norm = {c: re.sub(r"\s+", " ", c.strip().lower()) for c in columns}
+    from .oekb_layouts import label_field
+    for c, n in norm.items():
+        key = c if c in FUND_FIELDS else label_field(n)
+        if key:
+            out[key] = c
+            used.add(c)
     for exact in (True, False):
         for k, (_, _, syns) in FUND_FIELDS.items():
             if out[k]:
@@ -201,6 +207,14 @@ PDF_LABELS = {
 
 def extract_fund_pdf(data: bytes) -> dict:
     """Extrahiert Kandidatenwerte aus einem OeKB-PDF. Ergebnis immer „ungeprüft“ – Bestätigung in der Oberfläche."""
+    from .oekb_layouts import extract_published_reports
+    reports = extract_published_reports(data)
+    if reports and any(r['values'].get('age_per_unit') is not None or
+                       r['values'].get('taxable_distribution_per_unit') is not None for r in reports):
+        result = reports[0]
+        if len(reports) > 1:
+            result['warnings'].append(f'{len(reports)} Meldungen im PDF; gemeinsamer Upload verarbeitet alle Meldungen')
+        return result
     text, engine = extract_text(data)
     found: dict = {"engine": engine, "values": {}, "missing": [], "warnings": [], "text_excerpt": text[:3000]}
     if not text.strip():

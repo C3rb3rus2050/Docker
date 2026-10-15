@@ -1,5 +1,5 @@
 # KESt-Tool – getestet mit Python 3.12 und 3.13
-streamlit>=1.50,<2
+streamlit[pdf]>=1.66,<2
 pandas>=2.2,<4
 openpyxl>=3.1,<4
 pdfplumber>=0.11,<0.12

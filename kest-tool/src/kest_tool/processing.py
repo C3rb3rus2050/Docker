@@ -169,6 +169,9 @@ def process_documents(repo: Repository, doc_ids: list[int] | None = None, defaul
                                                     "die Werte manuell unter „Transaktionen“ erfassen."))
                 continue
             if not ex.get("creates_transaction", True):
+                if ex.get('doc_type') == 'OeKB-Fondsmeldung':
+                    results.append(process_fund_pdf(repo, doc, **analysis_options))
+                    continue
                 msg, action = _problems(ex) if any(c["result"] in ("error", "warn") for c in ex.get("checks", [])) \
                     else (f"{ex.get('doc_type')}: keine Einzelbuchung", "")
                 if ex.get("doc_type") in INFO_ONLY:
@@ -399,6 +402,57 @@ def store_uploads(repo: Repository, files: list[tuple[str, bytes]], fallback_yea
     return res
 
 
+def process_fund_pdf(repo: Repository, doc: dict, **analysis_options) -> ProcessResult:
+    from .importers.oekb_layouts import extract_published_reports
+    from .models import FundReportIn
+    reports = extract_published_reports(repo.document_path(doc).read_bytes())
+    created = pending = 0
+    reasons, years = [], set()
+    for report in reports:
+        values = dict(report['values'])
+        if values.get('report_date'):
+            years.add(date.fromisoformat(values['report_date']).year)
+        reasons.extend(report['warnings'] + report['missing'])
+        if report['warnings'] or report['missing']:
+            pending += 1
+            continue
+        if values.get('currency') != 'EUR' and not values.get('fx_rate'):
+            service = analysis_options.get('fx_service')
+            day = date.fromisoformat(values['report_date'])
+            rates = service.rates(allow_download=analysis_options.get('allow_download', False), needed_until=day) \
+                if service and day <= date.today() else None
+            found = rates.lookup(values['currency'], day) if rates else None
+            if found:
+                values['fx_rate'] = found[0]
+                values['notes'] = f'EZB {found[1].isoformat()}; {service.url}; Privatanleger ohne Option'
+        try:
+            rep = FundReportIn(**values, document_id=doc['id'], source='OeKB-PDF / Privatanleger ohne Option')
+            result = repo.add_fund_report(rep)
+            years.add(rep.report_date.year)
+            if result['status'] == 'konflikt':
+                pending += 1
+                reasons.append('Abweichende Fondsmeldung; Konflikt unter Fonds & OeKB prüfen')
+            else:
+                created += int(result['status'] == 'neu')
+        except ValueError as exc:
+            pending += 1
+            reasons.append(str(exc))
+    if not reports:
+        pending = 1
+        reasons.append('Kein unterstütztes OeKB-Privatanlegerlayout gefunden')
+    message = f'{created} neue Fondsmeldungen, {pending} zur Prüfung.'
+    message += ' ' + '; '.join(dict.fromkeys(reasons)) if reasons else ''
+    # Keep extracted candidates with their warnings for document-side review.
+    cache = json.loads(repo.document(doc['id']).get('extraction_json') or '{}')
+    cache['fund_reports'] = reports
+    repo.update_document(doc['id'], source='OeKB', doc_type='OeKB-Fondsmeldung',
+                         status='teilweise' if created and pending else ('pruefen' if pending else 'verarbeitet'),
+                         notes=message, extraction_json=json.dumps(cache, ensure_ascii=False),
+                         **({'tax_year': years.pop()} if len(years) == 1 else {}))
+    return ProcessResult(doc['id'], doc['original_filename'], 'pruefen' if pending else 'angelegt', message,
+                         action='Fondsdaten und Original unter Dokumente prüfen.' if pending else '')
+
+
 def process_tables(repo: Repository, documents: list, **analysis_options) -> list[ProcessResult]:
     """Automatically route saved tables; only unambiguous rows become bookings."""
     from .importers.automatic import automatic_tables, automatic_mapping, table_broker
@@ -423,7 +477,31 @@ def process_tables(repo: Repository, documents: list, **analysis_options) -> lis
             for table in tables:
                 fund_map = _auto_map(list(table.columns))
                 if all(fund_map.get(k) for k, (_, required, _) in FUND_FIELDS.items() if required):
+                    if not fund_map.get('currency'):
+                        raise ValueError('Währung fehlt in der Fondstabelle; kein EUR-Standard wird geraten')
+                    service = analysis_options.get('fx_service')
+                    if service and fund_map.get('report_date'):
+                        from .importers.parsing import parse_date
+                        if not fund_map.get('fx_rate'):
+                            table = table.copy()
+                            table['_auto_fx'] = ''
+                            fund_map['fx_rate'] = '_auto_fx'
+                        for index, record in table.iterrows():
+                            cur = str(record[fund_map['currency']]).strip().upper()
+                            if cur == 'EUR' or str(record[fund_map['fx_rate']]).strip():
+                                continue
+                            day = parse_date(record[fund_map['report_date']], None,
+                                             ['%d.%m.%Y', '%Y-%m-%d', '%d.%m.%y'])
+                            rates = service.rates(allow_download=analysis_options.get('allow_download', False), needed_until=day) \
+                                if day <= date.today() else None
+                            found = rates.lookup(cur, day) if rates else None
+                            if found:
+                                table.at[index, fund_map['fx_rate']] = str(found[0])
                     previews = preview_fund_table(table, fund_map, document_id=doc['id'])
+                    if service and '_auto_fx' in table:
+                        for preview in previews:
+                            if preview.report and preview.report.fx_rate:
+                                preview.report.notes = f'EZB-Referenzkurs zum Meldedatum oder vorherigen Bankarbeitstag; {service.url}'
                     safe = [p for p in previews if not p.errors and not p.warnings and p.report]
                     report = commit_fund_previews(repo, safe, doc['id'])
                     imported += report['neu']

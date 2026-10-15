@@ -23,13 +23,24 @@ from .parsing import parse_number
 
 log = logging.getLogger(__name__)
 
-PARSER_VERSION = 3
+PARSER_VERSION = 4
 MAX_PAGES = 30
+MAX_FUND_PAGES = 250
 MAX_PDF_BYTES = 50 * 1024 * 1024
 
 
 class PdfError(ValueError):
     pass
+
+
+def _page_limit(count: int, first_page: str) -> None:
+    if count <= MAX_PAGES:
+        return
+    fund = re.search(r'oekb|kontrollbank', first_page, re.I) and re.search(
+        r'Kennzahlen ESt|Ertragsteuerliche Behandlung|BASISINFORMATION.*Anteilsgattung', first_page, re.I)
+    if fund and count <= MAX_FUND_PAGES:
+        return
+    raise PdfError(f'PDF hat mehr als {MAX_FUND_PAGES if fund else MAX_PAGES} Seiten; bitte aufteilen.')
 
 
 def extract_text(data: bytes, engine: str = "auto") -> tuple[str, str]:
@@ -44,9 +55,8 @@ def extract_text(data: bytes, engine: str = "auto") -> tuple[str, str]:
             import pdfplumber
 
             with pdfplumber.open(io.BytesIO(data)) as pdf:
-                if len(pdf.pages) > MAX_PAGES:
-                    raise PdfError(f"PDF hat mehr als {MAX_PAGES} Seiten; bitte in einzelne Abrechnungen aufteilen.")
-                text = "\n".join((p.extract_text() or "") for p in pdf.pages[:MAX_PAGES])
+                _page_limit(len(pdf.pages), (pdf.pages[0].extract_text() or '') if pdf.pages else '')
+                text = "\n".join((p.extract_text() or "") for p in pdf.pages)
             if text.strip():
                 return text, "pdfplumber"
         except PdfError:
@@ -58,8 +68,7 @@ def extract_text(data: bytes, engine: str = "auto") -> tuple[str, str]:
             import pymupdf as fitz
 
             with fitz.open(stream=data, filetype="pdf") as doc:
-                if len(doc) > MAX_PAGES:
-                    raise PdfError(f"PDF hat mehr als {MAX_PAGES} Seiten; bitte in einzelne Abrechnungen aufteilen.")
+                _page_limit(len(doc), doc[0].get_text() if len(doc) else '')
                 text = "\n".join(page.get_text(sort=True) for page in doc)
             if text.strip():
                 return text, "pymupdf"

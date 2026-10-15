@@ -533,6 +533,31 @@ class Repository:
         self.db.execute("UPDATE fund_reports SET review_status=? WHERE id=?", (status, rid))
         self.audit("fund_report", rid, "prüfstatus", {"status": status})
 
+    def correct_fund_report(self, rid: int, changes: dict, reason: str) -> None:
+        """Explicit correction of a report, with old values retained in the audit log."""
+        if not reason.strip():
+            raise ValueError('Für Korrekturen ist eine Begründung erforderlich')
+        old = self.db.one('SELECT * FROM fund_reports WHERE id=?', (rid,))
+        if not old or not old['active']:
+            raise ValueError('Nur aktive Fondsmeldungen können korrigiert werden')
+        allowed = {'fund_name', 'currency', 'fx_rate', 'distribution_per_unit', 'age_per_unit',
+                   'taxable_distribution_per_unit', 'creditable_tax_per_unit', 'ak_correction_per_unit',
+                   'kest_per_unit', 'notes', 'review_status'}
+        if set(changes) - allowed:
+            raise ValueError('Nicht bearbeitbare Felder in der Fondsmeldung')
+        if changes.get('review_status', old['review_status']) not in ('ungeprueft', 'geprueft', 'verworfen'):
+            raise ValueError('Ungültiger Prüfstatus')
+        validated = FundReportIn(**{**old, **changes}).model_dump(mode='json')
+        values = {k: validated.get(k, v) for k, v in changes.items()}
+        if not values:
+            return
+        if any(k not in ('notes', 'review_status') for k in values):
+            values.setdefault('review_status', 'ungeprueft')
+        sets = ', '.join(f'{k}=?' for k in values)
+        self.db.execute(f'UPDATE fund_reports SET {sets}, version=version+1 WHERE id=?', (*values.values(), rid))
+        self.audit('fund_report', rid, 'manuell geändert',
+                   {'begründung': reason, 'alt': {k: old.get(k) for k in values}, 'neu': values})
+
     def conflicts(self, status: str | None = None) -> list[dict]:
         if status:
             return self.db.query("SELECT * FROM conflicts WHERE status=? ORDER BY id", (status,))

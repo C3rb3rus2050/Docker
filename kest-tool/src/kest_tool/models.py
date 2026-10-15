@@ -253,7 +253,7 @@ class SecurityIn(BaseModel):
 
 
 class FundReportIn(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, allow_inf_nan=False)
 
     isin: str
     fund_name: Optional[str] = None

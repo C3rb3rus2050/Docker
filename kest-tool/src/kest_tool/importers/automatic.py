@@ -22,7 +22,13 @@ def automatic_tables(data: bytes, filename: str) -> list[pd.DataFrame]:
             sheets = pd.read_excel(io.BytesIO(data), sheet_name=None, dtype=str, keep_default_na=False)
         except zipfile.BadZipFile as exc:
             raise ImportError_('Keine gültige XLSX-Datei') from exc
-        return list(sheets.values())
+        from .oekb_layouts import pivot_published_table
+        output = []
+        for sheet in sheets.values():
+            records = [list(map(str, sheet.columns))] + sheet.astype(str).values.tolist()
+            pivot = pivot_published_table(records)
+            output.append(pivot if pivot is not None else sheet)
+        return output
     text, _ = _decode(data)
     candidates = []
     for sep in (';', ',', '\t', '|'):
@@ -30,6 +36,10 @@ def automatic_tables(data: bytes, filename: str) -> list[pd.DataFrame]:
             records = list(csv.reader(io.StringIO(text), delimiter=sep, strict=True))
         except csv.Error:
             continue
+        from .oekb_layouts import pivot_published_table
+        pivot = pivot_published_table(records)
+        if pivot is not None:
+            return [pivot]
         tables, header, rows = [], None, []
         for record in records:
             if not any(v.strip() for v in record):

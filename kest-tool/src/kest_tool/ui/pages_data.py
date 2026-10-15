@@ -26,6 +26,7 @@ from ..models import (
     TxType,
 )
 from . import common as C
+from .record_tables import record_grid, document_grid, document_preview
 
 
 # --------------------------------------------------------------------------- #
@@ -193,28 +194,18 @@ def funds() -> None:
     y = C.year_selector()
     st.title("Fonds & OeKB")
     p = get_provider(C.ctx().settings.get("oekb.automatic_provider"))
-    st.info(f"**Automatischer Weg:** nicht verfügbar. {p.reason}")
-    st.caption("**Manueller Weg:** Meldungen als CSV/PDF importieren (Seite Import) oder hier erfassen. Abweichende "
+    with st.expander('Hinweis zum Online-Abruf'):
+        st.info(p.reason)
+    st.caption("OeKB-Dateien werden im gemeinsamen Upload automatisch erkannt. Hier können Sie Meldungen direkt bearbeiten. Abweichende "
                "Werte erzeugen einen Konflikt – nichts wird stillschweigend überschrieben.")
     tabs = st.tabs(["Meldungen", "Konflikte", "Meldung erfassen", f"Nichtmeldefonds-Kurse {y}"])
     with tabs[0]:
         reps = repo.fund_reports()
-        C.df([{"ID": r["id"], "ISIN": r["isin"], "Fonds": r["fund_name"], "Art": r["report_type"],
-               "GJ-Ende": r["fiscal_year_end"], "Meldedatum": r["report_date"], "AgE/Anteil": r["age_per_unit"],
-               "Ausschüttung/Anteil": r["distribution_per_unit"],
-               "steuerpfl. Ausschüttung/Anteil": r["taxable_distribution_per_unit"],
-               "AK-Korrektur/Anteil": r["ak_correction_per_unit"], "anrechenb. Steuer/Anteil":
-                   r["creditable_tax_per_unit"], "Währung": r["currency"], "Quelle": r["source"],
-               "Dokument": r["document_id"], "Importiert": r["imported_at"], "Version": r["version"],
-               "Aktiv": bool(r["active"]), "Prüfstatus": r["review_status"]} for r in reps])
-        if reps:
-            cols = st.columns(3)
-            rid = cols[0].selectbox("Meldung", [r["id"] for r in reps])
-            status = cols[1].selectbox("Prüfstatus setzen", ["ungeprueft", "geprueft", "verworfen"])
-            if cols[2].button("Übernehmen"):
-                repo.set_fund_report_review(int(rid), status)
-                C.invalidate_results()
-                st.rerun()
+        query = st.text_input("Fondsmeldungen durchsuchen", key="fund_search")
+        active = st.checkbox("Nur aktive Meldungen", value=True, key="fund_active")
+        visible = [r for r in reps if (not active or r['active']) and
+                   (not query or query.lower() in str(r.get('fund_name', '')).lower() or query.upper() in r['isin'])]
+        record_grid(repo, visible, 'fund', 'fund_grid')
     with tabs[1]:
         open_c = repo.conflicts("offen")
         C.df(open_c)
@@ -318,14 +309,7 @@ def transactions() -> None:
     depot_f = cols[1].selectbox("Depot", ["alle"] + list(deps))
     isin_f = cols[2].text_input("ISIN-Filter")
     rows = repo.transactions(y if only_year else None, deps.get(depot_f), isin_f.strip().upper() or None)
-    C.df([{"ID": t["id"], "Datum": t["trade_date"], "Broker": t["broker_name"], "Depot": t["depot_name"],
-           "Art": t["tx_type"], "ISIN": t["isin"], "Name": t["security_name"], "Stück": t["quantity"],
-           "Kurs": t["price"], "Währung": t["currency"], "Betrag": t["amount"], "Devisenkurs": t["fx_rate"],
-           "Kursquelle": t.get("fx_source"), "Betrag EUR": t["amount_eur"],
-           "Gebühren EUR": t["fees_eur"], "QSt EUR": t["withholding_tax_eur"], "Land": t["withholding_country"],
-           "KESt": t["kest_at_eur"], "Ertragsart": t["income_category"],
-           "Ertragsart belegt": bool(t["income_category_verified"]), "Quelle": t["source_type"],
-           "Dokument": t["document_name"], "Prüfstatus": t["review_status"], "Notiz": t["notes"]} for t in rows])
+    selected_transactions = record_grid(repo, rows, 'transaction', 'tx_grid')
     if not deps:
         st.warning("Kein Depot vorhanden.")
         return
@@ -385,7 +369,11 @@ def transactions() -> None:
         if not rows:
             st.info("Keine Buchungen im Filter.")
             return
-        tid = st.selectbox("Buchung", [r["id"] for r in rows],
+        if len(selected_transactions) == 1:
+            st.session_state['tx_detail_selected'] = selected_transactions[0]
+        if st.session_state.get('tx_detail_selected') not in [r['id'] for r in rows]:
+            st.session_state.pop('tx_detail_selected', None)
+        tid = st.selectbox("Buchung", [r["id"] for r in rows], key='tx_detail_selected',
                            format_func=lambda i: next(f"#{r['id']} {r['trade_date']} {r['tx_type']} {r['isin'] or ''} "
                                                       f"{r['amount']}" for r in rows if r["id"] == i))
         tx = repo.transaction(tid)
@@ -439,6 +427,61 @@ def _open_documents(repo) -> list[dict]:
         "ORDER BY d.tax_year DESC, d.id")
 
 
+def _fund_document_review(repo, doc: dict, prefix: str) -> None:
+    from ..importers.oekb_layouts import extract_published_reports
+    from ..processing import process_fund_pdf, process_tables
+    linked = [r for r in repo.fund_reports() if r.get('document_id') == doc['id']]
+    if linked:
+        st.markdown('**Zugeordnete Fondsmeldungen**')
+        record_grid(repo, linked, 'fund', f'{prefix}fund_doc_{doc["id"]}')
+    if st.button('OeKB-Datei erneut automatisch prüfen', key=f'{prefix}fund_retry_{doc["id"]}'):
+        results = [process_fund_pdf(repo, doc, **C.document_analysis_options())] if doc['file_type'] == 'pdf' else \
+            process_tables(repo, [(doc, True)], **C.document_analysis_options())
+        C.after_processing(results)
+    if doc['file_type'] != 'pdf':
+        return
+    try:
+        cache = json.loads(doc.get('extraction_json') or '{}')
+        reports = cache.get('fund_reports')
+        if reports is None:
+            reports = extract_published_reports(repo.document_path(doc).read_bytes())
+    except (ValueError, OSError) as exc:
+        st.error(f'OeKB-Analyse nicht möglich: {exc}')
+        return
+    if not reports:
+        st.info('Kein unterstütztes OeKB-Layout erkannt. Original öffnen und Fondsmeldung unter Fonds & OeKB ergänzen.')
+        return
+    with st.expander('Erkannte Werte prüfen und ergänzen', expanded=not bool(linked)):
+        for report in reports:
+            for warning in report['warnings'] + report['missing']:
+                st.warning(f"{report['values'].get('isin', 'Ohne ISIN')}: {warning}")
+        records = [{'Übernehmen': not bool(r['warnings'] or r['missing']), **r['values']} for r in reports]
+        for record in records:
+            record.setdefault('fx_rate', None)
+        edited = st.data_editor(pd.DataFrame(records), key=f'{prefix}fund_candidates_{doc["id"]}',
+                                hide_index=True, width='stretch', num_rows='fixed')
+        note = st.text_input('Prüfnotiz / Quelle der Korrektur', key=f'{prefix}fund_note_{doc["id"]}')
+        if st.button('Ausgewählte Fondsmeldungen speichern', key=f'{prefix}fund_save_{doc["id"]}'):
+            try:
+                if not note.strip():
+                    raise ValueError('Bitte die Prüfung oder Korrektur kurz begründen')
+                candidates = []
+                for row in edited.to_dict('records'):
+                    if not row.pop('Übernehmen'):
+                        continue
+                    values = {k: v for k, v in row.items() if v is not None and not pd.isna(v)}
+                    candidates.append(FundReportIn(**values, document_id=doc['id'], source='OeKB-PDF / manuell geprüft',
+                                                   notes=note))
+                if not candidates:
+                    raise ValueError('Keine Fondsmeldung ausgewählt')
+                results = [repo.add_fund_report(r) for r in candidates]
+                repo.document_event(doc['id'], 'Fondsmeldungen manuell übernommen', {'notiz': note, 'meldungen': results})
+                C.invalidate_results()
+                st.success('Fondsmeldungen gespeichert. Abweichungen bleiben unter Fonds & OeKB als Konflikte sichtbar.')
+            except ValueError as exc:
+                st.error(str(exc))
+
+
 def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = "") -> None:
     from ..importers.pdf_importer import PdfError, extract_pdf
     from ..processing import extraction_for
@@ -446,17 +489,14 @@ def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = 
 
     did = doc["id"]
     path = repo.document_path(doc)
-    b1, b2, b3 = st.columns(3)
-    with b1:
-        C.open_file_button(path, f"{prefix}open_{did}", "Original öffnen")
-    with b2:
-        C.download_button(path, f"{prefix}dl_{did}", "Original herunterladen")
-    with b3:
-        if doc["status"] != "verarbeitet" and st.button("Als erledigt markieren", key=f"{prefix}done_{did}",
-                                                        help="z. B. wenn das Dokument keine Buchung braucht"):
-            repo.update_document(did, status="verarbeitet")
-            repo.document_event(did, "manuell erledigt")
-            st.rerun()
+    document_preview(repo, did, f'{prefix}original_{did}')
+    if doc["status"] != "verarbeitet" and st.button("Als erledigt markieren", key=f"{prefix}done_{did}"):
+        repo.update_document(did, status="verarbeitet")
+        repo.document_event(did, "manuell erledigt")
+        st.rerun()
+    if doc['doc_type'] == 'OeKB-Fondsmeldung':
+        _fund_document_review(repo, doc, prefix)
+        return
     if doc["file_type"] == "pdf":
         if st.button("PDF-Analyse aktualisieren", key=f"{prefix}refresh_{did}",
                      help="Liest das Original erneut aus. Bestehende Buchungen bleiben unverändert."):
@@ -487,8 +527,10 @@ def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = 
                 with st.expander("Prüfbericht und Buchung anlegen"):
                     pdf_review_form(doc, exd, None, key=f"{prefix}doc{did}")
     elif doc["file_type"] in ("csv", "txt", "xlsx"):
-        st.info("CSV/Excel-Dateien werden über **Import (erweitert)** mit Spaltenzuordnung eingelesen. Datei dort "
-                "erneut auswählen – Dubletten werden erkannt.")
+        st.info(doc.get('notes') or "Diese Tabelle kann über den gemeinsamen Upload automatisch erneut geprüft werden.")
+        if st.button("Tabelle erneut automatisch prüfen", key=f'{prefix}table_retry_{did}'):
+            from ..processing import process_tables
+            C.after_processing(process_tables(repo, [(doc, False)], **C.document_analysis_options()))
         C.link("import", "Zum Import")
     with st.expander("Ablage, Zuordnung und Verlauf"):
         st.write(f"**Speicherort:** `{path}`  \n**SHA-256:** `{doc['sha256']}`  \n**Importiert:** "
@@ -614,22 +656,24 @@ def documents() -> None:
             st.caption("Diese Dokumente konnten nicht automatisch gebucht werden. Wählen Sie eines aus: Der Prüfbericht "
                        "zeigt, was fehlt oder nicht stimmt, und darunter können Sie die Werte ergänzen.")
             pdf_ids = [d["id"] for d in open_docs if d["file_type"] == "pdf"]
-            if pdf_ids:
+            if open_docs:
                 deps = C.depot_options()
                 cols = st.columns([2, 1])
                 dflt = cols[0].selectbox("Depot, falls nicht eindeutig", ["automatisch"] + list(deps),
                                          key="doc_dflt_depot")
                 if cols[1].button("Alle erneut automatisch prüfen", help="Nach Ergänzungen (z. B. neues Depot) "
                                   "Originale mit der aktuellen Erkennung und den konfigurierten EZB-/OCR-Optionen erneut auslesen"):
-                    C.after_processing(C.process_documents(repo, pdf_ids, deps.get(dflt), reextract=True))
-            _bulk_document_editor(repo, open_docs, "open_docs")
-            did = st.selectbox("Dokument zur Einzelprüfung öffnen", [d["id"] for d in open_docs],
-                               key="open_doc_sel",
-                           format_func=lambda i: next(
-                               f"{DOC_STATUS_LABEL.get(d['status'], d['status'])} · {d['original_filename']} "
-                               f"({d['doc_type']}, {d['tax_year'] or 'ohne Jahr'})" for d in open_docs if d["id"] == i))
-            st.divider()
-            _document_detail(repo, repo.document(did), y, review_first=True, prefix="o_")
+                    from ..processing import process_tables
+                    results = C.process_documents(repo, pdf_ids, deps.get(dflt), reextract=True)
+                    tables = [(d, d['doc_type'] == 'OeKB-Fondsmeldung') for d in open_docs
+                              if d['file_type'] in ('csv', 'txt', 'xlsx')]
+                    results.extend(process_tables(repo, tables, **C.document_analysis_options()))
+                    C.after_processing(results)
+            selected = document_grid(repo, open_docs, 'open_document_grid')
+            if selected:
+                did = selected[0] if len(selected) == 1 else st.selectbox('Ausgewähltes Prüfdokument', selected,
+                        format_func=lambda did: repo.document(did)['original_filename'], key='open_doc_sel')
+                _document_detail(repo, repo.document(did), y, review_first=True, prefix='o_')
     with tab_all:
         cols = st.columns(5)
         fy = cols[0].selectbox("Steuerjahr", ["alle"] + c.settings.tax_years,
@@ -640,12 +684,8 @@ def documents() -> None:
         q = cols[4].text_input("Suche (Name/Hash)")
         docs = repo.documents(None if fy == "alle" else int(fy), None if fs == "alle" else fs,
                               None if ft == "alle" else ft, q or None, None if fst == "alle" else fst)
-        C.df([{"Status": DOC_STATUS_LABEL.get(d["status"], d["status"]), "Datei": d["original_filename"],
-               "Typ": d["doc_type"], "Quelle": d["source"], "Jahr": d["tax_year"], "Buchungen": d["tx_count"],
-               "Importiert": d["imported_at"], "ID": d["id"]} for d in docs])
-        if docs:
-            _bulk_document_editor(repo, docs, "all_docs")
-            did2 = st.selectbox("Dokument öffnen", [d["id"] for d in docs], key="all_doc_sel",
-                                format_func=lambda i: next(f"{d['original_filename']} (#{d['id']})" for d in docs
-                                                           if d["id"] == i))
+        selected = document_grid(repo, docs, 'all_document_grid')
+        if selected:
+            did2 = selected[0] if len(selected) == 1 else st.selectbox('Ausgewähltes Dokument', selected,
+                        format_func=lambda did: repo.document(did)['original_filename'], key='all_doc_sel')
             _document_detail(repo, repo.document(did2), y, review_first=False, prefix="a_")
