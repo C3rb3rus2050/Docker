@@ -1,11 +1,10 @@
-# KESt-Steuertool – Docker-Deployment
+# KESt-Steuertool – Docker-Deployment ohne Anmeldung
 
-**Status:** KESt-Steuertool mit Zugangsschutz.
+**Status:** KESt-Steuertool ohne Login-Maske. Der Caddy-Proxy verwendet keine HTTP-Basic-Authentifizierung.
 
-## Voraussetzungen
+## Sicherheit und Erreichbarkeit
 
-Docker Compose im Linux-LXC. Die Ports sind standardmäßig nur an localhost gebunden.
-Erreichbarkeit von einem anderen Gerät per SSH-Tunnel oder vorgeschaltetem authentifiziertem HTTPS-Proxy.
+Die Anwendung verarbeitet vertrauliche Finanz- und Steuerdaten. Ohne Anmeldung darf sie **nicht ungeschützt ins Internet** gestellt werden. Standardmäßig bindet Docker den Portal-Port nur an `127.0.0.1` des Servers. Für entfernte Geräte wird ein SSH-Tunnel oder ein VPN empfohlen. Bei einem eigenen Nginx-Reverse-Proxy den Zugriff auf vertrauenswürdige Netze/VPN begrenzen und HTTPS verwenden.
 
 ## Einrichtung
 
@@ -13,40 +12,27 @@ Erreichbarkeit von einem anderen Gerät per SSH-Tunnel oder vorgeschaltetem auth
 git clone https://github.com/C3rb3rus2050/Docker.git
 cd Docker
 mkdir -p data/kest
-# Passwort-Hash erzeugen (Passwort wird interaktiv abgefragt):
-docker run --rm -it caddy:2.9-alpine caddy hash-password
-```
-
-Den ausgegebenen Hash in eine lokale `.env`-Datei eintragen.
-**Wichtig:** Den bcrypt-Hash in der `.env` in **einfache Anführungszeichen** setzen. Dadurch bleiben die Dollarzeichen im Hash erhalten. Keine doppelten Dollarzeichen im `.env`-Wert verwenden.
-
-```dotenv
-PORTAL_USERNAME=admin
-PORTAL_PASSWORD_HASH='<BCRYPT_HASH_UNVERAENDERT>'
-PORTAL_PORT=8080
-```
-
-```bash
 docker compose config -q
 docker compose up -d --build
 docker compose ps
-docker compose logs --tail=100
 ```
 
-Von Windows aus per SSH-Tunnel:
+Ein Passwort-Hash und die Variablen `PORTAL_USERNAME`/`PORTAL_PASSWORD_HASH` sind **nicht mehr erforderlich**. Eine vorhandene lokale `.env` mit diesen alten Variablen kann bereinigt werden.
+
+Standardport: `PORTAL_PORT=8080`. Die Weboberfläche liegt unter `/steuer/`.
+
+### Zugriff von Windows über SSH-Tunnel
 
 ```powershell
 ssh -L 8080:127.0.0.1:8080 root@LXC-IP
 ```
 
-Danach: http://127.0.0.1:8080
+Anschließend `http://127.0.0.1:8080/steuer/` öffnen.
 
-Für direkten LAN-Zugriff muss die Portbindung in `compose.yaml` bewusst geändert und
-HTTPS mit Zugriffsschutz konfiguriert werden. **HTTP Basic Auth ohne TLS nur über
-einen SSH-Tunnel benutzen.**
+### Direkter LAN-Zugriff (nur bewusst freigeben)
 
-## Import
+Wenn die Anwendung direkt im LAN erreichbar sein soll, muss die Portbindung `127.0.0.1:${PORTAL_PORT:-8080}:8080` in `compose.yaml` auf die gewünschte Server-IP geändert werden. Ohne Login können dann alle Geräte mit Netzwerkzugriff auf diesen Port Dokumente ansehen, importieren und ändern. Den Zugang über Firewall, VPN oder Reverse-Proxy-Regeln begrenzen. Für Zugriff über das öffentliche Internet ist diese Konfiguration **nicht geeignet**.
 
-Broker-PDFs und CSV-/Excel-Dateien werden manuell heruntergeladen und im KESt-Tool unter `/steuer/` importiert. Es gibt keinen Broker-Collector mehr.
+## Import und Datensicherung
 
-Bestehende Dateien aus früheren Installationen werden durch Docker Compose nicht automatisch gelöscht. Prüfen Sie Sicherungskopien vor manueller Bereinigung.
+Broker-PDFs und CSV-/Excel-Dateien werden manuell unter `/steuer/` importiert. Vor Updates den persistenten Ordner `data/kest` sichern. Docker Compose löscht vorhandene Daten nicht automatisch.
