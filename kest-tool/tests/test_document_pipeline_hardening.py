@@ -148,3 +148,22 @@ def test_document_with_only_deleted_links_returns_to_review(repo, depot):
     repo.update_document(doc["id"], status="pruefen")
     assert doc["id"] in [item["id"] for item in data_status(repo, 2024)["docs_open"]]
     assert doc["id"] in [item["id"] for item in _open_documents(repo)]
+
+
+def test_empty_id_list_never_processes_every_document(repo, depot):
+    doc, _ = repo.add_document(demo.tr_buy_pdf(), "kauf.pdf", tax_year=2024)
+    assert process_documents(repo, [], default_depot=depot) == []
+    assert repo.transactions() == []
+    assert repo.document(doc["id"])["status"] == "neu"
+
+
+def test_partially_processed_document_stays_in_review(repo, depot):
+    from kest_tool.processing import data_status
+    from kest_tool.ui.pages_data import _open_documents
+
+    data = demo.tr_buy_pdf()
+    doc, _ = repo.add_document(data, "kauf.pdf", tax_year=2024)
+    repo.add_transaction(transaction_from_extraction(extract_pdf(data).to_dict(), depot, doc))
+    repo.update_document(doc["id"], status="teilweise")
+    assert doc["id"] in [d["id"] for d in _open_documents(repo)]
+    assert doc["id"] in [d["id"] for d in data_status(repo, 2024)["docs_open"]]
