@@ -4,8 +4,8 @@ Die Extraktion ist heuristisch. Jedes Feld erhält eine Konfidenz; fehlende oder
 führen dazu, dass das Dokument zur manuellen Prüfung vorgelegt wird. Ein Dokument wird nie als
 „vollständig verarbeitet“ gemeldet, wenn wesentliche Werte fehlen oder widersprüchlich sind.
 
-Getestet ist die Extraktion ausschließlich mit synthetischen PDFs im Stil deutscher Broker-Abrechnungen
-(siehe tests/kest). Echte Abrechnungen von Trade Republic/Scalable Capital können abweichen.
+Regressionstests verwenden synthetische PDFs; öffentliche Broker-Textextrakte ergänzen den
+Layoutabgleich (docs/BROKER-MUSTER.md). Originale und OCR-Ergebnisse können abweichen.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from __future__ import annotations
 import io
 import logging
 import re
-import unicodedata
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from typing import Any
@@ -23,7 +22,7 @@ from .parsing import parse_number
 
 log = logging.getLogger(__name__)
 
-PARSER_VERSION = 5
+PARSER_VERSION = 6
 MAX_PAGES = 30
 MAX_FUND_PAGES = 250
 MAX_PDF_BYTES = 50 * 1024 * 1024
@@ -126,6 +125,7 @@ class Extraction:
     missing: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     components: list[dict] = field(default_factory=list)
+    classification: dict = field(default_factory=dict)
     engine: str = ""
     text_excerpt: str = ""
     complete: bool = False
@@ -269,6 +269,8 @@ def detect_type(text: str) -> tuple[str, str | None]:
         return "OeKB-Fondsmeldung", None
     if re.search(r"kapitalrückzahlung|einlagenrückzahlung|return of capital", t):
         return "Ertragsabrechnung", TxType.CAPITAL_REPAYMENT.value
+    if re.search(r'(?im)^(?:Fondsausschüttung|Fund Distribution)\s*$', text):
+        return 'Ausschüttungsabrechnung', TxType.DISTRIBUTION.value
     if re.search(r"\bausschüttung\b|barausschüttung|ertragsausschüttung|distribution", t):
         return "Ausschüttungsabrechnung", TxType.DISTRIBUTION.value
     if re.search(r"dividende|dividend|bardividende", t):
@@ -306,7 +308,8 @@ def _currency(value: str) -> str:
 
 
 def _normalize_text(text: str) -> str:
-    text = unicodedata.normalize("NFKC", text).replace("−", "-").replace("\r\n", "\n").replace("\r", "\n")
+    from .text_patterns import normalize_document_text
+    text = normalize_document_text(text)
     lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
     amount_labels = FEE_LABELS + GROSS_LABELS_TRADE + GROSS_LABELS_INCOME + TOTAL_LABELS + WHT_LABELS + KEST_LABELS
     date_labels = TRADE_DATE_LABELS + INCOME_DATE_LABELS + GENERIC_DATE_LABELS + ["Ex-Tag", "Settlement Date"]
@@ -641,6 +644,25 @@ def parse_text(text: str, *, reference_fx: Field | None = None) -> Extraction:
         return ex
     ex.broker = detect_broker(text)
     ex.doc_type, ex.tx_type = detect_type(text)
+    from .broker_documents import document_profile
+    from .text_patterns import text_fingerprint
+    profile = document_profile(text)
+    explicit = re.search(r'(?im)^(?:Wertpapierabrechnung|Contract note|Transaction Statement|Trade confirmation|'
+                         r'Dividendenabrechnung|Dividende|Dividend Statement|Fund Distribution|'
+                         r'(?:Bar|Fonds)?ausschüttung|Ertragsabrechnung|Zinszahlung)\b', text)
+    inferred = text_fingerprint(text) if not profile and not explicit else None
+    if inferred:
+        ex.classification = inferred
+        ex.doc_type, ex.tx_type = inferred['doc_type'], inferred['tx_type']
+        if ex.tx_type is None:
+            ex.creates_transaction = False
+        ex.check('Textmuster-Zuordnung', 'warn',
+                 'Vorläufige Dokumentart ' + ex.doc_type + ': ' + '; '.join(inferred['evidence']),
+                 'Überschrift fehlt oder ist nicht eindeutig. Dokumentart und Werte mit dem Original vergleichen.')
+    else:
+        ex.classification = {'doc_type': ex.doc_type, 'method': 'Überschrift/Abrechnung' if profile or explicit else 'Schlüsselwörter',
+                             'confidence': .95 if profile or explicit else .5,
+                             'evidence': [profile.explanation] if profile else ([explicit[0]] if explicit else [])}
     f = ex.fields
 
     # ISIN (mit Prüfziffer)
