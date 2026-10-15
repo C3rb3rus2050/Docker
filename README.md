@@ -1,14 +1,14 @@
-# Wertpapier-Steuer-Werkzeuge (privat, lokal, Windows 11)
+# Österreichisches KESt-Steuertool
 
-Dieses Repository enthält zwei **eigenständige** Projekte. Jedes hat eigenen Code, eigene Abhängigkeiten, eigene
-Tests sowie eigene Installations- und Startskripte. Keines benötigt das andere.
+Dieses Repository enthält ausschließlich das **KESt-Steuertool** für österreichische Wertpapierdepots.
 
-| Ordner | Projekt | Zweck | Start |
-|---|---|---|---|
-| [`kest-tool/`](kest-tool) | **KESt-Tool** | Österreichische Kapitalertragsteuer: Import (CSV/Excel/PDF/OeKB), nachvollziehbare Steuerberechnung, Excel-Export mit 11 Blättern, E 1kv-Arbeitshilfe | `kest-tool\install.bat`, dann `kest-tool\start.bat` |
-| [`broker-document-collector/`](broker-document-collector) | **Broker Document Collector** | Automatischer Download aller Dokumente aus Trade Republic und Scalable Capital (Anmeldung selbst im Browser) | `broker-document-collector\install.bat`, dann `broker-document-collector\start.bat` |
+- Import von manuell heruntergeladenen PDF-, ZIP-, CSV- und Excel-Dateien (Trade Republic, Scalable Capital und weitere Broker)
+- Aktien, ETFs, REITs, BDCs, Melde- und Nichtmeldefonds mit Prüfhinweisen für steuerliche Sonderfälle
+- OeKB-Fondsdaten, depotübergreifende Auswertung, Verlustausgleich und nachvollziehbare E 1kv-Arbeitshilfe
+- Excel-, CSV- und PDF-Exporte mit Belegablage pro Steuerjahr
 
-Optionales Zusammenspiel: Den Ausgabeordner des Collectors können Sie im KESt-Tool über **Import → Ordner einlesen**
-übernehmen.
+**Start unter Docker:** Siehe [WEB-DEPLOY.md](WEB-DEPLOY.md).
 
-Details stehen in den README-Dateien der beiden Ordner.
+**Windows-Installation:** Siehe [kest-tool/README.md](kest-tool/README.md).
+
+Das Tool ist eine Steuererklärungshilfe und ersetzt keine steuerliche Prüfung.

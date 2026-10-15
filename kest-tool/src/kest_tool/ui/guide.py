@@ -45,12 +45,23 @@ def quickstart() -> bool:
 def upload_box(y: int, key: str, expanded: bool = True) -> None:
     """Drag-and-drop für mehrere PDFs, ZIP-Archive und CSV/Excel-Dateien."""
     c = C.ctx()
-    with st.expander("📥 Dokumente hinzufügen (PDF, ZIP, CSV)", expanded=expanded):
+    with st.expander("📥 Dokumente per Drag & Drop importieren", expanded=expanded):
         st.caption("PDF-Abrechnungen werden gelesen, geprüft und – wenn alle Werte sicher erkannt und stimmig sind – "
                    "automatisch als Buchung übernommen. Alles andere erscheint mit Grund und „Was tun?“ zur Prüfung. "
                    "ZIP-Archive aus Ihren eigenen Downloads werden entpackt. Fehlende oder widersprüchliche Angaben bleiben zur manuellen Prüfung offen.")
-        files = st.file_uploader("Dateien auswählen oder hierher ziehen", type=["pdf", "zip", "csv", "txt", "xlsx"],
-                                 accept_multiple_files=True, key=f"upl_{key}")
+        mode = st.selectbox("Upload-Art auswählen",
+                            ["Einzeldateien / ZIP", "Kompletten Ordner"],
+                            key=f"upl_mode_{key}",
+                            help="Wählen Sie einzelne Dateien bzw. ZIP-Archive oder einen ganzen Ordner.")
+        folder_mode = mode == "Kompletten Ordner"
+        if folder_mode:
+            st.caption("Ordner dürfen Unterordner und ZIP-Dateien enthalten. Alle unterstützten Dateien werden "
+                       "gemeinsam verarbeitet; nicht unterstützte Dateien werden übersprungen.")
+        files = st.file_uploader(
+            "Ordner auswählen" if folder_mode else "PDFs, ZIP-Archive oder Tabellen hierher ziehen",
+            type=["pdf", "zip", "csv", "txt", "xlsx"],
+            accept_multiple_files="directory" if folder_mode else True,
+            key=f"upl_{key}_{mode}")
         deps = C.depot_options()
         dflt = st.selectbox("Depot, falls es nicht automatisch erkannt wird", ["automatisch"] + list(deps),
                             key=f"upl_depot_{key}",
@@ -58,18 +69,31 @@ def upload_box(y: int, key: str, expanded: bool = True) -> None:
                                  "Depots desselben Brokers hier das richtige wählen.")
         if files:
             st.caption(f"{len(files)} ausgewählte Datei(en) – die Originale bleiben erhalten; Dubletten werden erkannt.")
-        if files and st.button("Hochladen und verarbeiten", type="primary", key=f"upl_go_{key}"):
+        if files and st.button(f"{len(files)} Datei(en) importieren und prüfen", type="primary",
+                               use_container_width=True, key=f"upl_go_{key}"):
             items, problems = [], []
             max_mb = int(c.settings.get("import.max_upload_mb", 50))
+            batch_bytes = 0
             for up in files:
                 data = up.getvalue()
-                if len(data) > max_mb * 1024 * 1024 and not up.name.lower().endswith(".zip"):
+                if len(data) > max_mb * 1024 * 1024:
                     problems.append((up.name, f"größer als {max_mb} MB"))
                     continue
                 try:
-                    items += expand_upload(up.name, data)
+                    expanded = expand_upload(up.name, data)
+                    expanded_size = sum(len(payload) for _, payload in expanded)
+                    if len(items) + len(expanded) > 2000 or batch_bytes + expanded_size > 500 * 1024 * 1024:
+                        problems.append((up.name, "Gesamter Upload zu groß (max. 2.000 Dateien / 500 MB entpackt)"))
+                        continue
+                    items.extend(expanded)
+                    batch_bytes += expanded_size
                 except ValueError as exc:
                     problems.append((up.name, str(exc)))
+            if not items:
+                st.warning("Keine unterstützten Dateien zum Import gefunden.")
+                for filename, reason in problems:
+                    st.error(f"{filename}: {reason}")
+                st.stop()
             with st.spinner(f"{len(items)} Datei(en) werden abgelegt und geprüft …"):
                 res = store_uploads(c.repo, items, y, c.settings.get("pdf.engine", "auto"))
                 results = process_documents(c.repo, res.pdf_ids, deps.get(dflt)) if res.pdf_ids else []

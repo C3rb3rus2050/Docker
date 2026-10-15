@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import date
 from pathlib import Path
 
@@ -38,7 +39,7 @@ from . import common as C
 NONE = "— nicht zugeordnet —"
 IMPORT_TYPES = ["CSV/Excel – Transaktionen", "PDF – Abrechnungen (Kauf/Verkauf/Dividende/…)",
                 "PDF – Jahressteuerbescheinigung/sonstige Belege", "OeKB – Fondsdaten (CSV/Excel)",
-                "OeKB – Fondsmeldung (PDF)", "Ordner einlesen (manuell heruntergeladene Dokumente)"]
+                "OeKB – Fondsmeldung (PDF)", "Serverordner einlesen (optional)"]
 
 
 def _check_upload(name: str, data: bytes) -> str | None:
@@ -65,19 +66,20 @@ def _source_for_depot(depot_id: int | None) -> str:
 def render() -> None:
     c = C.ctx()
     y = C.year_selector()
-    st.title("Import (erweitert)")
+    st.title("Dokumente importieren")
     from .guide import upload_box
     upload_box(y, "import_page", expanded=True)
-    st.info("PDFs und ZIP-Archive können direkt oben per Drag & Drop importiert werden. Die erweiterten Importarten unten benötigen Sie für "
-            "Sie für CSV/Excel-Exporte (Spaltenzuordnung), OeKB-Daten und Ordner auf der Festplatte.")
+    st.info("Dateien, ZIP-Archive oder ganze Ordner vom eigenen Computer können Sie oben hochladen. "
+            "Die erweiterten Importarten unten dienen der CSV/Excel-Spaltenzuordnung, "
+            "den OeKB-Fondsdaten und optionalen Serverordnern.")
     C.link("dashboard", "Zur Übersicht")
     st.caption("Originaldateien werden unverändert in der Ablage gespeichert. Erneut importierte Dateien werden über "
                "SHA-256 erkannt. Vor jedem Import wird eine Vorschau angezeigt.")
     if "last_process_results" in st.session_state:
         C.show_process_results(st.session_state.pop("last_process_results"))
-    kind = st.radio("Importtyp", IMPORT_TYPES, horizontal=False)
+    kind = st.selectbox("Erweiterte Importart", IMPORT_TYPES)
     deps = C.depot_options()
-    if kind.startswith(("CSV", "PDF – Abr")) and not deps:
+    if kind.startswith("CSV") and not deps:
         st.warning("Bitte zuerst unter **Broker & Depots** ein Depot anlegen.")
         return
     if kind.startswith("CSV"):
@@ -221,7 +223,8 @@ def pdf_review_form(doc: dict, extraction: dict, depot_id: int | None, key: str)
 
     def conf(name):
         fld = f.get(name)
-        return f" (Konfidenz {fld['confidence']:.0%})" if fld else " (nicht gefunden)"
+        confidence = fld.get("confidence") if isinstance(fld, dict) else None
+        return f" (Konfidenz {confidence:.0%})" if isinstance(confidence, (int, float)) else " (nicht gefunden)"
 
     broker = {"TradeRepublic": "Trade Republic", "ScalableCapital": "Scalable Capital", "OeKB": "OeKB"}.get(
         extraction.get("broker"), "nicht erkannt")
@@ -242,37 +245,44 @@ def pdf_review_form(doc: dict, extraction: dict, depot_id: int | None, key: str)
     st.caption("Felder mit Konfidenz unter 80 % bzw. „nicht gefunden“ bitte mit dem Original vergleichen. Erst mit "
                "„Als Buchung übernehmen“ wird gebucht.")
     deps = C.depot_options()
+    if not deps:
+        st.warning("Noch kein Depot vorhanden. Legen Sie zuerst ein Depot an, um eine Buchung zu übernehmen.")
+        C.link("depots", "Broker und Depots verwalten")
+        return
     with st.form(f"pdfform_{key}"):
         dl = list(deps)
         di = list(deps.values()).index(depot_id) if depot_id in deps.values() else 0
-        depot_label = st.selectbox("Depot", dl, index=di)
-        cols = st.columns(3)
+        st.markdown("#### 1. Depot und Buchungsart")
+        depot_label = st.selectbox("Depot", dl, index=di, help="Wählen Sie das Depot, dem diese Abrechnung zugeordnet wird.")
+        cols = st.columns(2)
         types = [t.value for t in TxType]
         t = cols[0].selectbox("Buchungsart", types, index=types.index(extraction.get("tx_type"))
                               if extraction.get("tx_type") in types else 0)
         d_raw = v("trade_date")
         d_val = date.fromisoformat(d_raw) if isinstance(d_raw, str) else (d_raw or date.today())
         trade_date = cols[1].date_input("Buchungsdatum" + conf("trade_date"), value=d_val, format="DD.MM.YYYY")
-        isin = cols[2].text_input("ISIN" + conf("isin"), value=v("isin", "") or "")
+        isin = st.text_input("ISIN" + conf("isin"), value=v("isin", "") or "", placeholder="12-stellige ISIN")
         name = st.text_input("Wertpapiername" + conf("security_name"), value=v("security_name", "") or "")
-        cols = st.columns(4)
+        st.markdown("#### 2. Wertpapier und Beträge")
+        cols = st.columns(2)
         qty = cols[0].number_input("Stückzahl" + conf("quantity"), value=float(v("quantity", 0) or 0), format="%.6f")
         price = cols[1].number_input("Kurs" + conf("price"), value=float(v("price", 0) or 0), format="%.4f")
-        amount = cols[2].number_input("Bruttobetrag" + conf("amount"), value=float(v("amount", 0) or 0),
+        amount = cols[0].number_input("Bruttobetrag" + conf("amount"), value=float(v("amount", 0) or 0),
                                       format="%.2f")
-        fees = cols[3].number_input("Gebühren" + conf("fees"), value=float(v("fees", 0) or 0), format="%.2f")
-        cols = st.columns(5)
+        fees = cols[1].number_input("Gebühren" + conf("fees"), value=float(v("fees", 0) or 0), format="%.2f")
+        st.markdown("#### 3. Währung und Steuern")
+        cols = st.columns(2)
         curs = C.ctx().settings.currencies
         cur = cols[0].selectbox("Währung", curs, index=curs.index(v("currency", "EUR")) if v("currency", "EUR") in curs
                                 else 0)
         fx = cols[1].number_input("Devisenkurs (Währung je EUR)", value=float(v("fx_rate", 0) or 0), format="%.6f")
-        wht = cols[2].number_input("Quellensteuer" + conf("withholding_tax"),
+        wht = cols[0].number_input("Quellensteuer" + conf("withholding_tax"),
                                    value=float(v("withholding_tax", 0) or 0), format="%.2f")
-        country = cols[3].text_input("Quellenstaat", value=v("withholding_country", "") or "", max_chars=2)
-        kest = cols[4].number_input("Österr. KESt (EUR)" + conf("kest_at_eur"), value=float(v("kest_at_eur", 0) or 0),
+        country = cols[1].text_input("Quellenstaat", value=v("withholding_country", "") or "", max_chars=2)
+        kest = cols[0].number_input("Österr. KESt (EUR)" + conf("kest_at_eur"), value=float(v("kest_at_eur", 0) or 0),
                                     format="%.2f")
         checked = st.checkbox("Ich habe die Werte mit dem Originaldokument abgeglichen")
-        submitted = st.form_submit_button("Als Buchung übernehmen", type="primary")
+        submitted = st.form_submit_button("Geprüfte Buchung übernehmen", type="primary", use_container_width=True)
     if submitted:
         try:
             tx = TransactionIn(depot_id=deps[depot_label], tx_type=TxType(t), trade_date=trade_date,
@@ -317,45 +327,58 @@ def _store_pdf(data: bytes, name: str, y: int, depot_id: int | None, method: str
 
 
 def _pdf_import(y: int, deps: dict) -> None:
+    """Import only after a deliberate click; rerendering the page never reimports PDFs."""
+    from ..processing import extraction_for
+
     repo = C.ctx().repo
-    depot_label = st.selectbox("Depot (falls nicht eindeutig über den Broker bestimmbar)", list(deps), key="pdf_depot")
+    depot_label = st.selectbox("Depot (falls nicht eindeutig über den Broker bestimmbar)",
+                               ["automatisch"] + list(deps), key="pdf_depot")
+    default_depot = deps.get(depot_label)
     auto = st.checkbox("Vollständig erkannte Abrechnungen automatisch als Buchung übernehmen", value=True,
-                       help="Nur Dokumente, bei denen alle Pflichtwerte sicher erkannt wurden. Alle anderen erscheinen "
-                            "unten zur manuellen Prüfung.")
+                       help="Nur Dokumente ohne Widersprüche. Dublettenverdacht wird zur Prüfung zurückgestellt.")
     ups = st.file_uploader("PDF-Abrechnungen", type=["pdf"], accept_multiple_files=True, key="pdf_up")
     st.caption("Die Texterkennung läuft lokal (pdfplumber/PyMuPDF). Gescannte PDFs ohne Textebene können nicht "
                "ausgelesen werden – Werte dann manuell eintragen. Keine Übertragung an externe Dienste.")
-    stored = []
-    for up in ups or []:
-        data = up.getvalue()
-        err = _check_upload(up.name, data)
-        if err:
-            st.error(f"{up.name}: {err}")
+
+    if ups and st.button(f"{len(ups)} PDF(s) importieren und prüfen", type="primary",
+                         key="pdf_import_confirm"):
+        ids, errors = [], []
+        for up in ups:
+            data = up.getvalue()
+            err = _check_upload(up.name, data)
+            if err:
+                errors.append((up.name, err))
+                continue
+            try:
+                doc, _, _ = _store_pdf(data, up.name, y, default_depot, "pdf-upload")
+                ids.append(doc["id"])
+            except (PdfError, OSError, ValueError) as exc:
+                errors.append((up.name, str(exc)))
+        st.session_state["pdf_import_ids"] = list(dict.fromkeys(ids))
+        st.session_state["pdf_import_errors"] = errors
+        st.session_state["pdf_import_results"] = (
+            process_documents(repo, ids, default_depot) if auto and ids else []
+        )
+        if auto and ids:
+            C.invalidate_results()
+
+    for name, error in st.session_state.get("pdf_import_errors", []):
+        st.error(f"„{name}“: {error}")
+    results = st.session_state.get("pdf_import_results", [])
+    if results:
+        C.show_process_results(results)
+    ids = st.session_state.get("pdf_import_ids", [])
+    for did in ids:
+        doc = repo.document(did)
+        if not doc or repo.transactions_for_document(did):
             continue
         try:
-            doc, exd, new = _store_pdf(data, up.name, y, deps[depot_label], "pdf-upload")
-        except PdfError:
+            exd = extraction_for(repo, doc)
+        except (PdfError, OSError, ValueError) as exc:
+            st.error(f"PDF „{doc['original_filename']}“ konnte nicht analysiert werden: {exc}")
             continue
-        stored.append((doc, exd, new))
-    if not stored:
-        return
-    done = st.session_state.setdefault("pdf_processed", {})
-    if auto:
-        todo = [d["id"] for d, _, _ in stored if d["id"] not in done]
-        if todo:
-            for r in process_documents(
-                    repo, todo, deps[depot_label]):
-                done[r.document_id] = r
-        C.show_process_results([done[d["id"]] for d, _, _ in stored if d["id"] in done])
-        C.auto_fill_fx()
-    for doc, exd, new in stored:
-        doc = repo.document(doc["id"])
-        if repo.transactions_for_document(doc["id"]):
-            continue
-        if doc.get("extraction_json"):
-            exd = json.loads(doc["extraction_json"])
         st.subheader(f"Prüfen: {doc['original_filename']}")
-        pdf_review_form(doc, exd, deps[depot_label], key=doc["sha256"][:12])
+        pdf_review_form(doc, exd, default_depot, key=doc["sha256"][:12])
 
 
 def _doc_only_import(y: int) -> None:
@@ -476,48 +499,68 @@ def _oekb_pdf(y: int) -> None:
 
 # --------------------------------------------------------------------------- #
 def _folder_import(y: int, deps: dict) -> None:
+    """Explicit, opt-in server-side folder import using the validated upload pipeline."""
+    from ..processing import expand_upload, process_documents, store_uploads
+
+    st.caption("Dieser Import liest Dateien vom Server/Proxmox-LXC, nicht vom Windows-PC. "
+               "Für lokale Ordner verwenden Sie oben die Upload-Art »Kompletten Ordner«.")
+    if os.getenv("KEST_ALLOW_SERVER_FOLDER_IMPORT") != "1":
+        st.info("Serverordner-Import ist aus Sicherheitsgründen deaktiviert. "
+                "Administratoren können ihn mit KEST_ALLOW_SERVER_FOLDER_IMPORT=1 aktivieren.")
+        return
     repo = C.ctx().repo
-    st.caption("Liest alle PDF/CSV-Dateien eines lokalen Ordners (z. B. Ausgabeordner des Broker Document Collectors) "
-               "ein. Dateien werden in die Ablage kopiert (Original bleibt unverändert) und zur Prüfung vorgemerkt. "
-               "Buchungen werden erst nach Prüfung auf der Seite Dokumente angelegt.")
-    collector_path = Path("/data/collector")
-    if collector_path.is_dir():
-        st.success("Broker Document Collector erkannt – Dokumente können direkt übernommen werden.")
-        if st.button("Collector-Ordner auswählen", key="collector_pick"):
-            st.session_state["folder_path"] = str(collector_path)
-    folder = st.text_input("Ordnerpfad", placeholder="Pfad zu den Dokumenten", key="folder_path")
+    folder = st.text_input("Serverordner", placeholder="/data/importe", key="folder_path")
     recursive = st.checkbox("Unterordner einbeziehen", value=True)
-    auto = st.checkbox("Vollständig erkannte Abrechnungen danach automatisch als Buchung übernehmen", value=True)
-    dflt = st.selectbox("Standarddepot, falls das Depot nicht eindeutig ist", ["—"] + list(deps), key="folder_depot")
+    auto = st.checkbox("Eindeutige Abrechnungen automatisch buchen", value=True)
+    dflt = st.selectbox("Standarddepot, falls nicht eindeutig", ["automatisch"] + list(deps),
+                        key="folder_depot")
+    report = st.session_state.pop("server_folder_report", None)
+    if report:
+        st.success(f"{report['new']} neue Datei(en), {report['duplicates']} Dublette(n), "
+                   f"{len(report['skipped'])} übersprungen.")
+        if report["skipped"]:
+            with st.expander("Übersprungene Dateien und Gründe"):
+                for name, reason in report["skipped"][:200]:
+                    st.write(f"**{name}:** {reason}")
     if not folder:
         return
-    p = Path(folder).expanduser()
+    p = Path(folder).expanduser().resolve()
     if not p.is_dir():
-        st.error("Ordner nicht gefunden")
+        st.error("Serverordner nicht gefunden.")
         return
-    files = [f for f in (p.rglob("*") if recursive else p.glob("*"))
-             if f.is_file() and f.suffix.lower() in (".pdf", ".csv")]
-    st.write(f"{len(files)} Dateien gefunden.")
-    if files and st.button("Einlesen", type="primary"):
-        new_n = dup_n = err_n = 0
-        new_ids = []
+    files = sorted((f for f in (p.rglob("*") if recursive else p.glob("*"))
+                    if f.is_file() and not f.is_symlink()
+                    and f.suffix.lower() in (".pdf", ".csv", ".xlsx", ".txt", ".zip")))
+    st.caption(f"{len(files)} unterstützte Datei(en) gefunden.")
+    if len(files) > 2000:
+        st.error("Mehr als 2.000 Dateien gefunden. Bitte kleinere Ordner auswählen.")
+        return
+    if files and st.button("Serverordner jetzt importieren", type="primary", key="server_folder_go"):
+        max_bytes = int(C.ctx().settings.get("import.max_upload_mb", 50)) * 1024 * 1024
+        new_ids, new_count, duplicates, skipped = [], 0, 0, []
         progress = st.progress(0.0)
-        for i, f in enumerate(files, 1):
+        for index, file in enumerate(files, 1):
             try:
-                data = f.read_bytes()
-                if f.suffix.lower() == ".pdf":
-                    doc, _, new = _store_pdf(data, f.name, y, deps.get(dflt), "ordner-import")
-                    new_ids.append(doc["id"])
-                else:
-                    _, new = repo.add_document(data, f.name, doc_type="Transaktionsexport (CSV)", tax_year=y,
-                                               import_method="ordner-import", status="pruefen")
-                new_n += int(new)
-                dup_n += int(not new)
-            except Exception as exc:  # noqa: BLE001
-                err_n += 1
-                st.warning(f"{f.name}: {exc}")
-            progress.progress(i / len(files))
-        st.success(f"{new_n} neu abgelegt, {dup_n} bereits vorhanden, {err_n} Fehler.")
+                if file.stat().st_size > max_bytes:
+                    skipped.append((file.name, "Datei ist größer als das Upload-Limit"))
+                    continue
+                items = expand_upload(file.name, file.read_bytes())
+                if not items:
+                    skipped.append((file.name, "Keine unterstützten Dateien enthalten"))
+                    continue
+                result = store_uploads(repo, items, y, method="ordner-import")
+                new_ids.extend(result.pdf_ids)
+                new_count += len(result.pdf_ids) + len(result.csv_docs)
+                duplicates += result.duplicates
+                skipped.extend(result.skipped)
+            except (OSError, ValueError) as exc:
+                skipped.append((file.name, str(exc)))
+            finally:
+                progress.progress(index / len(files))
+        st.session_state["server_folder_report"] = {
+            "new": new_count, "duplicates": duplicates, "skipped": skipped}
         if auto and new_ids:
-            from ..processing import process_documents
             C.after_processing(process_documents(repo, new_ids, deps.get(dflt)))
+        else:
+            st.rerun()
+

@@ -8,6 +8,7 @@ geschätzt und kein Dokument als verarbeitet gemeldet, wenn Werte fehlen.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from datetime import date
 
@@ -16,6 +17,8 @@ from pydantic import ValidationError
 from .importers.pdf_importer import PdfError, extract_pdf
 from .models import ReviewStatus, TransactionIn, TxType
 from .repository import Repository
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -79,12 +82,27 @@ def resolve_depot(repo: Repository, doc: dict, broker_key: str | None, default_d
     cand = [d for d in deps if d["broker_key"] == key]
     if len(cand) == 1:
         return cand[0]["id"]
+    if default_depot is None:
+        return None
+    selected = next((d for d in deps if d["id"] == default_depot), None)
+    if selected is None:
+        return None
+    # Never silently assign an identifiable broker's document to a different broker.
+    if doc.get("broker_id") and selected["broker_id"] != doc["broker_id"]:
+        return None
+    if key in BROKER_NAMES and selected["broker_key"] != key:
+        return None
     return default_depot
 
 
 def extraction_for(repo: Repository, doc: dict) -> dict:
     if doc.get("extraction_json"):
-        return json.loads(doc["extraction_json"])
+        try:
+            cached = json.loads(doc["extraction_json"])
+            if isinstance(cached, dict) and "fields" in cached:
+                return cached
+        except (json.JSONDecodeError, TypeError):
+            log.warning("Invalid extraction cache for document #%s; reading again", doc["id"])
     ex = extract_pdf(repo.document_path(doc).read_bytes()).to_dict()
     repo.update_document(doc["id"], extraction_json=json.dumps(ex, ensure_ascii=False, default=str))
     return ex
@@ -111,93 +129,118 @@ def transaction_from_extraction(ex: dict, depot_id: int, doc: dict) -> Transacti
 
 
 def process_documents(repo: Repository, doc_ids: list[int] | None = None, default_depot: int | None = None,
-                      reextract: bool = True) -> list[ProcessResult]:
+                      reextract: bool = False) -> list[ProcessResult]:
     """Verarbeitet PDF-Dokumente ohne zugeordnete Buchung.
 
-    Standardmäßig wird neu ausgelesen, damit Verbesserungen der Erkennung auch für früher abgelegte Dokumente greifen.
+    Gespeicherte Extraktionen werden standardmäßig wiederverwendet. Mit ``reextract=True`` werden sie
+    explizit aktualisiert, ohne den bisherigen Prüfbericht vor erfolgreicher Extraktion zu löschen.
     """
-    docs = [repo.document(i) for i in doc_ids] if doc_ids else repo.documents()
+    docs = [repo.document(i) for i in doc_ids] if doc_ids is not None else repo.documents()
     results: list[ProcessResult] = []
     run_id = None
     for doc in docs:
-        if not doc or doc.get("file_type") != "pdf":
-            continue
-        name = doc["original_filename"]
-        if repo.transactions_for_document(doc["id"]):
-            results.append(ProcessResult(doc["id"], name, "uebersprungen", "hat bereits Buchungen"))
-            continue
-        if doc["status"] == "ignoriert":
-            continue
         try:
-            if reextract:
-                repo.update_document(doc["id"], extraction_json=None)
-                doc = repo.document(doc["id"])
-            ex = extraction_for(repo, doc)
-        except (PdfError, OSError) as exc:
-            repo.update_document(doc["id"], status="fehlgeschlagen")
-            results.append(ProcessResult(doc["id"], name, "fehler", f"Datei nicht lesbar: {exc}",
-                                         action="Datei im Original öffnen; ist sie beschädigt oder ein Scan ohne Text, "
-                                                "die Werte manuell unter „Transaktionen“ erfassen."))
-            continue
-        if not ex.get("creates_transaction", True):
-            msg, action = _problems(ex) if any(c["result"] in ("error", "warn") for c in ex.get("checks", [])) \
-                else (f"{ex.get('doc_type')}: keine Einzelbuchung", "")
-            if ex.get("doc_type") in INFO_ONLY:
-                repo.update_document(doc["id"], status="verarbeitet", doc_type=ex.get("doc_type"))
-                info = next((c for c in ex.get("checks", []) if c["name"] == "Dokumentart"), {})
-                results.append(ProcessResult(doc["id"], name, "beleg", info.get("detail") or msg,
-                                             action=info.get("action", "")))
-            else:
-                repo.update_document(doc["id"], status="pruefen", doc_type=ex.get("doc_type") or doc["doc_type"])
-                info = next((c for c in ex.get("checks", []) if c["name"] == "Dokumentart"), {})
-                results.append(ProcessResult(doc["id"], name, "pruefen", info.get("detail") or msg,
-                                             action=info.get("action") or action))
-            continue
-        if not ex.get("complete") or ex.get("warnings"):
-            msg, action = _problems(ex)
-            repo.update_document(doc["id"], status="pruefen")
-            results.append(ProcessResult(doc["id"], name, "pruefen", msg, action=action))
-            continue
-        depot_id = resolve_depot(repo, doc, ex.get("broker"), default_depot)
-        created_note = ""
-        if not depot_id:
-            depot_id, created_note = _ensure_broker_depot(repo, ex.get("broker") or "")
-        if not depot_id:
-            known = BROKER_NAMES.get(ex.get("broker") or "")
-            results.append(ProcessResult(
-                doc["id"], name, "pruefen",
-                f"Depot nicht eindeutig ({known + ' hat mehrere Depots' if known else 'Broker nicht erkannt'})",
-                action="Oben ein Standarddepot auswählen und erneut verarbeiten – oder das Dokument unter „Dokumente“ "
-                       "einzeln übernehmen."))
-            continue
-        try:
-            tx = transaction_from_extraction(ex, depot_id, doc)
-        except (ValidationError, ValueError, KeyError) as exc:
-            repo.update_document(doc["id"], status="pruefen")
-            results.append(ProcessResult(doc["id"], name, "pruefen", f"Werte ungültig: {humanize_validation(exc)}",
-                                         action="Dokument unter „Dokumente“ öffnen und die Werte korrigieren."))
-            continue
-        dup = repo.find_duplicates(tx)
-        if dup["exact"]:
-            repo.link_document(doc["id"], dup["exact"][0]["id"], "beleg")
-            repo.update_document(doc["id"], status="verarbeitet")
-            results.append(ProcessResult(doc["id"], name, "dublette",
-                                         f"Buchung existiert bereits (#{dup['exact'][0]['id']}) – als Beleg verknüpft"))
-            continue
-        if run_id is None:
-            run_id = repo.start_import("PDF-Stapelverarbeitung")
-        if dup["possible"]:
-            tx = tx.model_copy(update={"review_status": ReviewStatus.TO_REVIEW,
-                                       "notes": f"automatisch aus PDF; Dublettenverdacht zu "
-                                                f"{[r['id'] for r in dup['possible']]}"})
-        tid = repo.add_transaction(tx, import_run_id=run_id)
-        repo.update_document(doc["id"], status="verarbeitet",
-                             tax_year=tx.trade_date.year, doc_type=ex.get("doc_type") or doc["doc_type"])
-        repo.log_import(run_id, "INFO", f"{name}: Buchung #{tid} angelegt")
-        results.append(ProcessResult(doc["id"], name, "angelegt", f"Buchung #{tid} ({tx.tx_type.value} "
-                                     f"{tx.isin or ''} {tx.trade_date.isoformat()})"
-                                     + (f" – {created_note}" if created_note else ""), tid,
-                                     action="Dubletten-Verdacht prüfen (Seite Transaktionen)" if dup["possible"] else ""))
+            if not doc or doc.get("file_type") != "pdf":
+                continue
+            name = doc["original_filename"]
+            if repo.transactions_for_document(doc["id"]):
+                results.append(ProcessResult(doc["id"], name, "uebersprungen", "hat bereits Buchungen"))
+                continue
+            if doc["status"] == "ignoriert":
+                continue
+            try:
+                if reextract:
+                    refreshed = extract_pdf(repo.document_path(doc).read_bytes()).to_dict()
+                    repo.update_document(doc["id"], extraction_json=json.dumps(refreshed, ensure_ascii=False, default=str))
+                    ex = refreshed
+                else:
+                    ex = extraction_for(repo, doc)
+            except (PdfError, OSError) as exc:
+                repo.update_document(doc["id"], status="fehlgeschlagen")
+                results.append(ProcessResult(doc["id"], name, "fehler", f"Datei nicht lesbar: {exc}",
+                                             action="Datei im Original öffnen; ist sie beschädigt oder ein Scan ohne Text, "
+                                                    "die Werte manuell unter „Transaktionen“ erfassen."))
+                continue
+            if not ex.get("creates_transaction", True):
+                msg, action = _problems(ex) if any(c["result"] in ("error", "warn") for c in ex.get("checks", [])) \
+                    else (f"{ex.get('doc_type')}: keine Einzelbuchung", "")
+                if ex.get("doc_type") in INFO_ONLY:
+                    repo.update_document(doc["id"], status="verarbeitet", doc_type=ex.get("doc_type"))
+                    info = next((c for c in ex.get("checks", []) if c["name"] == "Dokumentart"), {})
+                    results.append(ProcessResult(doc["id"], name, "beleg", info.get("detail") or msg,
+                                                 action=info.get("action", "")))
+                else:
+                    repo.update_document(doc["id"], status="pruefen", doc_type=ex.get("doc_type") or doc["doc_type"])
+                    info = next((c for c in ex.get("checks", []) if c["name"] == "Dokumentart"), {})
+                    results.append(ProcessResult(doc["id"], name, "pruefen", info.get("detail") or msg,
+                                                 action=info.get("action") or action))
+                continue
+            if not ex.get("complete") or ex.get("warnings"):
+                msg, action = _problems(ex)
+                repo.update_document(doc["id"], status="pruefen")
+                results.append(ProcessResult(doc["id"], name, "pruefen", msg, action=action))
+                continue
+            depot_id = resolve_depot(repo, doc, ex.get("broker"), default_depot)
+            created_note = ""
+            if not depot_id:
+                depot_id, created_note = _ensure_broker_depot(repo, ex.get("broker") or "")
+            if not depot_id:
+                repo.update_document(doc["id"], status="pruefen")
+                known = BROKER_NAMES.get(ex.get("broker") or "")
+                results.append(ProcessResult(
+                    doc["id"], name, "pruefen",
+                    f"Depot nicht eindeutig ({known + ' hat mehrere Depots' if known else 'Broker nicht erkannt'})",
+                    action="Oben ein Standarddepot auswählen und erneut verarbeiten – oder das Dokument unter „Dokumente“ "
+                           "einzeln übernehmen."))
+                continue
+            try:
+                tx = transaction_from_extraction(ex, depot_id, doc)
+            except (ValidationError, ValueError, KeyError) as exc:
+                repo.update_document(doc["id"], status="pruefen")
+                results.append(ProcessResult(doc["id"], name, "pruefen", f"Werte ungültig: {humanize_validation(exc)}",
+                                             action="Dokument unter „Dokumente“ öffnen und die Werte korrigieren."))
+                continue
+            dup = repo.find_duplicates(tx)
+            if dup["exact"]:
+                repo.link_document(doc["id"], dup["exact"][0]["id"], "beleg")
+                repo.update_document(doc["id"], status="verarbeitet")
+                results.append(ProcessResult(doc["id"], name, "dublette",
+                                             f"Buchung existiert bereits (#{dup['exact'][0]['id']}) – als Beleg verknüpft"))
+                continue
+            if dup["possible"]:
+                # Suspected duplicates must not enter tax calculations before human review.
+                repo.update_document(doc["id"], status="pruefen")
+                ids = [r["id"] for r in dup["possible"]]
+                results.append(ProcessResult(doc["id"], name, "pruefen",
+                                             f"Ähnliche Buchung(en) bereits vorhanden: {ids}",
+                                             action="Unter Dokumente die Buchungen vergleichen und den Beleg "
+                                                    "zuordnen oder die Buchung manuell übernehmen."))
+                continue
+            if run_id is None:
+                run_id = repo.start_import("PDF-Stapelverarbeitung")
+            tid = repo.add_transaction(tx, import_run_id=run_id)
+            repo.update_document(doc["id"], status="verarbeitet",
+                                 tax_year=tx.trade_date.year, doc_type=ex.get("doc_type") or doc["doc_type"])
+            repo.log_import(run_id, "INFO", f"{name}: Buchung #{tid} angelegt")
+            results.append(ProcessResult(doc["id"], name, "angelegt", f"Buchung #{tid} ({tx.tx_type.value} "
+                                         f"{tx.isin or ''} {tx.trade_date.isoformat()})"
+                                         + (f" – {created_note}" if created_note else ""), tid,
+                                         action=""))
+        except Exception as exc:  # continue with remaining documents even after an unexpected failure
+            doc_id = doc.get("id") if doc else None
+            log.exception("PDF processing failed for document ID %s", doc_id)
+            from .diagnostics import record_error
+            error_id = record_error("pdf_processing", exc)
+            if doc_id is not None:
+                try:
+                    if not repo.transactions_for_document(doc_id):
+                        repo.update_document(doc_id, status="fehlgeschlagen")
+                except Exception:
+                    log.exception("Failed to mark document ID %s as failed", doc_id)
+            results.append(ProcessResult(doc_id or 0, (doc or {}).get("original_filename", "Unbekannt"),
+                                         "fehler", f"Verarbeitung fehlgeschlagen ({type(exc).__name__}, ID {error_id})",
+                                         action="Dokument unter Dokumente prüfen; bei Bedarf den "
+                                                "Diagnosebericht unter Einstellungen exportieren."))
     if run_id is not None:
         n = sum(1 for r in results if r.status == "angelegt")
         repo.finish_import(run_id, "abgeschlossen", rows_total=len(results), rows_imported=n,
@@ -214,8 +257,7 @@ def data_status(repo: Repository, year: int) -> dict:
                           "GROUP BY y ORDER BY y")
     docs_open = repo.db.query(
         "SELECT d.* FROM documents d WHERE d.status IN ('neu','pruefen','teilweise','fehlgeschlagen') "
-        "AND NOT EXISTS (SELECT 1 FROM transactions t WHERE t.document_id=d.id AND t.deleted=0) "
-        "AND NOT EXISTS (SELECT 1 FROM document_links l WHERE l.document_id=d.id)")
+        "ORDER BY d.tax_year DESC, d.id")
     return {
         "depots": len(repo.depots(active_only=True)),
         "tx_by_year": {int(r["y"]): r["n"] for r in years},
@@ -253,31 +295,61 @@ def store_pdf(repo: Repository, data: bytes, name: str, fallback_year: int, meth
 
 
 def expand_upload(name: str, data: bytes) -> list[tuple[str, bytes]]:
-    """Entpackt ZIP-Archive sicher (nur PDF/CSV/XLSX, keine Pfade, Größenlimits); andere Dateien unverändert."""
+    """Expand nested ZIPs with bounded memory, recursion and file counts.
+
+    Archived paths are deliberately discarded; uploaded documents are stored
+    by sanitized filename and content hash, never by archive path.
+    """
     import io
     import zipfile
     from pathlib import PurePosixPath
 
     if not name.lower().endswith(".zip"):
         return [(name, data)]
-    out, total = [], 0
-    try:
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            infos = [i for i in zf.infolist() if not i.is_dir()]
-            if len(infos) > MAX_ZIP_FILES:
-                raise ValueError(f"ZIP enthält zu viele Dateien ({len(infos)})")
-            for info in infos:
-                base = PurePosixPath(info.filename.replace("\\", "/")).name
-                if not base.lower().endswith((".pdf", ".csv", ".xlsx")) or base.startswith("."):
-                    continue
-                total += info.file_size
-                if total > MAX_ZIP_TOTAL:
-                    raise ValueError("ZIP-Inhalt ist zu groß")
-                out.append((base, zf.read(info)))
-    except zipfile.BadZipFile as exc:
-        raise ValueError(f"„{name}“ ist kein gültiges ZIP-Archiv") from exc
-    return out
 
+    max_entry = 50 * 1024 * 1024
+    allowed = (".pdf", ".csv", ".txt", ".xlsx")
+    output: list[tuple[str, bytes]] = []
+    total_bytes = 0
+    entry_count = 0
+
+    def unpack(blob: bytes, depth: int) -> None:
+        nonlocal total_bytes, entry_count
+        if depth > 2:
+            raise ValueError("ZIP-Archive dürfen höchstens zwei weitere ZIP-Ebenen enthalten")
+        try:
+            with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+                for info in archive.infolist():
+                    if info.is_dir():
+                        continue
+                    entry_count += 1
+                    if entry_count > MAX_ZIP_FILES:
+                        raise ValueError(f"ZIP enthält mehr als {MAX_ZIP_FILES} Dateien")
+                    filename = PurePosixPath(info.filename.replace("\\", "/")).name
+                    if not filename or filename.startswith("."):
+                        continue
+                    if not filename.lower().endswith(allowed + (".zip",)):
+                        continue
+                    if info.flag_bits & 1:
+                        raise ValueError("Passwortgeschützte ZIP-Dateien werden nicht unterstützt")
+                    if info.file_size > max_entry:
+                        raise ValueError(f"ZIP-Eintrag „{filename}“ ist größer als 50 MB")
+                    if total_bytes + info.file_size > MAX_ZIP_TOTAL:
+                        raise ValueError("ZIP-Inhalt ist größer als 500 MB")
+                    with archive.open(info) as source:
+                        content = source.read(max_entry + 1)
+                    if len(content) > max_entry or len(content) != info.file_size:
+                        raise ValueError(f"ZIP-Eintrag „{filename}“ hat eine ungültige Größe")
+                    total_bytes += len(content)
+                    if filename.lower().endswith(".zip"):
+                        unpack(content, depth + 1)
+                    else:
+                        output.append((filename, content))
+        except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, RuntimeError) as exc:
+            raise ValueError(f"„{name}“ ist kein gültiges ZIP-Archiv oder enthält beschädigte Einträge") from exc
+
+    unpack(data, 0)
+    return output
 
 @dataclass
 class UploadResult:
@@ -288,7 +360,7 @@ class UploadResult:
 
 
 def store_uploads(repo: Repository, files: list[tuple[str, bytes]], fallback_year: int,
-                  engine: str = "auto") -> UploadResult:
+                  engine: str = "auto", method: str = "upload") -> UploadResult:
     """Legt alle Dateien ab. PDFs werden zur Verarbeitung vorgemerkt, CSV/XLSX gesondert gemeldet."""
     res = UploadResult([], [], [])
     for name, data in files:
@@ -298,21 +370,23 @@ def store_uploads(repo: Repository, files: list[tuple[str, bytes]], fallback_yea
                 if not data.startswith(b"%PDF-"):
                     res.skipped.append((name, "keine gültige PDF-Datei"))
                     continue
-                doc, _, new = store_pdf(repo, data, name, fallback_year, "upload", engine=engine)
+                doc, _, new = store_pdf(repo, data, name, fallback_year, method, engine=engine)
                 res.duplicates += int(not new)
-                res.pdf_ids.append(doc["id"])
+                if new:
+                    res.pdf_ids.append(doc["id"])
             elif low.endswith((".csv", ".txt", ".xlsx")):
                 head = data[:4000].decode("utf-8", errors="ignore").lower()
                 is_oekb = "isin" in head and ("meldedatum" in head or "ausschüttungsgleich" in head)
                 doc, new = repo.add_document(data, name, doc_type="OeKB-Fondsmeldung" if is_oekb else
                                              "Transaktionsexport (CSV)", source="OeKB" if is_oekb else "Unclassified",
-                                             tax_year=fallback_year, import_method="upload", status="pruefen")
+                                             tax_year=fallback_year, import_method=method, status="pruefen")
                 res.duplicates += int(not new)
-                res.csv_docs.append((doc, is_oekb))
+                if new:
+                    res.csv_docs.append((doc, is_oekb))
             else:
                 res.skipped.append((name, "Dateityp wird nicht unterstützt (erlaubt: PDF, ZIP, CSV, XLSX)"))
-        except PdfError as exc:
-            res.skipped.append((name, f"PDF nicht lesbar: {exc}"))
+        except (PdfError, ValueError) as exc:
+            res.skipped.append((name, f"Dokument nicht verarbeitbar: {exc}"))
         except OSError as exc:
             res.skipped.append((name, f"Speichern fehlgeschlagen: {exc}"))
     return res

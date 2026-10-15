@@ -14,12 +14,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 import streamlit as st  # noqa: E402
 
 from kest_tool import __version__  # noqa: E402
+from kest_tool.diagnostics import record_error  # noqa: E402
 from kest_tool.config import load_env_file  # noqa: E402
 from kest_tool.ui import common as C  # noqa: E402
 from kest_tool.ui import pages_basic, pages_data, pages_import, pages_tax  # noqa: E402
+from kest_tool.ui.admin_theme import apply_admin_theme  # noqa: E402
 
 load_env_file()  # optionale API-Schlüssel aus .env (nie in config.yaml)
-st.set_page_config(page_title="KESt-Tool", page_icon="🧾", layout="wide")
+st.set_page_config(page_title="KESt-Tool | Verwaltung", page_icon="🧾", layout="wide",
+                   initial_sidebar_state="expanded")
+apply_admin_theme()
 
 import logging  # noqa: E402
 
@@ -30,7 +34,7 @@ except ImportError:  # pragma: no cover
 
 P = {
     "dashboard": st.Page(pages_basic.dashboard, title="Übersicht", icon="🏠", default=True),
-    "import": st.Page(pages_import.render, title="Import (erweitert)", icon="📥", url_path="import"),
+    "import": st.Page(pages_import.render, title="Import", icon="📥", url_path="import"),
     "dokumente": st.Page(pages_data.documents, title="Dokumente", icon="📄", url_path="dokumente"),
     "transaktionen": st.Page(pages_data.transactions, title="Transaktionen", icon="📒", url_path="transaktionen"),
     "wertpapiere": st.Page(pages_data.securities, title="Wertpapiere", icon="📈", url_path="wertpapiere"),
@@ -43,25 +47,28 @@ P = {
 C.PAGES.update(P)
 
 nav = st.navigation({
-    "Start": [P["dashboard"]],
-    "1 · Daten erfassen": [P["import"], P["dokumente"], P["transaktionen"]],
-    "2 · Daten ergänzen": [P["wertpapiere"], P["fonds"], P["depots"]],
-    "3 · Ergebnis": [P["steuer"], P["exporte"]],
-    "System": [P["einstellungen"]],
+    "ÜBERSICHT": [P["dashboard"]],
+    "DOKUMENTE & BUCHUNGEN": [P["import"], P["dokumente"], P["transaktionen"]],
+    "STAMMDATEN": [P["wertpapiere"], P["fonds"], P["depots"]],
+    "STEUERN & BERICHTE": [P["steuer"], P["exporte"]],
+    "SYSTEM": [P["einstellungen"]],
 })
 with st.sidebar:
-    st.markdown("[Broker-Dokumente synchronisieren](/broker/)")
-    st.caption(f"KESt-Tool {__version__} · lokal · Ablage: `{C.ctx().store.base}`")
+    st.markdown('<div class="kest-admin-brand">KESt<span>Manager</span></div>',
+                unsafe_allow_html=True)
+    st.page_link(P["import"], label="Dokumente hochladen", icon="📥")
+    st.caption(f"Version {__version__} · lokal")
     st.caption(C.DISCLAIMER)
+st.markdown('<div class="kest-admin-context">KESt-Verwaltung · Lokale Datenverarbeitung · Keine Übermittlung an FinanzOnline</div>',
+            unsafe_allow_html=True)
 try:
     nav.run()
 except ScriptControlException:
     raise
 except Exception as exc:  # noqa: BLE001 – verständliche Fehlerseite statt Traceback
-    logging.getLogger("kest_tool.ui").exception("Unerwarteter Fehler auf Seite %s", nav.title)
-    st.error("**Hier ist leider etwas schiefgelaufen.** Ihre Daten sind nicht betroffen – es wurde nichts "
-             "gespeichert, was nicht bestätigt war.\n\n"
-             "Was Sie tun können: Seite neu laden (F5). Tritt der Fehler erneut auf, finden Sie Details im Protokoll "
-             "unter Einstellungen → Protokolle → Anwendungslog.")
-    with st.expander("Technische Details"):
-        st.code(f"{type(exc).__name__}: {exc}")
+    error_id = record_error(str(nav.title), exc)
+    st.error("**Ein unerwarteter Fehler ist aufgetreten.** Prüfen Sie vor einem erneuten Versuch, "
+             "ob die letzte Aktion bereits gespeichert wurde.\n\n"
+             "Laden Sie die Seite neu (F5). Bei wiederholten Fehlern können Sie unter "
+             "Einstellungen → Diagnose einen Bericht exportieren.")
+    st.caption(f"Fehlerkennung: {error_id}. Unter Einstellungen → Diagnose können Sie einen Bericht exportieren.")

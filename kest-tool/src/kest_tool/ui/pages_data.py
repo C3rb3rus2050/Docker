@@ -329,40 +329,46 @@ def transactions() -> None:
     if not deps:
         st.warning("Kein Depot vorhanden.")
         return
-    tab_new, tab_edit = st.tabs(["Manuelle Buchung / Korrektur", "Buchung bearbeiten"])
+    tab_new, tab_edit = st.tabs(["➕ Neue Buchung", "✏️ Vorhandene Buchung bearbeiten"])
     with tab_new:
+        st.caption("Pflichtangaben: Depot, Buchungsart, Datum und je nach Buchungsart ISIN, Stückzahl oder Betrag. "
+                   "Nicht benötigte Felder können leer bleiben. Alle Änderungen werden protokolliert.")
         with st.form("tx_new"):
-            cols = st.columns(4)
+            st.markdown("#### 1. Grunddaten")
+            cols = st.columns(2)
             depot = cols[0].selectbox("Depot", list(deps))
             t = cols[1].selectbox("Art", [x.value for x in TxType])
-            d = cols[2].date_input("Datum", value=date(y, 12, 31), format="DD.MM.YYYY")
-            isin = cols[3].text_input("ISIN")
-            name = st.text_input("Wertpapiername")
-            cols = st.columns(6)
+            d = st.date_input("Datum", value=date(y, 12, 31), format="DD.MM.YYYY")
+            isin = st.text_input("ISIN", placeholder="z. B. AT0000A0E9W5", help="12-stellige internationale Wertpapierkennnummer")
+            name = st.text_input("Wertpapiername", placeholder="Name laut Abrechnung")
+            st.markdown("#### 2. Betrag und Währung")
+            cols = st.columns(3)
             qty = cols[0].number_input("Stück", value=0.0, format="%.6f")
             price = cols[1].number_input("Kurs", value=0.0, format="%.4f")
             amount = cols[2].number_input("Bruttobetrag", value=0.0, format="%.2f")
-            fees = cols[3].number_input("Gebühren", value=0.0, format="%.2f")
-            cur = cols[4].selectbox("Währung", c.settings.currencies)
-            fx = cols[5].number_input("Devisenkurs (je EUR)", value=0.0, format="%.6f")
-            cols = st.columns(5)
+            fees = cols[0].number_input("Gebühren", value=0.0, format="%.2f")
+            cur = cols[1].selectbox("Währung", c.settings.currencies)
+            fx = cols[2].number_input("Devisenkurs (je EUR)", value=0.0, format="%.6f")
+            st.markdown("#### 3. Steuern und Sonderfälle")
+            cols = st.columns(3)
             wht = cols[0].number_input("Quellensteuer", value=0.0, format="%.2f")
             country = cols[1].text_input("Quellenstaat", max_chars=2)
             kest = cols[2].number_input("Österr. KESt EUR", value=0.0, format="%.2f")
-            ratio = cols[3].number_input("Split-Verhältnis neu/alt", value=0.0, format="%.4f")
+            ratio = cols[0].number_input("Split-Verhältnis neu/alt", value=0.0, format="%.4f")
             cats = [x.value for x in IncomeCategory]
-            cat = cols[4].selectbox("Ertragsart", cats)
+            cat = cols[1].selectbox("Ertragsart", cats)
             cat_ver = st.checkbox("Ertragsart ist durch Beleg bestätigt (z. B. Kapitalrückzahlung, REIT-Bestandteile)")
-            notes = st.text_input("Begründung/Notiz (Pflicht für manuelle Buchungen)")
-            if st.form_submit_button("Buchung anlegen"):
+            notes = st.text_area("Begründung/Notiz (Pflicht für manuelle Buchungen)",
+                                 placeholder="Quelle und Grund der manuellen Erfassung", height=80)
+            if st.form_submit_button("Buchung anlegen", type="primary", use_container_width=True):
                 if not notes.strip():
                     st.error("Bitte eine Begründung angeben.")
                 else:
                     try:
-                        tx = TransactionIn(depot_id=deps[depot], tx_type=TxType(t), trade_date=d, isin=isin or None,
+                        tx = TransactionIn(depot_id=deps[depot], tx_type=TxType(t), trade_date=d, isin=isin.strip().upper() or None,
                                            security_name=name or None, quantity=qty or None, price=price or None,
                                            amount=amount or None, fees=fees, currency=cur, fx_rate=fx or None,
-                                           withholding_tax=wht, withholding_country=country or None, kest_at_eur=kest,
+                                           withholding_tax=wht, withholding_country=country.strip().upper() or None, kest_at_eur=kest,
                                            ratio=ratio or None, income_category=IncomeCategory(cat),
                                            income_category_verified=cat_ver, notes=notes, source_type="manuell",
                                            review_status=ReviewStatus.UNCHECKED)
@@ -426,15 +432,16 @@ DOC_STATUS_LABEL = {"neu": "🔵 neu", "verarbeitet": "✅ verarbeitet", "teilwe
 
 
 def _open_documents(repo) -> list[dict]:
-    """Dokumente, die Aufmerksamkeit brauchen: nicht erledigt und ohne zugeordnete Buchung (alle Jahre)."""
+    """All documents awaiting review, including those with an unconfirmed linked transaction."""
     return repo.db.query(
-        "SELECT d.* FROM documents d WHERE d.status IN ('neu','pruefen','teilweise','fehlgeschlagen') AND NOT EXISTS "
-        "(SELECT 1 FROM transactions t WHERE t.document_id=d.id AND t.deleted=0) AND NOT EXISTS "
-        "(SELECT 1 FROM document_links l WHERE l.document_id=d.id) ORDER BY d.tax_year DESC, d.id")
+        "SELECT d.* FROM documents d "
+        "WHERE d.status IN ('neu','pruefen','teilweise','fehlgeschlagen') "
+        "ORDER BY d.tax_year DESC, d.id")
 
 
 def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = "") -> None:
     from ..importers.pdf_importer import PdfError, extract_pdf
+    from ..processing import extraction_for
     from .pages_import import pdf_review_form
 
     did = doc["id"]
@@ -451,15 +458,30 @@ def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = 
             repo.document_event(did, "manuell erledigt")
             st.rerun()
     if doc["file_type"] == "pdf":
+        if st.button("PDF-Analyse aktualisieren", key=f"{prefix}refresh_{did}",
+                     help="Liest das Original erneut aus. Bestehende Buchungen bleiben unverändert."):
+            try:
+                updated = extract_pdf(path.read_bytes()).to_dict()
+                repo.update_document(did, extraction_json=json.dumps(updated, ensure_ascii=False, default=str))
+                doc = repo.document(did)
+                st.success("PDF wurde erneut analysiert. Der Prüfbericht wurde aktualisiert.")
+            except (PdfError, OSError, ValueError) as exc:
+                st.error(f"Erneute Analyse fehlgeschlagen: {exc}. Die bisherige Analyse bleibt erhalten.")
         try:
-            exd = extract_pdf(path.read_bytes()).to_dict()  # immer aktuell auslesen
-        except (PdfError, OSError) as exc:
-            st.error(f"Die Datei kann nicht gelesen werden ({exc}). Werte bitte manuell unter **Transaktionen** "
-                     "erfassen und das Dokument danach hier als erledigt markieren.")
+            exd = extraction_for(repo, doc)
+        except (PdfError, OSError, ValueError) as exc:
+            st.error(f"Die Datei kann nicht gelesen werden ({exc}). Werte bei Bedarf manuell unter "
+                     "**Transaktionen** erfassen.")
             exd = None
         if exd:
             exd.setdefault("status_text", "")
-            if review_first:
+            if repo.transactions_for_document(did):
+                st.info("Dieses Dokument ist bereits mit einer Buchung verknüpft. "
+                        "Eine weitere automatische Buchung wird hier nicht angeboten.")
+                from .guide import show_check_report
+                if exd.get("checks"):
+                    show_check_report(exd["checks"])
+            elif review_first:
                 pdf_review_form(doc, exd, None, key=f"{prefix}doc{did}")
             else:
                 with st.expander("Prüfbericht und Buchung anlegen"):
@@ -475,10 +497,12 @@ def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = 
             st.caption("Ändert nur Ablageort und Metadaten – der Dateiinhalt bleibt unverändert.")
             cols = st.columns(4)
             ny = cols[0].number_input("Steuerjahr", 2000, 2100, value=int(doc["tax_year"] or y))
-            ns = cols[1].selectbox("Quelle", DOC_SOURCES, index=DOC_SOURCES.index(doc["source"]))
+            ns = cols[1].selectbox("Quelle", DOC_SOURCES, index=DOC_SOURCES.index(doc["source"])
+                                   if doc["source"] in DOC_SOURCES else 0)
             nt = cols[2].selectbox("Typ", DOC_TYPES, index=DOC_TYPES.index(doc["doc_type"]) if doc["doc_type"]
                                    in DOC_TYPES else DOC_TYPES.index("Unbekannt"))
-            nst = cols[3].selectbox("Status", DOC_STATUS, index=DOC_STATUS.index(doc["status"]),
+            nst = cols[3].selectbox("Status", DOC_STATUS, index=DOC_STATUS.index(doc["status"])
+                                     if doc["status"] in DOC_STATUS else 0,
                                     format_func=lambda v: DOC_STATUS_LABEL.get(v, v))
             notes = st.text_input("Notiz", doc["notes"] or "")
             if st.form_submit_button("Speichern"):
@@ -507,6 +531,73 @@ def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = 
         C.df(repo.document_events(did))
 
 
+def _bulk_document_editor(repo, docs: list[dict], key: str) -> None:
+    """Edit document metadata in bulk; never create tax transactions implicitly."""
+    if not docs:
+        return
+    with st.expander("Dokumente markieren und gemeinsam bearbeiten", expanded=False):
+        table = pd.DataFrame([
+            {"Markieren": False, "Datei": d["original_filename"], "Typ": d["doc_type"],
+             "Status": DOC_STATUS_LABEL.get(d["status"], d["status"]),
+             "Jahr": d["tax_year"], "ID": d["id"]}
+            for d in docs
+        ])
+        edited = st.data_editor(
+            table, key=f"{key}_selection_table", hide_index=True, height=330,
+            disabled=["Datei", "Typ", "Status", "Jahr", "ID"],
+            column_config={"Markieren": st.column_config.CheckboxColumn("✓", help="Dokument auswählen"),
+                           "ID": st.column_config.NumberColumn("ID", width="small")},
+            use_container_width=True,
+        )
+        allowed_ids = {d["id"] for d in docs}
+        selected = [int(row["ID"]) for row in edited.to_dict("records")
+                    if row["Markieren"] and row["ID"] in allowed_ids]
+        st.caption(f"{len(selected)} von {len(docs)} Dokumenten markiert. "
+                   "Nur aktivierte Felder werden geändert.")
+        if not selected:
+            return
+        with st.form(f"{key}_bulk_form"):
+            change_year = st.checkbox("Steuerjahr ändern", key=f"{key}_change_year")
+            year = st.number_input("Neues Steuerjahr", min_value=2000, max_value=2100,
+                                   value=date.today().year, disabled=not change_year, key=f"{key}_year")
+            change_type = st.checkbox("Dokumenttyp ändern", key=f"{key}_change_type")
+            dtype = st.selectbox("Neuer Dokumenttyp", DOC_TYPES, disabled=not change_type, key=f"{key}_type")
+            change_source = st.checkbox("Quelle/Broker ändern", key=f"{key}_change_source")
+            source = st.selectbox("Neue Quelle", DOC_SOURCES, disabled=not change_source, key=f"{key}_source")
+            change_notes = st.checkbox("Notiz für alle setzen", key=f"{key}_change_notes")
+            notes = st.text_area("Neue Notiz", disabled=not change_notes, key=f"{key}_notes")
+            st.warning("Diese Aktion ändert nur Dokument-Metadaten, keine Buchungen oder Steuerberechnungen.")
+            confirmed = st.checkbox("Änderungen für alle markierten Dokumente bestätigen",
+                                    key=f"{key}_confirm")
+            submit = st.form_submit_button(f"{len(selected)} Dokument(e) aktualisieren",
+                                           type="primary", disabled=not confirmed)
+        if submit:
+            changes = {}
+            if change_year:
+                changes["tax_year"] = int(year)
+            if change_type:
+                changes["doc_type"] = dtype
+            if change_source:
+                changes["source"] = source
+            if change_notes:
+                changes["notes"] = notes
+            if not changes:
+                st.warning("Bitte mindestens ein Feld zur Änderung aktivieren.")
+                return
+            success, errors = 0, []
+            for doc_id in selected:
+                try:
+                    repo.update_document(doc_id, **changes)
+                    success += 1
+                except (OSError, ValueError) as exc:
+                    errors.append(f"#{doc_id}: {exc}")
+            C.invalidate_results()
+            if success:
+                st.success(f"{success} Dokument(e) aktualisiert.")
+            for err in errors:
+                st.error(err)
+
+
 def documents() -> None:
     c = C.ctx()
     repo = c.repo
@@ -532,7 +623,9 @@ def documents() -> None:
                                   "noch einmal versuchen"):
                     from ..processing import process_documents
                     C.after_processing(process_documents(repo, pdf_ids, deps.get(dflt)))
-            did = st.radio("Dokument", [d["id"] for d in open_docs], key="open_doc_sel",
+            _bulk_document_editor(repo, open_docs, "open_docs")
+            did = st.selectbox("Dokument zur Einzelprüfung öffnen", [d["id"] for d in open_docs],
+                               key="open_doc_sel",
                            format_func=lambda i: next(
                                f"{DOC_STATUS_LABEL.get(d['status'], d['status'])} · {d['original_filename']} "
                                f"({d['doc_type']}, {d['tax_year'] or 'ohne Jahr'})" for d in open_docs if d["id"] == i))
@@ -552,6 +645,7 @@ def documents() -> None:
                "Typ": d["doc_type"], "Quelle": d["source"], "Jahr": d["tax_year"], "Buchungen": d["tx_count"],
                "Importiert": d["imported_at"], "ID": d["id"]} for d in docs])
         if docs:
+            _bulk_document_editor(repo, docs, "all_docs")
             did2 = st.selectbox("Dokument öffnen", [d["id"] for d in docs], key="all_doc_sel",
                                 format_func=lambda i: next(f"{d['original_filename']} (#{d['id']})" for d in docs
                                                            if d["id"] == i))

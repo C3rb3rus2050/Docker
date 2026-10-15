@@ -1,6 +1,6 @@
-# Web-only Deployment ohne VNC
+# KESt-Steuertool – Docker-Deployment
 
-**Status:** Ein gemeinsames Webportal mit Zugangsschutz. Kein VNC, kein noVNC und kein Desktopserver.
+**Status:** KESt-Steuertool mit Zugangsschutz.
 
 ## Voraussetzungen
 
@@ -49,4 +49,4 @@ einen SSH-Tunnel benutzen.**
 
 Broker-PDFs und CSV-/Excel-Dateien werden manuell heruntergeladen und im KESt-Tool unter `/steuer/` importiert. Es gibt keinen Broker-Collector mehr.
 
-**Bestehende Daten in `data/collector` und `data/browser-profiles` werden durch das Deployment nicht gelöscht.** Vor einer manuellen Löschung prüfen, ob noch Dokumente benötigt werden.
+Bestehende Dateien aus früheren Installationen werden durch Docker Compose nicht automatisch gelöscht. Prüfen Sie Sicherungskopien vor manueller Bereinigung.
