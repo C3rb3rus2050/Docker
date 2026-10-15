@@ -436,7 +436,8 @@ def _open_documents(repo) -> list[dict]:
     return repo.db.query(
         "SELECT d.* FROM documents d WHERE d.status IN ('neu','pruefen','teilweise','fehlgeschlagen') AND NOT EXISTS "
         "(SELECT 1 FROM transactions t WHERE t.document_id=d.id AND t.deleted=0) AND NOT EXISTS "
-        "(SELECT 1 FROM document_links l WHERE l.document_id=d.id) ORDER BY d.tax_year DESC, d.id")
+        "(SELECT 1 FROM document_links l JOIN transactions lt ON lt.id=l.transaction_id "
+        "WHERE l.document_id=d.id AND lt.deleted=0) ORDER BY d.tax_year DESC, d.id")
 
 
 def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = "") -> None:
