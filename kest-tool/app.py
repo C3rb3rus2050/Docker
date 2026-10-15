@@ -60,8 +60,8 @@ except ScriptControlException:
     raise
 except Exception as exc:  # noqa: BLE001 – verständliche Fehlerseite statt Traceback
     error_id = record_error(str(nav.title), exc)
-    st.error("**Hier ist leider etwas schiefgelaufen.** Ihre Daten sind nicht betroffen – es wurde nichts "
-             "gespeichert, was nicht bestätigt war.\n\n"
-             "Was Sie tun können: Seite neu laden (F5). Tritt der Fehler erneut auf, finden Sie Details im Protokoll "
-             "unter Einstellungen → Protokolle → Anwendungslog.")
+    st.error("**Ein unerwarteter Fehler ist aufgetreten.** Prüfen Sie vor einem erneuten Versuch, "
+             "ob die letzte Aktion bereits gespeichert wurde.\n\n"
+             "Laden Sie die Seite neu (F5). Bei wiederholten Fehlern können Sie unter "
+             "Einstellungen → Diagnose einen Bericht exportieren.")
     st.caption(f"Fehlerkennung: {error_id}. Unter Einstellungen → Diagnose können Sie einen Bericht exportieren.")
