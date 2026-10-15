@@ -207,8 +207,6 @@ def process_documents(repo: Repository, doc_ids: list[int] | None = None, defaul
                 results.append(ProcessResult(doc["id"], name, "dublette",
                                              f"Buchung existiert bereits (#{dup['exact'][0]['id']}) – als Beleg verknüpft"))
                 continue
-            if run_id is None:
-                run_id = repo.start_import("PDF-Stapelverarbeitung")
             if dup["possible"]:
                 # Suspected duplicates must not enter tax calculations before human review.
                 repo.update_document(doc["id"], status="pruefen")
@@ -218,6 +216,8 @@ def process_documents(repo: Repository, doc_ids: list[int] | None = None, defaul
                                              action="Unter Dokumente die Buchungen vergleichen und den Beleg "
                                                     "zuordnen oder die Buchung manuell übernehmen."))
                 continue
+            if run_id is None:
+                run_id = repo.start_import("PDF-Stapelverarbeitung")
             tid = repo.add_transaction(tx, import_run_id=run_id)
             repo.update_document(doc["id"], status="verarbeitet",
                                  tax_year=tx.trade_date.year, doc_type=ex.get("doc_type") or doc["doc_type"])
@@ -294,36 +294,61 @@ def store_pdf(repo: Repository, data: bytes, name: str, fallback_year: int, meth
 
 
 def expand_upload(name: str, data: bytes) -> list[tuple[str, bytes]]:
-    """Entpackt ZIP-Archive sicher (nur PDF/CSV/XLSX, keine Pfade, Größenlimits); andere Dateien unverändert."""
+    """Expand nested ZIPs with bounded memory, recursion and file counts.
+
+    Archived paths are deliberately discarded; uploaded documents are stored
+    by sanitized filename and content hash, never by archive path.
+    """
     import io
     import zipfile
     from pathlib import PurePosixPath
 
     if not name.lower().endswith(".zip"):
         return [(name, data)]
-    out, total = [], 0
-    try:
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            infos = [i for i in zf.infolist() if not i.is_dir()]
-            if len(infos) > MAX_ZIP_FILES:
-                raise ValueError(f"ZIP enthält zu viele Dateien ({len(infos)})")
-            for info in infos:
-                if info.flag_bits & 0x1:
-                    raise ValueError("Passwortgeschützte ZIP-Dateien werden nicht unterstützt")
-                base = PurePosixPath(info.filename.replace("\\", "/")).name
-                if not base.lower().endswith((".pdf", ".csv", ".xlsx")) or base.startswith("."):
-                    continue
-                total += info.file_size
-                if total > MAX_ZIP_TOTAL:
-                    raise ValueError("ZIP-Inhalt ist zu groß")
-                try:
-                    out.append((base, zf.read(info)))
-                except (RuntimeError, zipfile.BadZipFile) as exc:
-                    raise ValueError("ZIP-Datei enthält beschädigte oder nicht lesbare Einträge") from exc
-    except zipfile.BadZipFile as exc:
-        raise ValueError(f"„{name}“ ist kein gültiges ZIP-Archiv") from exc
-    return out
 
+    max_entry = 50 * 1024 * 1024
+    allowed = (".pdf", ".csv", ".txt", ".xlsx")
+    output: list[tuple[str, bytes]] = []
+    total_bytes = 0
+    entry_count = 0
+
+    def unpack(blob: bytes, depth: int) -> None:
+        nonlocal total_bytes, entry_count
+        if depth > 2:
+            raise ValueError("ZIP-Archive dürfen höchstens zwei weitere ZIP-Ebenen enthalten")
+        try:
+            with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+                for info in archive.infolist():
+                    if info.is_dir():
+                        continue
+                    entry_count += 1
+                    if entry_count > MAX_ZIP_FILES:
+                        raise ValueError(f"ZIP enthält mehr als {MAX_ZIP_FILES} Dateien")
+                    filename = PurePosixPath(info.filename.replace("\\", "/")).name
+                    if not filename or filename.startswith("."):
+                        continue
+                    if not filename.lower().endswith(allowed + (".zip",)):
+                        continue
+                    if info.flag_bits & 1:
+                        raise ValueError("Passwortgeschützte ZIP-Dateien werden nicht unterstützt")
+                    if info.file_size > max_entry:
+                        raise ValueError(f"ZIP-Eintrag „{filename}“ ist größer als 50 MB")
+                    if total_bytes + info.file_size > MAX_ZIP_TOTAL:
+                        raise ValueError("ZIP-Inhalt ist größer als 500 MB")
+                    with archive.open(info) as source:
+                        content = source.read(max_entry + 1)
+                    if len(content) > max_entry or len(content) != info.file_size:
+                        raise ValueError(f"ZIP-Eintrag „{filename}“ hat eine ungültige Größe")
+                    total_bytes += len(content)
+                    if filename.lower().endswith(".zip"):
+                        unpack(content, depth + 1)
+                    else:
+                        output.append((filename, content))
+        except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, RuntimeError) as exc:
+            raise ValueError(f"„{name}“ enthält beschädigte oder nicht lesbare ZIP-Daten") from exc
+
+    unpack(data, 0)
+    return output
 
 @dataclass
 class UploadResult:
