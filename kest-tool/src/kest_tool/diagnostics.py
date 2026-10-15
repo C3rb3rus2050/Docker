@@ -30,7 +30,7 @@ def record_error(area: str, exc: Exception) -> str:
     event = {
         "id": identifier,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "area": "application",
+        "area": area if area in {"pdf_processing", "zip_import", "ui", "document_upload"} else "application",
         "exception": type(exc).__name__,
     }
     try:
