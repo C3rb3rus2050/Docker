@@ -23,7 +23,7 @@ from .parsing import parse_number
 
 log = logging.getLogger(__name__)
 
-PARSER_VERSION = 2
+PARSER_VERSION = 3
 MAX_PAGES = 30
 MAX_PDF_BYTES = 50 * 1024 * 1024
 
@@ -76,22 +76,24 @@ def extract_text(data: bytes, engine: str = "auto") -> tuple[str, str]:
 NUM = r"[+-]?(?:\d{1,3}(?:[.,' ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)-?(?![\d.,])"
 CUR = r"EUR|USD|CHF|GBP|CAD|JPY|DKK|SEK|NOK|AUD|NZD|HKD|SGD|PLN|CZK|HUF|CNY|ZAR|€|\$"
 DATE = r"\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4}"
+UNIT = r"(?:Stk\.?|Stück(?:e)?|Pcs\.?|Shares?|Units?|Anteile?)"
 ISIN_RX = re.compile(r"\b([A-Z]{2}[A-Z0-9]{9}[0-9])\b")
 
 TRADE_DATE_LABELS = ["Schlusstag", "Handelstag", "Ausführungstag", "Ausführungsdatum", "Ausführung", "Trade Date", "Execution Date"]
 INCOME_DATE_LABELS = ["Zahltag", "Zahlungstag", "Payment Date", "Pay Date", "Value Date", "Valuta", "Buchungsdatum", "Datum", "Abrechnungsdatum"]
 GENERIC_DATE_LABELS = ["Buchungsdatum", "Datum", "Abrechnungsdatum", "Valuta"]
 FEE_LABELS = ["Fremdkostenzuschlag", "Ordergebühr", "Ordergebuehr", "Orderentgelt", "Provision", "Transaktionsgebühr",
-              "Transaktionskosten", "Handelsplatzgebühr", "Börsengebühr", "Gebühr", "Fremde Spesen", "Spesen", "Commission", "Transaction Fee", "Gesamtgebühren", "Gebühren gesamt", "Total Fees", "Gebühren", "Fees"]
+              "Transaktionskosten", "Handelsplatzgebühr", "Börsengebühr", "Gebühr", "Fremde Spesen", "Spesen", "Commission", "Transaction Fee", "Gesamtgebühren", "Gebühren gesamt", "Total Fees", "Gebühren", "Fees", "Ordergebühren", "External cost surcharge"]
 GROSS_LABELS_TRADE = ["Kurswert", "Ordervolumen", "Kaufpreis", "Verkaufspreis", "Gesamtkurswert", "Gross Amount", "Trade Value", "Consideration"]
 GROSS_LABELS_INCOME = ["Bruttobetrag", "Brutto", "Dividende brutto", "Ausschüttung brutto", "Bruttoertrag",
                        "Zinsbetrag brutto", "Gross Dividend", "Gross Amount", "Gross Income", "Ertrag", "Dividende", "Ausschüttung", "Zinsen"]
-TOTAL_LABELS = ["Gesamt", "Endbetrag", "Zu Lasten", "Zu Gunsten", "Ausmachender Betrag", "Gutschrift", "Belastung", "Betrag zu Ihren Lasten",
-                "Betrag zu Ihren Gunsten", "Settlement Amount", "Net Amount", "Nettobetrag", "Netto", "Total"]
+TOTAL_LABELS = ["Endbetrag", "Ausmachender Betrag", "Zu Lasten", "Zu Gunsten", "Betrag zu Ihren Lasten",
+                "Betrag zu Ihren Gunsten", "Settlement Amount", "Net Amount", "Nettobetrag", "Netto",
+                "Gesamtbetrag", "Gesamt", "Total", "Gutschrift", "Belastung"]
 WHT_LABELS = ["Quellensteuer", "Ausländische Quellensteuer", "US-Quellensteuer", "Withholding Tax",
               "Withholding Tax Amount"]
 KEST_LABELS = ["Kapitalertragsteuer Österreich", "KESt Österreich", "KESt"]
-GERMAN_TAX_LABELS = ["Kapitalertragsteuer", "Solidaritätszuschlag", "Kirchensteuer"]
+GERMAN_TAX_LABELS = ["Kapitalertragsteuer", "Solidaritätszuschlag", "Kirchensteuer", "Capital gains tax", "Solidarity surcharge"]
 
 
 @dataclass
@@ -220,6 +222,13 @@ def detect_broker(text: str) -> str:
 def detect_type(text: str) -> tuple[str, str | None]:
     """Liefert (Dokumenttyp, Buchungsart)."""
     t = text.lower()
+    execution = re.search(r"(?im)^(?:(?:Market|Limit|Stop)[ -]Order\s+)?(Buy|Sell|Kauf|Verkauf)\s+(?:on|am)\s+\d", text)
+    savings = re.search(r"(?im)^\s*(?:Savings plan execution|Sparplanausführung)\s+(?:on|am)\s+\d", text)
+    if execution:
+        sell = execution.group(1).lower() in {"sell", "verkauf"}
+        return ("Verkaufsabrechnung", TxType.SELL.value) if sell else ("Kaufabrechnung", TxType.BUY.value)
+    if savings:
+        return "Kaufabrechnung", TxType.BUY.value
     title = re.search(r"(?im)^\s*(?:wertpapierabrechnung\s*[:–-]?\s*|trade confirmation\s*[:–-]?\s*)(kauf|verkauf|buy|sell)\b", text)
     if title and not re.search(r"jahressteuerbescheinigung|steuerbescheinigung|jahressteuerbericht|steuerreport", t):
         sell = title.group(1).lower() in {"verkauf", "sell"}
@@ -259,7 +268,8 @@ FIELD_LABELS = {"trade_date": "Buchungsdatum", "isin": "ISIN", "quantity": "Stü
                 "fx_source": "Kursquelle", "price_currency": "Währung des Stückkurses", "total_currency": "Währung des Endbetrags",
                 "income_per_unit": "Ertrag je Anteil", "fees_original": "Gebühren im Original",
                 "withholding_tax_original": "Quellensteuer im Original", "kest_at_eur_original": "KESt im Original",
-                "price_original": "Stückkurs im Original", "withholding_country": "Quellenstaat"}
+                "price_original": "Stückkurs im Original", "income_per_unit_currency": "Währung des Ertrags je Anteil",
+                "document_fx_quote": "Umrechnung im Beleg", "withholding_country": "Quellenstaat"}
 
 
 def _currency(value: str) -> str:
@@ -279,7 +289,17 @@ def _normalize_text(text: str) -> str:
         if line.rstrip(":").casefold() in labels and i + 1 < len(lines) and lines[i + 1]:
             following = lines[i + 1]
             # Join only a standalone label with its immediate value, not entire tables.
-            if following.rstrip(":").casefold() not in labels:
+            key = line.rstrip(":").casefold()
+            is_amount = key in {label.casefold() for label in amount_labels}
+            is_date = key in {label.casefold() for label in date_labels}
+            valid_value = True
+            if is_amount:
+                valid_value = bool(re.fullmatch(rf"(?:{CUR})|(?:{CUR})?\s*{NUM}\s*(?:{CUR})?", following, re.I))
+            elif is_date:
+                valid_value = bool(re.match(DATE, following))
+            elif key == "isin":
+                valid_value = bool(ISIN_RX.fullmatch(following))
+            if valid_value and following.rstrip(":").casefold() not in labels:
                 line += " " + following
                 i += 1
                 if re.fullmatch(CUR, following, re.I) and i + 1 < len(lines) and re.fullmatch(NUM, lines[i + 1]):
@@ -287,7 +307,13 @@ def _normalize_text(text: str) -> str:
                     i += 1
         out.append(line)
         i += 1
-    return "\n".join(out)
+    normalized = "\n".join(out)
+    split_position = re.compile(rf"(?im)^([^\n]+?)[ \t]+({NUM})[ \t]+({CUR})[ \t]*\n[ \t]*({NUM})[ \t]*{UNIT}[ \t]+({NUM})[ \t]+({CUR})[ \t]*$")
+    def join_position(match):
+        if _currency(match.group(3)) != _currency(match.group(6)):
+            return match.group(0)
+        return f"{match.group(1)} {match.group(4)} Stück {match.group(5)} {match.group(6)} {match.group(2)} {match.group(3)}"
+    return split_position.sub(join_position, normalized)
 
 
 def _document_fx(text: str, currency: str) -> tuple[Field | None, str | None]:
@@ -324,6 +350,62 @@ def _convert(value: float, source: str, target: str, rate: float | None, main: s
     if not rate or {source, target} != {"EUR", main}:
         return None
     return value * rate if source == "EUR" else value / rate
+
+
+def _apply_broker_tables(ex: Extraction, text: str) -> None:
+    """Read explicit booking table columns; never treat a net payment as gross income."""
+    f = ex.fields
+    # Trade Republic booking row supplies the final settlement after the earlier overview total.
+    booking = re.search(rf"(?im)^(?:VERRECHNUNGSKONTO|CLEARING ACCOUNT)[^\n]*(?:BETRAG|AMOUNT)\s*\n"
+                        rf"[A-Z]{{2}}[A-Z0-9]+[ \t]+({DATE})[ \t]+({NUM})[ \t]+({CUR})[ \t]*$", text)
+    if booking:
+        day = _date(booking.group(1))
+        bank_total = abs(_num(booking.group(2)))
+        billing = re.search(r"(?ims)^(?:ABRECHNUNG|BILLING)\s*\n(.*?)(?=^(?:BUCHUNG|BOOKING)\s*$|\Z)", text)
+        summary = _labeled_amount(billing.group(1), TOTAL_LABELS) if billing else None
+        if summary and (summary[1] or _currency(booking.group(3))) == _currency(booking.group(3)) and abs(abs(summary[0]) - bank_total) > .02:
+            ex.check("Endbetrag stimmt", "warn", "Endbetrag der Abrechnung weicht von der Buchungstabelle ab.",
+                     "Beide Endbeträge im Original vergleichen.")
+        f["total"] = Field(abs(_num(booking.group(2))), 0.95, "Endbetrag in der Buchungstabelle")
+        f["total_currency"] = Field(_currency(booking.group(3)), 0.95, "Buchungstabelle")
+        if day:
+            f["value_date"] = Field(day, 0.95, "Wertstellung in der Buchungstabelle")
+            if ex.tx_type in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value):
+                f["trade_date"] = Field(day, 0.95, "Zahlungstag in der Buchungstabelle")
+                ex.warnings = [w for w in ex.warnings if w != "Buchungsdatum nur heuristisch ermittelt"]
+    # Older Baader PDFs put trade date and time on the row after the column headings.
+    if ex.tx_type in (TxType.BUY.value, TxType.SELL.value):
+        trade = re.search(rf"(?im)^Handelsdatum[ \t]+Handelsuhrzeit[^\n]*\n[ \t]*({DATE})\b", text)
+        if trade:
+            f["trade_date"] = Field(_date(trade.group(1)), 0.95, "Handelsdatum in der Ausführungstabelle")
+            ex.warnings = [w for w in ex.warnings if w != "Buchungsdatum nur heuristisch ermittelt"]
+    if ex.broker != "ScalableCapital" or ex.tx_type not in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value):
+        return
+    header = re.search(r"(?im)^(?:Buchung Wertstellung Typ Betrag / Stk\. Berechtigte Anzahl Gesamt|"
+                       r"Booking Value date Type Amount / pcs\. Entitled quantity Total amount)\s*$", text)
+    if not header:
+        return
+    tail = text[header.end():]
+    row_pattern = rf"(?im)^[ \t]*({DATE})[ \t]+({DATE})[ \t]+(?:Gutschrift|Credit)[ \t]+({NUM})[ \t]+({CUR})[ \t]+({NUM})[ \t]+({NUM})[ \t]+({CUR})[ \t]*$"
+    rows = list(re.finditer(row_pattern, tail))
+    if len(rows) != 1:
+        ex.check("Ertragstabelle", "warn", "Ertragstabelle enthält keine eindeutige Einzelbuchung.", "Buchungszeilen einzeln prüfen.")
+        return
+    row = rows[0]
+    f["trade_date"] = Field(_date(row.group(1)), 0.95, "Buchungsdatum in der Scalable-Ertragstabelle")
+    f["value_date"] = Field(_date(row.group(2)), 0.95, "Wertstellung in der Scalable-Ertragstabelle")
+    f["income_per_unit"] = Field(_num(row.group(3), rate=True), 0.95, "Betrag je Stück in der Ertragstabelle")
+    f["income_per_unit_currency"] = Field(_currency(row.group(4)), 0.95, "Ertragstabelle")
+    f["quantity"] = Field(_num(row.group(5)), 0.95, "Berechtigte Anzahl in der Ertragstabelle")
+    f["amount"] = Field(abs(_num(row.group(6))), 0.95, "Brutto-Gutschrift vor den separat ausgewiesenen Steuern")
+    f["currency"] = Field(_currency(row.group(7)), 0.95, "Währung der Brutto-Gutschrift")
+    name = re.search(r"(?im)^(?:Berechtigtes Wertpapier|Entitled security)[ \t]+(.+)$", text)
+    if name:
+        f["security_name"] = Field(name.group(1).strip(), 0.95, "Berechtigtes Wertpapier")
+    fx = re.search(rf"(?im)^([A-Z]{{3}}[ \t]*/[ \t]*[A-Z]{{3}})[ \t]+({NUM})[ \t]*$", tail)
+    if fx:
+        f["document_fx_quote"] = Field(fx.group(0).strip(), 0.95, "Umrechnung im Beleg; Bruttobetrag bereits in Abrechnungswährung")
+    ex.warnings = [w for w in ex.warnings if w != "Buchungsdatum nur heuristisch ermittelt"]
 
 
 def _finish_fields(ex: Extraction, text: str, reference_fx: Field | None) -> None:
@@ -474,7 +556,7 @@ def parse_text(text: str, *, reference_fx: Field | None = None) -> Extraction:
         ex.warnings.append(f"Mehrere ISIN im Dokument ({', '.join(uniq)}) – Zuordnung prüfen")
 
     # Positionszeile (z. B. Trade Republic): "<Name> 1 Stk. 497,40 EUR 497,40 EUR"
-    pos = re.search(rf"(?im)^(.*?)(?<![\w.,])({NUM})[ \t]*(?:Stk\.?|Stück)[ \t]+({NUM})[ \t]*({CUR})"
+    pos = re.search(rf"(?im)^(.*?)(?<![\w.,])({NUM})[ \t]*{UNIT}[ \t]+({NUM})[ \t]*({CUR})"
                     rf"(?:[ \t]+({NUM})[ \t]*({CUR}))?[ \t]*$", text)
     # Baader/Scalable: "STK 2,000 <Name> <ISIN>"
     stk = re.search(rf"(?im)^[ \t]*STK\.?[ \t]+({NUM})[ \t]*(.*)$", text)
@@ -492,7 +574,7 @@ def parse_text(text: str, *, reference_fx: Field | None = None) -> Extraction:
             if len(name) < 3:
                 lines = text[:m.start()].rstrip().splitlines()
                 name = lines[-1].strip() if lines else ""
-    name = re.sub(rf"(?<![\w.,])({NUM})\s*(Stk\.?|Stück)\b.*", "", name).strip()
+    name = re.sub(rf"(?<![\w.,])({NUM})\s*{UNIT}(?!\w).*", "", name).strip()
     if 2 < len(name) < 120 and not re.search(r"position|anzahl|isin|nominale", name, re.I):
         f["security_name"] = Field(name, 0.6, "Positionszeile/Text neben ISIN")
 
@@ -500,7 +582,7 @@ def parse_text(text: str, *, reference_fx: Field | None = None) -> Extraction:
     income_doc = ex.tx_type in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value,
                                 TxType.CAPITAL_REPAYMENT.value)
     if ex.tx_type in (TxType.BUY.value, TxType.SELL.value):
-        m = re.search(rf"(?i)\b(?:Kauf|Verkauf|Sparplanausführung|ausgeführt|Ausführung)\b[^\n\d]{{0,25}}\bam\s+({DATE})", text)
+        m = re.search(rf"(?i)\b(?:Kauf|Verkauf|Buy|Sell|Savings plan execution|Sparplanausführung|ausgeführt|Ausführung)\b[^\n\d]{{0,25}}\b(?:am|on)\s+({DATE})", text)
         if m and _date(m.group(1)):
             f["trade_date"] = Field(_date(m.group(1)), 0.9, "Ausführung am …")
     labels = INCOME_DATE_LABELS if income_doc else TRADE_DATE_LABELS + GENERIC_DATE_LABELS
@@ -522,20 +604,20 @@ def parse_text(text: str, *, reference_fx: Field | None = None) -> Extraction:
     # Stückzahl & Kurs
     if pos:
         f["quantity"] = Field(abs(_num(pos.group(2)) or 0), 0.9, "Positionszeile")
-        f["price"] = Field(_num(pos.group(3)), 0.85, "Positionszeile")
+        f["price"] = Field(_num(pos.group(3), rate=True), 0.85, "Positionszeile")
         f["currency"] = Field(_currency(pos.group(4)), 0.85, "Positionszeile")
         f["price_currency"] = Field(_currency(pos.group(4)), 0.85, "Positionszeile")
     elif stk and _num(stk.group(1)):
         f["quantity"] = Field(abs(_num(stk.group(1))), 0.9, "STK-Angabe")
     else:
-        m = re.search(rf"(?i)(?<![\w.,])({NUM})[ \t]*(?:Stk\.?|Stück|Anteile|Shares)(?!\w)", text) or \
+        m = re.search(rf"(?i)(?<![\w.,])({NUM})[ \t]*{UNIT}(?!\w)", text) or \
             re.search(rf"(?i)\b(?:Stück|Anzahl|Stückzahl|Quantity|Units)\b[: \t]*({NUM})", text)
         if m and _num(m.group(1)):
             f["quantity"] = Field(abs(_num(m.group(1))), 0.85, "Stück-Angabe")
     if "price" not in f:
         m = re.search(rf"(?im)\b(?:Kurs|Ausführungskurs|Preis|Durchschnittskurs|Price|Unit Price)\b[ \t:]*(?:({CUR})[ \t]*)?({NUM})[ \t]*({CUR})?", text)
-        if m and (m.group(1) or m.group(3)) and _num(m.group(2)):
-            f["price"] = Field(_num(m.group(2)), 0.8, "Kurs-Angabe")
+        if m and (m.group(1) or m.group(3)) and _num(m.group(2), rate=True):
+            f["price"] = Field(_num(m.group(2), rate=True), 0.8, "Kurs-Angabe")
             f["currency"] = Field(_currency(m.group(3) or m.group(1)), 0.8, "Währung beim Kurs")
             f["price_currency"] = f["currency"]
 
@@ -579,6 +661,7 @@ def parse_text(text: str, *, reference_fx: Field | None = None) -> Extraction:
     if kest:
         f["kest_at_eur"] = Field(round(sum(abs(v) for v, _, _ in kest), 2), 0.7, ", ".join(l for *_, l in kest))
 
+    _apply_broker_tables(ex, text)
     _finish_fields(ex, text, reference_fx)
     _run_checks(ex, text)
     return ex

@@ -73,3 +73,27 @@ verglichen werden und werden nicht automatisch gebucht.
 Nach einem Update: **Dokumente → Alle erneut automatisch prüfen**. Offene Originale
 werden mit der neuen Erkennung und den aktuellen EZB-/OCR-Einstellungen erneut
 gelesen. Bereits verknüpfte Buchungen werden dabei weder verändert noch dupliziert.
+
+## Öffentliche Layoutreferenzen
+
+Zusätzlich zu den eigenen Mustern wurden 76 öffentlich bereitgestellte
+PDF-Textauszüge aus dem Testbestand von Portfolio Performance lokal verglichen.
+Es handelt sich um Textauszüge aus Abrechnungen, nicht um die Original-PDFs des
+Nutzers. Die geprüfte Stichprobe enthält Trade-Republic-, Baader- und
+Scalable-Capital-Abrechnungen, darunter Trade-Republic-Belege aus 2022.
+
+Referenzstand: `f84ff1a432ec9ba61c17aa2ae4191c8b068643a7`.
+Beispiele:
+
+- [Trade Republic Kauf 2022](https://github.com/portfolio-performance/portfolio/blob/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Kauf06.txt)
+- [Trade Republic englischer Sparplan](https://github.com/portfolio-performance/portfolio/blob/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Sparplan06.txt)
+- [Trade Republic mehrzeilige Position](https://github.com/portfolio-performance/portfolio/blob/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Dividende31.txt)
+- [Scalable Ertragstabelle](https://github.com/portfolio-performance/portfolio/blob/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/scalablecapital/Dividende01.txt)
+- [Baader Ausführungstabelle](https://github.com/portfolio-performance/portfolio/blob/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/baaderbank/Kauf01.txt)
+
+Daraus wurden eigene synthetische Regressionstests für Stück/Pcs.-Varianten,
+mehrzeilige Positionen, englische Kauf- und Sparplantexte, drei Nachkommastellen
+im Stückkurs sowie Brutto-/Netto-/Valuta-Spalten entwickelt. Die heruntergeladenen
+Fremdbelege werden nicht mitgeliefert. Vollständige Pflichtfelder sind keine
+Bestätigung der steuerlichen Richtigkeit oder der unveränderten Extraktion eines
+anderen PDF-Layouts. Bereits vorhandene Buchungen werden nicht überschrieben.
