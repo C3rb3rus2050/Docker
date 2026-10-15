@@ -30,8 +30,10 @@ def render_page_header(key: str) -> None:
         '<div class="kest-page-heading">'
         f'<div class="kest-breadcrumb">KESt Manager <span>›</span> {escape(section)} '
         f'<span>›</span> {escape(title)}</div>'
+        f'<div class="kest-page-heading-row"><div>'
         f'<div class="kest-page-title">{escape(title)}</div>'
         f'<div class="kest-page-subtitle">{escape(description)}</div>'
+        f'</div><span class="kest-page-indicator">KESt · Lokal</span></div>'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -214,6 +216,138 @@ h3 { font-size: 1.07rem !important; font-weight: 650 !important; color: #333 !im
   .kest-page-title { font-size: 1.25rem; }
   .kest-page-subtitle { font-size: .78rem; }
 }
+
+/* Shared design tokens copied from the GrocyMealPlanner admin shell.
+   Source: C3rb3rus2050/GrocyMealPlanner frontend/src/styles.css (main).
+   Streamlit-specific selectors preserve its navigation and accessibility. */
+:root {
+  --meal-bg: #f4f6f9;
+  --meal-surface: #ffffff;
+  --meal-surface-2: #f7f9fc;
+  --meal-text: #273746;
+  --meal-muted: #64748b;
+  --meal-border: #dce3ea;
+  --meal-primary: #367fa9;
+  --meal-nav: #222d32;
+  --meal-nav-hover: #1e282c;
+  --meal-radius: 4px;
+  --meal-shadow: none;
+}
+[data-testid="stAppViewContainer"], .stApp {
+  background: var(--meal-bg);
+  color: var(--meal-text);
+  font-size: 14px;
+}
+[data-testid="stHeader"] { background: var(--meal-surface); border-bottom: 1px solid var(--meal-border); box-shadow: none; }
+[data-testid="stSidebar"], [data-testid="stSidebar"] > div:first-child {
+  background: var(--meal-nav);
+  border-color: #172127;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarNav"] { padding-top: .6rem; }
+[data-testid="stSidebar"] [data-testid="stSidebarNav"] a,
+[data-testid="stSidebar"] [data-testid="stPageLink"] a {
+  font-size: .89rem;
+  font-weight: 500;
+  min-height: 39px;
+  padding: .5rem .75rem;
+  border-left: 3px solid transparent;
+  color: #cbd5db !important;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarNav"] a:hover,
+[data-testid="stSidebar"] [data-testid="stPageLink"] a:hover {
+  background: var(--meal-nav-hover);
+  color: #fff !important;
+}
+[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="page"],
+[data-testid="stSidebar"] [data-testid="stSidebarNav"] a[aria-current="true"],
+[data-testid="stSidebar"] [data-testid="stPageLink"] a[aria-current="page"] {
+  background: var(--meal-nav-hover) !important;
+  border-left-color: #3c8dbc;
+  color: #fff !important;
+  font-weight: 600;
+}
+.kest-admin-brand {
+  background: #367fa9;
+  color: white;
+  padding: 1rem 1.1rem;
+  margin: -1rem -1rem .65rem;
+  border: none;
+  min-height: 60px;
+  font-size: 1.05rem;
+  letter-spacing: .01em;
+}
+.kest-admin-brand span { color: white; }
+.kest-sidebar-caption { color: #90a0aa; border-top: 1px solid #344047; margin-top: .7rem; padding-top: .9rem; }
+.block-container { max-width: none; padding: .9rem 1.35rem 4rem; }
+.kest-page-heading {
+  background: var(--meal-surface);
+  border-bottom: 1px solid var(--meal-border);
+  margin: -.9rem -1.35rem 1.25rem;
+  padding: .8rem 1.35rem 1rem;
+}
+.kest-breadcrumb { color: var(--meal-muted); font-size: .75rem; margin-bottom: .45rem; }
+.kest-page-heading-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+.kest-page-title { color: var(--meal-text); font-size: 1.42rem; line-height: 1.25; font-weight: 600; }
+.kest-page-subtitle { color: var(--meal-muted); font-size: .78rem; margin-top: .15rem; }
+.kest-page-indicator {
+  border: 1px solid var(--meal-border);
+  border-radius: var(--meal-radius);
+  background: var(--meal-surface-2);
+  color: var(--meal-muted);
+  font-size: .74rem;
+  padding: .28rem .6rem;
+  white-space: nowrap;
+}
+.kest-admin-context {
+  background: var(--meal-surface);
+  color: var(--meal-muted);
+  border: 1px solid var(--meal-border);
+  border-radius: var(--meal-radius);
+  font-size: .78rem;
+  padding: .55rem .8rem;
+}
+h1 { font-size: 1.3rem !important; color: var(--meal-text) !important; }
+h2 { font-size: 1.08rem !important; color: var(--meal-text) !important; }
+h3 { font-size: 1rem !important; color: var(--meal-text) !important; }
+[data-testid="stMetric"], [data-testid="stForm"], [data-testid="stExpander"],
+[data-testid="stDataFrame"], [data-testid="stTable"] {
+  background: var(--meal-surface);
+  border: 1px solid var(--meal-border);
+  border-radius: var(--meal-radius);
+  box-shadow: var(--meal-shadow);
+}
+[data-testid="stMetric"] { border-top: 1px solid var(--meal-border); padding: .85rem 1rem; }
+[data-testid="stMetricValue"] { color: var(--meal-text); }
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+  background: transparent;
+  border-bottom: 1px solid var(--meal-border);
+}
+[data-testid="stTabs"] [data-baseweb="tab"] { font-size: .88rem; }
+[data-testid="stTabs"] [aria-selected="true"] { color: var(--meal-primary); }
+.stButton button, [data-testid="stFormSubmitButton"] button,
+[data-testid="stDownloadButton"] button {
+  min-height: 36px;
+  padding: .45rem .85rem;
+  border-radius: var(--meal-radius) !important;
+  font-size: .875rem;
+  font-weight: 600;
+}
+.stButton button[kind="primary"], [data-testid="stFormSubmitButton"] button[kind="primary"] {
+  background: var(--meal-primary);
+  border-color: var(--meal-primary);
+}
+[data-baseweb="select"] > div, [data-baseweb="input"] > div,
+[data-baseweb="textarea"] > div { border-radius: var(--meal-radius); }
+[data-testid="stAlert"] { border-radius: var(--meal-radius); }
+[data-testid="stFileUploader"] { border: 1px solid var(--meal-border); background: var(--meal-surface); }
+@media (max-width: 820px) {
+  .block-container { padding: .7rem 12px 4.5rem; }
+  .kest-page-heading { margin: -.7rem -12px 1rem; padding: .75rem 12px; }
+  .kest-page-title { font-size: 1.1rem; }
+  .kest-page-subtitle { font-size: .75rem; }
+  .kest-page-indicator { font-size: .7rem; }
+}
+
 </style>
 """,
         unsafe_allow_html=True,
