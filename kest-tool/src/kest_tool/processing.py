@@ -360,7 +360,7 @@ class UploadResult:
 
 
 def store_uploads(repo: Repository, files: list[tuple[str, bytes]], fallback_year: int,
-                  engine: str = "auto") -> UploadResult:
+                  engine: str = "auto", method: str = "upload") -> UploadResult:
     """Legt alle Dateien ab. PDFs werden zur Verarbeitung vorgemerkt, CSV/XLSX gesondert gemeldet."""
     res = UploadResult([], [], [])
     for name, data in files:
@@ -370,7 +370,7 @@ def store_uploads(repo: Repository, files: list[tuple[str, bytes]], fallback_yea
                 if not data.startswith(b"%PDF-"):
                     res.skipped.append((name, "keine gültige PDF-Datei"))
                     continue
-                doc, _, new = store_pdf(repo, data, name, fallback_year, "upload", engine=engine)
+                doc, _, new = store_pdf(repo, data, name, fallback_year, method, engine=engine)
                 res.duplicates += int(not new)
                 if new:
                     res.pdf_ids.append(doc["id"])
@@ -379,14 +379,14 @@ def store_uploads(repo: Repository, files: list[tuple[str, bytes]], fallback_yea
                 is_oekb = "isin" in head and ("meldedatum" in head or "ausschüttungsgleich" in head)
                 doc, new = repo.add_document(data, name, doc_type="OeKB-Fondsmeldung" if is_oekb else
                                              "Transaktionsexport (CSV)", source="OeKB" if is_oekb else "Unclassified",
-                                             tax_year=fallback_year, import_method="upload", status="pruefen")
+                                             tax_year=fallback_year, import_method=method, status="pruefen")
                 res.duplicates += int(not new)
                 if new:
                     res.csv_docs.append((doc, is_oekb))
             else:
                 res.skipped.append((name, "Dateityp wird nicht unterstützt (erlaubt: PDF, ZIP, CSV, XLSX)"))
-        except PdfError as exc:
-            res.skipped.append((name, f"PDF nicht lesbar: {exc}"))
+        except (PdfError, ValueError) as exc:
+            res.skipped.append((name, f"Dokument nicht verarbeitbar: {exc}"))
         except OSError as exc:
             res.skipped.append((name, f"Speichern fehlgeschlagen: {exc}"))
     return res
