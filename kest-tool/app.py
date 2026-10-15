@@ -42,9 +42,9 @@ def admin_page(key: str, render):
 
 P = {
     "dashboard": st.Page(admin_page("dashboard", pages_basic.dashboard), title="Übersicht", icon="🏠", default=True),
-    "import": st.Page(admin_page("import", pages_import.render), title="Import", icon="📥", url_path="import"),
-    "dokumente": st.Page(admin_page("dokumente", pages_data.documents), title="Dokumente", icon="📄", url_path="dokumente"),
-    "transaktionen": st.Page(admin_page("transaktionen", pages_data.transactions), title="Transaktionen", icon="📒", url_path="transaktionen"),
+    "import": st.Page(admin_page("import", pages_import.render), title="Dateien hinzufügen", icon="📥", url_path="import"),
+    "dokumente": st.Page(admin_page("dokumente", pages_data.documents), title="Belege & Prüfung", icon="📄", url_path="dokumente"),
+    "transaktionen": st.Page(admin_page("transaktionen", pages_data.transactions), title="Buchungen", icon="📒", url_path="transaktionen"),
     "wertpapiere": st.Page(admin_page("wertpapiere", pages_data.securities), title="Wertpapiere", icon="📈", url_path="wertpapiere"),
     "fonds": st.Page(admin_page("fonds", pages_data.funds), title="Fonds & OeKB", icon="🗂️", url_path="fonds"),
     "depots": st.Page(admin_page("depots", pages_basic.brokers), title="Broker & Depots", icon="🏦", url_path="depots"),
@@ -55,10 +55,10 @@ P = {
 C.PAGES.update(P)
 
 nav = st.navigation({
-    "ÜBERSICHT": [P["dashboard"]],
-    "DOKUMENTE & BUCHUNGEN": [P["import"], P["dokumente"], P["transaktionen"]],
-    "STAMMDATEN": [P["wertpapiere"], P["fonds"], P["depots"]],
-    "STEUERN & BERICHTE": [P["steuer"], P["exporte"]],
+    "START": [P["dashboard"]],
+    "1 · DATEIEN & PRÜFUNG": [P["import"], P["dokumente"], P["transaktionen"]],
+    "2 · STAMMDATEN": [P["wertpapiere"], P["fonds"], P["depots"]],
+    "3 · AUSWERTUNG": [P["steuer"], P["exporte"]],
     "SYSTEM": [P["einstellungen"]],
 })
 with st.sidebar:

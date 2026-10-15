@@ -46,3 +46,14 @@ def test_nonfinite_values_rejected_before_saving(repo):
     edited['age_per_unit'] = float('inf')
     with pytest.raises(ValueError, match='endliche'):
         grid_changes([old], [edited], 'fund')
+
+
+def test_list_search_and_review_filters_keep_record_identity():
+    from kest_tool.ui.record_tables import filter_records
+    rows = [
+        {'id': 10, 'isin': 'US0378331005', 'security_name': 'Apple', 'trade_date': '2024-01-01', 'review_status': 'pruefen'},
+        {'id': 20, 'isin': 'US0378331005', 'security_name': 'Apple', 'trade_date': '2024-03-01', 'review_status': 'geprueft'},
+        {'id': 30, 'isin': 'IE00B4L5Y983', 'security_name': 'World Fund', 'trade_date': '2024-02-01', 'review_status': 'ungeprueft'}]
+    assert [r['id'] for r in filter_records(rows, 'apple US037', 'Offen', 'Neueste zuerst', 'transaction')] == [10]
+    assert [r['id'] for r in filter_records(rows, '', 'Alle', 'Neueste zuerst', 'transaction')] == [20, 30, 10]
+    assert not filter_records(rows, 'unbekannt', 'Alle', 'Neueste zuerst', 'transaction')

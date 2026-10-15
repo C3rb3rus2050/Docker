@@ -133,7 +133,7 @@ def test_transaction_grid_saves_and_opens_linked_pdf(demo_home, monkeypatch):
     def editor(data, **kwargs):
         if str(kwargs.get('key', '')).startswith('tx_grid_'):
             frame = data.copy()
-            choices = frame.index[frame['Beleg'] != ''].tolist()
+            choices = frame.index[frame['ID'] == tid].tolist()
             if choices:
                 i = choices[0]
                 target.setdefault('id', int(frame.at[i, 'ID']))

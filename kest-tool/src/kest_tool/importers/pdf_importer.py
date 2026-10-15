@@ -23,7 +23,7 @@ from .parsing import parse_number
 
 log = logging.getLogger(__name__)
 
-PARSER_VERSION = 4
+PARSER_VERSION = 5
 MAX_PAGES = 30
 MAX_FUND_PAGES = 250
 MAX_PDF_BYTES = 50 * 1024 * 1024
@@ -38,9 +38,13 @@ def _page_limit(count: int, first_page: str) -> None:
         return
     fund = re.search(r'oekb|kontrollbank', first_page, re.I) and re.search(
         r'Kennzahlen ESt|Ertragsteuerliche Behandlung|BASISINFORMATION.*Anteilsgattung', first_page, re.I)
-    if fund and count <= MAX_FUND_PAGES:
+    from .broker_documents import document_profile
+    profile = document_profile(first_page)
+    summary = re.search(r'trade republic|scalable capital|baader bank', first_page, re.I) and profile and \
+        profile.doc_type in ('Kontoauszug', 'Depotauszug', 'Jahressteuerbescheinigung', 'Kosteninformation')
+    if (fund or summary) and count <= MAX_FUND_PAGES:
         return
-    raise PdfError(f'PDF hat mehr als {MAX_FUND_PAGES if fund else MAX_PAGES} Seiten; bitte aufteilen.')
+    raise PdfError(f'PDF hat mehr als {MAX_FUND_PAGES if fund or summary else MAX_PAGES} Seiten; bitte aufteilen.')
 
 
 def extract_text(data: bytes, engine: str = "auto") -> tuple[str, str]:
@@ -85,24 +89,24 @@ def extract_text(data: bytes, engine: str = "auto") -> tuple[str, str]:
 NUM = r"[+-]?(?:\d{1,3}(?:[.,' ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)-?(?![\d.,])"
 CUR = r"EUR|USD|CHF|GBP|CAD|JPY|DKK|SEK|NOK|AUD|NZD|HKD|SGD|PLN|CZK|HUF|CNY|ZAR|€|\$"
 DATE = r"\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4}"
-UNIT = r"(?:Stk\.?|Stück(?:e)?|Pcs\.?|Shares?|Units?|Anteile?)"
+UNIT = r"(?:Stk\.?|Stück(?:e)?|Pcs?\.?|Shares?|Units?|Anteile?)"
 ISIN_RX = re.compile(r"\b([A-Z]{2}[A-Z0-9]{9}[0-9])\b")
 
-TRADE_DATE_LABELS = ["Schlusstag", "Handelstag", "Ausführungstag", "Ausführungsdatum", "Ausführung", "Trade Date", "Execution Date"]
+TRADE_DATE_LABELS = ["Schlusstag", "Handelstag", "Ausführungstag", "Ausführungsdatum", "Ausführung", "Trade Date", "Execution Date", "Execution"]
 INCOME_DATE_LABELS = ["Zahltag", "Zahlungstag", "Payment Date", "Pay Date", "Value Date", "Valuta", "Buchungsdatum", "Datum", "Abrechnungsdatum"]
 GENERIC_DATE_LABELS = ["Buchungsdatum", "Datum", "Abrechnungsdatum", "Valuta"]
-FEE_LABELS = ["Fremdkostenzuschlag", "Ordergebühr", "Ordergebuehr", "Orderentgelt", "Provision", "Transaktionsgebühr",
+FEE_LABELS = ["Fremdkostenzuschlag", "Fremdkostenpauschale", "Abwicklungskostenpauschale", "Abwicklungsgebühr", "Ordergebühr", "Ordergebuehr", "Orderentgelt", "Provision", "Transaktionsgebühr",
               "Transaktionskosten", "Handelsplatzgebühr", "Börsengebühr", "Gebühr", "Fremde Spesen", "Spesen", "Commission", "Transaction Fee", "Gesamtgebühren", "Gebühren gesamt", "Total Fees", "Gebühren", "Fees", "Ordergebühren", "External cost surcharge"]
-GROSS_LABELS_TRADE = ["Kurswert", "Ordervolumen", "Kaufpreis", "Verkaufspreis", "Gesamtkurswert", "Gross Amount", "Trade Value", "Consideration"]
+GROSS_LABELS_TRADE = ["Kurswert", "Ordervolumen", "Kaufpreis", "Verkaufspreis", "Gesamtkurswert", "Gross Amount", "Trade Value", "Market Value", "Consideration"]
 GROSS_LABELS_INCOME = ["Bruttobetrag", "Brutto", "Dividende brutto", "Ausschüttung brutto", "Bruttoertrag",
                        "Zinsbetrag brutto", "Gross Dividend", "Gross Amount", "Gross Income", "Ertrag", "Dividende", "Ausschüttung", "Zinsen"]
-TOTAL_LABELS = ["Endbetrag", "Ausmachender Betrag", "Zu Lasten", "Zu Gunsten", "Betrag zu Ihren Lasten",
+TOTAL_LABELS = ["Endbetrag", "Ausmachender Betrag", "Zu Lasten", "Zu Gunsten", "Amount debited to account", "Amount credited to account", "Debit", "Credit", "Betrag zu Ihren Lasten",
                 "Betrag zu Ihren Gunsten", "Settlement Amount", "Net Amount", "Nettobetrag", "Netto",
                 "Gesamtbetrag", "Gesamt", "Total", "Gutschrift", "Belastung"]
 WHT_LABELS = ["Quellensteuer", "Ausländische Quellensteuer", "US-Quellensteuer", "Withholding Tax",
               "Withholding Tax Amount"]
 KEST_LABELS = ["Kapitalertragsteuer Österreich", "KESt Österreich", "KESt"]
-GERMAN_TAX_LABELS = ["Kapitalertragsteuer", "Solidaritätszuschlag", "Kirchensteuer", "Capital gains tax", "Solidarity surcharge"]
+GERMAN_TAX_LABELS = ["Kapitalertragsteuer", "Kapitalertragssteuer", "Solidaritätszuschlag", "Kirchensteuer", "Capital gains tax", "Solidarity surcharge"]
 
 
 @dataclass
@@ -121,6 +125,7 @@ class Extraction:
     fields: dict[str, Field] = field(default_factory=dict)
     missing: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    components: list[dict] = field(default_factory=list)
     engine: str = ""
     text_excerpt: str = ""
     complete: bool = False
@@ -231,6 +236,21 @@ def detect_broker(text: str) -> str:
 def detect_type(text: str) -> tuple[str, str | None]:
     """Liefert (Dokumenttyp, Buchungsart)."""
     t = text.lower()
+    from .broker_documents import document_profile
+    profile = document_profile(text)
+    if profile:
+        return profile.doc_type, TxType.INTEREST.value if profile.policy == 'transaction' else None
+    if re.search(r'(?im)^(?:WERTPAPIERABRECHNUNG|SECURITIES SETTLEMENT)\s+(?:ROUND UP|SAVEBACK)\s*$', text):
+        return 'Kaufabrechnung', TxType.BUY.value
+    if re.search(r'(?im)^Ausführung der Zeichnungsorder am\s+\d', text):
+        return 'Kaufabrechnung', TxType.BUY.value
+    # Scalable tables put the transaction type at the start of the position row.
+    # This must precede words such as "Dividend" inside a security's name.
+    if re.search(r'(?im)^(?:Wertpapierabrechnung|Contract note)\s*$', text) and re.search(
+            r'(?im)^(?:Typ Wertpapier Anzahl Kurs Betrag|Type Security Quantity Price Amount)\s*$', text):
+        types = {v.casefold() for v in re.findall(r'(?im)^(Kauf|Verkauf|Buy|Sell)\s+.+?\s+[\d.,]+\s+(?:Stk\.?|Pcs?\.?)\s', text)}
+        if len(types) == 1:
+            return ('Kaufabrechnung', TxType.BUY.value) if types & {'kauf', 'buy'} else ('Verkaufsabrechnung', TxType.SELL.value)
     execution = re.search(r"(?im)^(?:(?:Market|Limit|Stop)[ -]Order\s+)?(Buy|Sell|Kauf|Verkauf)\s+(?:on|am)\s+\d", text)
     savings = re.search(r"(?im)^\s*(?:Savings plan execution|Sparplanausführung)\s+(?:on|am)\s+\d", text)
     if execution:
@@ -238,9 +258,9 @@ def detect_type(text: str) -> tuple[str, str | None]:
         return ("Verkaufsabrechnung", TxType.SELL.value) if sell else ("Kaufabrechnung", TxType.BUY.value)
     if savings:
         return "Kaufabrechnung", TxType.BUY.value
-    title = re.search(r"(?im)^\s*(?:wertpapierabrechnung\s*[:–-]?\s*|trade confirmation\s*[:–-]?\s*)(kauf|verkauf|buy|sell)\b", text)
+    title = re.search(r"(?im)^\s*(?:wertpapierabrechnung\s*[:–-]?\s*|trade confirmation\s*[:–-]?\s*|transaction statement\s*[:–-]?\s*)(kauf|verkauf|buy|sell|purchase|sale)\b", text)
     if title and not re.search(r"jahressteuerbescheinigung|steuerbescheinigung|jahressteuerbericht|steuerreport", t):
-        sell = title.group(1).lower() in {"verkauf", "sell"}
+        sell = title.group(1).lower() in {"verkauf", "sell", "sale"}
         return ("Verkaufsabrechnung", TxType.SELL.value) if sell else ("Kaufabrechnung", TxType.BUY.value)
     if re.search(r"jahressteuerbescheinigung|steuerbescheinigung|jahressteuerbericht|steuerreport", t):
         return "Jahressteuerbescheinigung", None
@@ -249,7 +269,7 @@ def detect_type(text: str) -> tuple[str, str | None]:
         return "OeKB-Fondsmeldung", None
     if re.search(r"kapitalrückzahlung|einlagenrückzahlung|return of capital", t):
         return "Ertragsabrechnung", TxType.CAPITAL_REPAYMENT.value
-    if re.search(r"\bausschüttung\b|ertragsausschüttung|distribution", t):
+    if re.search(r"\bausschüttung\b|barausschüttung|ertragsausschüttung|distribution", t):
         return "Ausschüttungsabrechnung", TxType.DISTRIBUTION.value
     if re.search(r"dividende|dividend|bardividende", t):
         return "Dividendenabrechnung", TxType.DIVIDEND.value
@@ -364,6 +384,27 @@ def _convert(value: float, source: str, target: str, rate: float | None, main: s
 def _apply_broker_tables(ex: Extraction, text: str) -> None:
     """Read explicit booking table columns; never treat a net payment as gross income."""
     f = ex.fields
+    _apply_interest_layout(ex, text)
+    english_positions = re.search(r'(?im)^(?:Type Security Quantity Price Amount|POSITION QUANTITY (?:AVERAGE RATE|PRICE|RATE) AMOUNT)\s*$', text)
+    if english_positions and ex.tx_type in (TxType.BUY.value, TxType.SELL.value):
+        rows = list(re.finditer(rf'(?im)^(.+?)\s+({NUM})\s+{UNIT}\s+({NUM})\s+({CUR})\s+({NUM})\s+({CUR})\s*$', text))
+        if len(rows) == 1:
+            row = rows[0]
+            f['quantity'] = Field(abs(parse_number(row.group(2), '.')), .95, 'Quantity in English position table')
+            f['price'] = Field(abs(parse_number(row.group(3), '.')), .95, 'Price in English position table')
+            f['price_currency'] = Field(_currency(row.group(4)), .95, 'English position table')
+            f['amount'] = Field(abs(parse_number(row.group(5), '.')), .95, 'Gross amount in English position table')
+            f['currency'] = Field(_currency(row.group(6)), .95, 'English position table')
+            f['security_name'] = Field(re.sub(r'^(?:Buy|Sell)\s+', '', row.group(1), flags=re.I), .9, 'English position table')
+        elif len(rows) > 1:
+            ex.check('Positionen eindeutig', 'warn', 'Mehrere Ausführungszeilen erkannt; keine einzelne Gesamtbuchung bestätigt.',
+                     'Ausführungen im Original einzeln prüfen.')
+    units = re.search(rf'(?im)^Units\s+({NUM})\s+(.+?)\s+({CUR})\s+({NUM})\s*$', text)
+    if units and re.search(r'(?im)^Transaction Statement:', text):
+        f['quantity'] = Field(abs(parse_number(units.group(1), '.')), .95, 'Units in Baader transaction statement')
+        f['security_name'] = Field(units.group(2), .9, 'Baader transaction statement')
+        f['price'] = Field(abs(parse_number(units.group(4), '.')), .95, 'Price in Baader transaction statement')
+        f['price_currency'] = Field(_currency(units.group(3)), .95, 'Baader transaction statement')
     # Trade Republic booking row supplies the final settlement after the earlier overview total.
     booking = re.search(rf"(?im)^(?:VERRECHNUNGSKONTO|CLEARING ACCOUNT)[^\n]*(?:BETRAG|AMOUNT)\s*\n"
                         rf"[A-Z]{{2}}[A-Z0-9]+[ \t]+({DATE})[ \t]+({NUM})[ \t]+({CUR})[ \t]*$", text)
@@ -384,7 +425,7 @@ def _apply_broker_tables(ex: Extraction, text: str) -> None:
                 ex.warnings = [w for w in ex.warnings if w != "Buchungsdatum nur heuristisch ermittelt"]
     # Older Baader PDFs put trade date and time on the row after the column headings.
     if ex.tx_type in (TxType.BUY.value, TxType.SELL.value):
-        trade = re.search(rf"(?im)^Handelsdatum[ \t]+Handelsuhrzeit[^\n]*\n[ \t]*({DATE})\b", text)
+        trade = re.search(rf"(?im)^(?:Handelsdatum[ \t]+Handelsuhrzeit|Trade Date[ \t]+Trade Time)[^\n]*\n[ \t]*({DATE})\b", text)
         if trade:
             f["trade_date"] = Field(_date(trade.group(1)), 0.95, "Handelsdatum in der Ausführungstabelle")
             ex.warnings = [w for w in ex.warnings if w != "Buchungsdatum nur heuristisch ermittelt"]
@@ -415,6 +456,53 @@ def _apply_broker_tables(ex: Extraction, text: str) -> None:
     if fx:
         f["document_fx_quote"] = Field(fx.group(0).strip(), 0.95, "Umrechnung im Beleg; Bruttobetrag bereits in Abrechnungswährung")
     ex.warnings = [w for w in ex.warnings if w != "Buchungsdatum nur heuristisch ermittelt"]
+
+
+def _apply_interest_layout(ex: Extraction, text: str) -> None:
+    if ex.doc_type not in ('Zinsabrechnung', 'Sammelabrechnung'):
+        return
+    f = ex.fields
+    # Preserve separate cash / money-market components rather than booking the sum.
+    for m in re.finditer(rf'(?im)^(Cash|Geldmarkt)\s+(Zinsen|Interest|Dividende)\s+[^\n]*?({NUM})\s+({CUR})\s*$', text):
+        ex.components.append({'Bestandteil': m.group(1), 'Art': m.group(2),
+                              'Brutto': _num(m.group(3)), 'Währung': _currency(m.group(4))})
+    if ex.doc_type == 'Sammelabrechnung':
+        return
+    gross = _labeled_amount(text, ['Besteuerungsgrundlage', 'Habenzinsen (HZ) (brutto)', 'Credit Interest (gross)', 'Habenzinsen', 'Gross interest', 'Zwischensumme'])
+    if gross:
+        f['amount'] = Field(abs(gross[0]), .95, f'Ausgewiesene Guthabenzinsen: {gross[2]}')
+        if gross[1]:
+            f['currency'] = Field(_currency(gross[1]), .95, 'Währung des Zinsbetrags')
+        else:
+            currency = re.search(r'(?im)^(?:Zinsberechnung: Betrag in|Calculation of Interest: Amount in)\s+([A-Z]{3})', text)
+            if currency:
+                f['currency'] = Field(currency.group(1), .95, 'Währungsangabe zur Zinsberechnung')
+    elif ex.components and all(c['Bestandteil'] == 'Cash' for c in ex.components) and len(
+            {c['Währung'] for c in ex.components}) == 1:
+        f['amount'] = Field(round(sum(c['Brutto'] for c in ex.components), 8), .95, 'Summe der ausgewiesenen Cash-Zinsperioden')
+        f['currency'] = Field(ex.components[0]['Währung'], .95, 'Cash-Zinsen')
+    booking = re.search(rf'(?im)^[A-Z]{{2}}[A-Z0-9]{{8,}}\s+({DATE})\s+({NUM})\s+({CUR})\s*$', text)
+    if booking:
+        f['trade_date'] = Field(_date(booking.group(1)), .95, 'Zuflussdatum aus der Zins-Buchungstabelle')
+        f['value_date'] = f['trade_date']
+        f['total'] = Field(abs(_num(booking.group(2))), .95, 'Zinsgutschrift nach Steuern')
+        f['total_currency'] = Field(_currency(booking.group(3)), .95, 'Zinsgutschrift')
+        ex.warnings = [w for w in ex.warnings if w != 'Buchungsdatum nur heuristisch ermittelt']
+    elif re.search(r'(?im)^Abschlussbuchung vom\s+', text):
+        closing = re.search(rf'(?im)^Abschlussbuchung vom\s+({DATE})', text)
+        if closing:
+            f['trade_date'] = Field(_date(closing.group(1)), .95, 'Datum der Abschlussbuchung')
+            ex.warnings = [w for w in ex.warnings if w != 'Buchungsdatum nur heuristisch ermittelt']
+    elif ex.broker == 'ScalableCapital':
+        paid = re.search(rf'(?i)Der Betrag wurde am\s+({DATE}).{{0,80}}gebucht', text)
+        if paid:
+            f['trade_date'] = Field(_date(paid.group(1)), .95, 'Ausdrücklich bestätigter Buchungstag')
+        else:
+            period = re.search(rf'(?im)^Zeitraum\s+({DATE})\s*[-–]\s*({DATE})', text)
+            if period:
+                f['trade_date'] = Field(_date(period.group(2)), .65, 'Periodenende; Zuflussdatum nicht separat bestätigt')
+            ex.check('Zuflussdatum', 'warn', 'Rechnungsabschluss nennt keinen eindeutigen Buchungstag der Zinsen.',
+                     'Zinsgutschrift mit dem Kontoauszug abgleichen.')
 
 
 def _finish_fields(ex: Extraction, text: str, reference_fx: Field | None) -> None:
@@ -685,9 +773,6 @@ SPECIAL_DOCS = [
      r"|kapitalmaßnahme|reverse split|zusammenlegung", "Kapitalmaßnahme", False, "error",
      "Kapitalmaßnahme (Split, Abspaltung, Umtausch …): verändert Bestand bzw. Anschaffungskosten.",
      "Unter „Transaktionen“ als Split (mit Verhältnis) oder Kapitalmaßnahme erfassen; steuerliche Folgen prüfen."),
-    (r"vorabpauschale", "Vorabpauschale (DE)", False, "info",
-     "Deutsche Vorabpauschale – für die österreichische Besteuerung nicht relevant.",
-     "Keine Buchung nötig. Für österreichische Fondserträge sind die OeKB-Meldungen maßgeblich."),
     (r"steuerkorrektur|steuerausgleich|steuerliche korrektur|nachträgliche steuer", "Steuerkorrektur", False, "warn",
      "Steuerkorrektur: ändert früher einbehaltene Steuern.",
      "Betroffene Buchung suchen und Steuerbeträge (Quellensteuer/KESt) manuell anpassen."),
@@ -703,6 +788,17 @@ def _run_checks(ex: Extraction, text: str) -> None:
     automatische Übernahme – das Dokument wird dann zur manuellen Prüfung vorgelegt."""
     t = text.lower()
     f = ex.fields
+    from .broker_documents import document_profile
+    profile = document_profile(text)
+    if profile and profile.policy != 'transaction':
+        ex.doc_type = profile.doc_type
+        ex.tx_type = None
+        ex.creates_transaction = False
+        severity = 'info' if profile.policy == 'info' else ('error' if profile.doc_type in ('Storno', 'Kapitalmaßnahme') else 'warn')
+        ex.check('Dokumentart', severity, profile.explanation, profile.action)
+        ex.missing = []
+        ex.complete = False
+        return
     # Sonderdokumente zuerst
     head = t[:600]  # Dokumentkopf: Titel/Betreff
     for rx, dtype, creates, result, detail, action in SPECIAL_DOCS:

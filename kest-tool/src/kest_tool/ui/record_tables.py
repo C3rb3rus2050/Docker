@@ -24,6 +24,38 @@ FUND_FIELDS = {'report_date': 'Meldedatum', 'isin': 'ISIN', 'fund_name': 'Fonds'
 NUMBERS = {'quantity', 'price', 'amount', 'fees', 'withholding_tax', 'kest_at_eur', 'fx_rate',
            'age_per_unit', 'taxable_distribution_per_unit', 'ak_correction_per_unit',
            'creditable_tax_per_unit', 'distribution_per_unit'}
+REVIEW_LABELS = {'ungeprueft': 'Ungeprüft', 'geprueft': 'Geprüft', 'pruefen': 'Zu prüfen', 'verworfen': 'Verworfen'}
+
+
+def filter_records(rows: list[dict], query: str, review: str, sort: str, kind: str) -> list[dict]:
+    words = query.casefold().split()
+    visible = [r for r in rows if all(word in ' '.join(str(r.get(k) or '') for k in
+        ('isin', 'security_name', 'fund_name', 'notes', 'depot_name', 'original_filename')).casefold() for word in words)]
+    if review == 'Offen':
+        visible = [r for r in visible if r.get('review_status') in ('pruefen', 'ungeprueft')]
+    elif review != 'Alle':
+        visible = [r for r in visible if REVIEW_LABELS.get(r.get('review_status')) == review]
+    date_key = 'trade_date' if kind == 'transaction' else 'report_date'
+    if sort == 'Wertpapier A–Z':
+        return sorted(visible, key=lambda r: (str(r.get('security_name') or r.get('fund_name') or '').casefold(), r['id']))
+    return sorted(visible, key=lambda r: (str(r.get(date_key) or ''), r['id']), reverse=sort != 'Älteste zuerst')
+
+
+def _page_rows(rows: list[dict], key: str) -> list[dict]:
+    if len(rows) <= 50:
+        return rows
+    pages = (len(rows) + 49) // 50
+    page_key = f'{key}_page_' + hashlib.sha256(json.dumps([r['id'] for r in rows]).encode()).hexdigest()[:10]
+    page = min(st.session_state.get(page_key, 1), pages)
+    previous, counter, following = st.columns([1, 3, 1])
+    if previous.button('← Zurück', key=f'{key}_prev', disabled=page == 1):
+        st.session_state[page_key] = page - 1
+        st.rerun()
+    counter.caption(f'Seite {page} von {pages} · 50 Einträge pro Seite')
+    if following.button('Weiter →', key=f'{key}_next', disabled=page == pages):
+        st.session_state[page_key] = page + 1
+        st.rerun()
+    return rows[(page - 1) * 50:page * 50]
 
 
 def grid_changes(rows: list[dict], edited: list[dict], kind: str) -> list[tuple[int, dict]]:
@@ -105,6 +137,18 @@ def record_grid(repo, rows: list[dict], kind: str, key: str) -> list[int]:
     if not rows:
         st.info('Keine Einträge im Filter.')
         return []
+    total = len(rows)
+    left, middle, right = st.columns([3, 2, 2])
+    query = left.text_input('Liste durchsuchen', placeholder='Name, ISIN, Depot oder Notiz', key=f'{key}_search')
+    review = middle.selectbox('Prüfstatus', ['Alle', 'Offen', 'Zu prüfen', 'Ungeprüft', 'Geprüft'] +
+                              (['Verworfen'] if kind == 'fund' else []), key=f'{key}_status')
+    sort = right.selectbox('Sortieren', ['Neueste zuerst', 'Älteste zuerst', 'Wertpapier A–Z'], key=f'{key}_sort')
+    rows = filter_records(rows, query, review, sort, kind)
+    st.caption(f'{len(rows)} von {total} Einträgen · Offen = ungeprüft oder zu prüfen')
+    if not rows:
+        st.info('Kein Treffer. Suche oder Prüfstatus oben anpassen.')
+        return []
+    rows = _page_rows(rows, key)
     fields = TX_FIELDS if kind == 'transaction' else FUND_FIELDS
     revision = hashlib.sha256(json.dumps(rows, default=str, sort_keys=True).encode()).hexdigest()[:12]
     table_key = f'{key}_{revision}'
@@ -131,7 +175,8 @@ def record_grid(repo, rows: list[dict], kind: str, key: str) -> list[int]:
         if field in fields:
             config[field] = st.column_config.DateColumn(fields[field], format='DD.MM.YYYY', required=True)
     statuses = ['ungeprueft', 'geprueft', 'pruefen'] if kind == 'transaction' else ['ungeprueft', 'geprueft', 'verworfen']
-    config['review_status'] = st.column_config.SelectboxColumn('Prüfstatus', options=statuses, required=True)
+    config['review_status'] = st.column_config.SelectboxColumn('Prüfstatus', options=statuses, required=True,
+                                                              format_func=lambda v: REVIEW_LABELS.get(v, v))
     if kind == 'transaction':
         from ..models import TxType
         config['tx_type'] = st.column_config.SelectboxColumn('Art', options=[t.value for t in TxType], required=True)
@@ -140,31 +185,37 @@ def record_grid(repo, rows: list[dict], kind: str, key: str) -> list[int]:
     disabled = ['ID', 'Beleg'] + (['isin', 'report_date', 'report_type', 'Aktiv'] if kind == 'fund' else
                                  ['Depot', 'Broker', 'Brutto EUR', 'Kursquelle'])
     more = st.checkbox('Weitere Spalten anzeigen', key=f'{key}_more')
-    core = ['Auswahl', 'ID'] + (['trade_date', 'security_name', 'isin', 'quantity', 'amount', 'currency', 'review_status', 'Beleg']
-                               if kind == 'transaction' else ['report_date', 'fund_name', 'isin', 'age_per_unit',
-                                                            'ak_correction_per_unit', 'currency', 'review_status', 'Beleg'])
-    edited = st.data_editor(frame, key=table_key, hide_index=True, width='stretch', height=380,
+    core = ['Auswahl'] + (['trade_date', 'tx_type', 'security_name', 'amount', 'currency', 'review_status']
+                         if kind == 'transaction' else ['report_date', 'fund_name', 'age_per_unit',
+                                                        'ak_correction_per_unit', 'currency', 'review_status'])
+    edited = st.data_editor(frame, key=table_key, hide_index=True, width='stretch', height=min(460, 40 + len(rows) * 35),
                             column_config=config, disabled=disabled, num_rows='fixed',
                             column_order=list(frame.columns) if more else core)
-    reason = st.text_input('Begründung für Tabellenänderungen', key=f'{key}_reason')
-    if st.button('Tabellenänderungen speichern', key=f'{key}_save', type='primary'):
-        try:
-            changes = grid_changes(rows, edited.to_dict('records'), kind)
-            if changes and not reason.strip():
-                raise ValueError('Bitte Änderungen kurz begründen')
-            for rid, values in changes:
-                if kind == 'transaction':
-                    repo.update_transaction(rid, values, reason)
-                else:
-                    repo.correct_fund_report(rid, values, reason)
-            if changes:
-                C.invalidate_results()
-                st.rerun()
-            st.info('Keine geänderten Werte.')
-        except ValueError as exc:
-            st.error(str(exc))
+    dirty = not frame.drop(columns='Auswahl').equals(edited.drop(columns='Auswahl'))
+    if dirty:
+        reason = st.text_input('Begründung für Tabellenänderungen', key=f'{key}_reason')
+        if st.button('Tabellenänderungen speichern', key=f'{key}_save', type='primary'):
+            try:
+                changes = grid_changes(rows, edited.to_dict('records'), kind)
+                if changes and not reason.strip():
+                    raise ValueError('Bitte Änderungen kurz begründen')
+                for rid, values in changes:
+                    if kind == 'transaction':
+                        repo.update_transaction(rid, values, reason)
+                    else:
+                        repo.correct_fund_report(rid, values, reason)
+                if changes:
+                    C.invalidate_results()
+                    st.rerun()
+                st.info('Keine geänderten Werte.')
+            except ValueError as exc:
+                st.error(str(exc))
     selected = [int(r['ID']) for r in edited.to_dict('records') if r['Auswahl']]
     st.caption(f'{len(selected)} Einträge ausgewählt · {len(rows)} Einträge im Filter')
+    if len(selected) == 1:
+        row = next(r for r in rows if r['id'] == selected[0])
+        st.info(f"Auswahl #{row['id']} · {row.get('isin') or 'ohne ISIN'} · "
+                f"{row.get('security_name') or row.get('fund_name') or ''}")
     documents = set()
     for row in rows:
         if row['id'] in selected:
@@ -185,16 +236,21 @@ def document_grid(repo, docs: list[dict], key: str) -> list[int]:
     if not docs:
         st.info('Keine Dokumente im Filter.')
         return []
+    docs = _page_rows(docs, key)
     rows = [{'Auswahl': False, 'ID': d['id'], 'Datei': d['original_filename'],
              **{k: d.get(k) for k in ('tax_year', 'source', 'doc_type', 'status', 'notes')}} for d in docs]
     revision = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()[:12]
-    edited = st.data_editor(pd.DataFrame(rows), key=f'{key}_{revision}', hide_index=True, width='stretch', height=330,
+    edited = st.data_editor(pd.DataFrame(rows), key=f'{key}_{revision}', hide_index=True, width='stretch', height=min(460, 40 + len(rows) * 35),
         disabled=['ID', 'Datei'], num_rows='fixed', column_config={
             'Auswahl': st.column_config.CheckboxColumn('✓', width='small', pinned=True),
             'tax_year': st.column_config.NumberColumn('Jahr', min_value=2000, max_value=2100, step=1),
-            'source': st.column_config.SelectboxColumn('Quelle', options=DOC_SOURCES, required=True),
+            'source': st.column_config.SelectboxColumn('Quelle', options=DOC_SOURCES, required=True,
+                        format_func=lambda v: {'TradeRepublic': 'Trade Republic', 'ScalableCapital': 'Scalable Capital',
+                                               'Unclassified': 'Nicht erkannt', 'Other': 'Sonstige'}.get(v, v)),
             'doc_type': st.column_config.SelectboxColumn('Dokumentart', options=DOC_TYPES, required=True),
-            'status': st.column_config.SelectboxColumn('Status', options=DOC_STATUS, required=True),
+            'status': st.column_config.SelectboxColumn('Status', options=DOC_STATUS, required=True,
+                        format_func=lambda v: {'neu': 'Neu', 'pruefen': 'Zu prüfen', 'verarbeitet': 'Erledigt',
+                                               'teilweise': 'Teilweise', 'fehlgeschlagen': 'Nicht lesbar', 'ignoriert': 'Ignoriert'}.get(v, v)),
             'notes': st.column_config.TextColumn('Notiz')})
     st.caption('Metadaten direkt bearbeiten und speichern. „Auswahl“ öffnet die Dokumentprüfung darunter.')
     if st.button('Dokumentänderungen speichern', key=f'{key}_save'):

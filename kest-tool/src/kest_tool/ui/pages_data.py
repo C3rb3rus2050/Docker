@@ -313,8 +313,7 @@ def transactions() -> None:
     if not deps:
         st.warning("Kein Depot vorhanden.")
         return
-    tab_new, tab_edit = st.tabs(["➕ Neue Buchung", "✏️ Vorhandene Buchung bearbeiten"])
-    with tab_new:
+    with st.expander("Buchung manuell hinzufügen", expanded=False):
         st.caption("Pflichtangaben: Depot, Buchungsart, Datum und je nach Buchungsart ISIN, Stückzahl oder Betrag. "
                    "Nicht benötigte Felder können leer bleiben. Alle Änderungen werden protokolliert.")
         with st.form("tx_new"):
@@ -365,9 +364,10 @@ def transactions() -> None:
                                        f"{[r['id'] for r in dup['exact'] + dup['possible']]}")
                     except ValidationError as exc:
                         C.form_error(exc)
-    with tab_edit:
+    with st.expander("Ausgewählte Buchung im Detail bearbeiten", expanded=bool(selected_transactions)):
+        rows = [r for r in rows if r['id'] in selected_transactions]
         if not rows:
-            st.info("Keine Buchungen im Filter.")
+            st.info("Oben eine Buchung über die Auswahlspalte markieren.")
             return
         if len(selected_transactions) == 1:
             st.session_state['tx_detail_selected'] = selected_transactions[0]
@@ -515,6 +515,9 @@ def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = 
             exd = None
         if exd:
             exd.setdefault("status_text", "")
+            if exd.get('components'):
+                st.markdown('**Getrennt erkannte Bestandteile dieser Abrechnung**')
+                C.df(exd['components'])
             if repo.transactions_for_document(did):
                 st.info("Dieses Dokument ist bereits mit einer Buchung verknüpft. "
                         "Eine weitere automatische Buchung wird hier nicht angeboten.")
@@ -644,48 +647,47 @@ def documents() -> None:
     c = C.ctx()
     repo = c.repo
     y = C.year_selector()
-    st.title("Dokumente")
+    st.title("Belege & Prüfung")
     if "last_process_results" in st.session_state:
         C.show_process_results(st.session_state.pop("last_process_results"))
+    all_docs = repo.documents()
     open_docs = _open_documents(repo)
-    tab_open, tab_all = st.tabs([f"🟡 Zu prüfen ({len(open_docs)})", "Alle Dokumente"])
-    with tab_open:
-        if not open_docs:
-            st.success("Alle Dokumente sind verarbeitet. 🎉 Neue Dokumente fügen Sie auf der Übersicht hinzu.")
-        else:
-            st.caption("Diese Dokumente konnten nicht automatisch gebucht werden. Wählen Sie eines aus: Der Prüfbericht "
-                       "zeigt, was fehlt oder nicht stimmt, und darunter können Sie die Werte ergänzen.")
-            pdf_ids = [d["id"] for d in open_docs if d["file_type"] == "pdf"]
-            if open_docs:
-                deps = C.depot_options()
-                cols = st.columns([2, 1])
-                dflt = cols[0].selectbox("Depot, falls nicht eindeutig", ["automatisch"] + list(deps),
-                                         key="doc_dflt_depot")
-                if cols[1].button("Alle erneut automatisch prüfen", help="Nach Ergänzungen (z. B. neues Depot) "
-                                  "Originale mit der aktuellen Erkennung und den konfigurierten EZB-/OCR-Optionen erneut auslesen"):
-                    from ..processing import process_tables
-                    results = C.process_documents(repo, pdf_ids, deps.get(dflt), reextract=True)
-                    tables = [(d, d['doc_type'] == 'OeKB-Fondsmeldung') for d in open_docs
-                              if d['file_type'] in ('csv', 'txt', 'xlsx')]
-                    results.extend(process_tables(repo, tables, **C.document_analysis_options()))
-                    C.after_processing(results)
-            selected = document_grid(repo, open_docs, 'open_document_grid')
-            if selected:
-                did = selected[0] if len(selected) == 1 else st.selectbox('Ausgewähltes Prüfdokument', selected,
-                        format_func=lambda did: repo.document(did)['original_filename'], key='open_doc_sel')
-                _document_detail(repo, repo.document(did), y, review_first=True, prefix='o_')
-    with tab_all:
-        cols = st.columns(5)
-        fy = cols[0].selectbox("Steuerjahr", ["alle"] + c.settings.tax_years,
-                               index=(c.settings.tax_years.index(y) + 1) if y in c.settings.tax_years else 0)
-        fs = cols[1].selectbox("Quelle/Broker", ["alle"] + DOC_SOURCES)
-        ft = cols[2].selectbox("Typ", ["alle"] + DOC_TYPES)
-        fst = cols[3].selectbox("Status", ["alle"] + DOC_STATUS, format_func=lambda v: DOC_STATUS_LABEL.get(v, v))
-        q = cols[4].text_input("Suche (Name/Hash)")
-        docs = repo.documents(None if fy == "alle" else int(fy), None if fs == "alle" else fs,
-                              None if ft == "alle" else ft, q or None, None if fst == "alle" else fst)
-        selected = document_grid(repo, docs, 'all_document_grid')
-        if selected:
-            did2 = selected[0] if len(selected) == 1 else st.selectbox('Ausgewähltes Dokument', selected,
-                        format_func=lambda did: repo.document(did)['original_filename'], key='all_doc_sel')
-            _document_detail(repo, repo.document(did2), y, review_first=False, prefix="a_")
+    counts = st.columns(3)
+    counts[0].metric('Belege gesamt', len(all_docs))
+    counts[1].metric('Offen / zu prüfen', len(open_docs))
+    counts[2].metric('Erledigt', sum(d['status'] in ('verarbeitet', 'ignoriert') for d in all_docs))
+    C.link('import', 'Weitere Dateien hinzufügen')
+    view = st.segmented_control('Ansicht', ['Zu prüfen', 'Alle Belege', 'Erledigt'],
+                default='Zu prüfen' if open_docs else 'Alle Belege', required=True, key='documents_view')
+    controls = st.columns([3, 1, 2, 2])
+    query = controls[0].text_input('Belege durchsuchen', placeholder='Dateiname, ISIN oder Notiz', key='documents_search')
+    years = sorted({int(d['tax_year']) for d in all_docs if d.get('tax_year')}, reverse=True)
+    fy = controls[1].selectbox('Jahr', ['alle'] + years, key='documents_year')
+    source = controls[2].selectbox('Broker / Quelle', ['alle'] + DOC_SOURCES, key='documents_source',
+                    format_func=lambda v: {'TradeRepublic': 'Trade Republic', 'ScalableCapital': 'Scalable Capital',
+                                          'Unclassified': 'Nicht erkannt', 'Other': 'Sonstige'}.get(v, v))
+    types = sorted({d['doc_type'] for d in all_docs})
+    dtype = controls[3].selectbox('Dokumentart', ['alle'] + types, key='documents_type')
+    docs = repo.documents(None if fy == 'alle' else int(fy), None if source == 'alle' else source,
+                           None if dtype == 'alle' else dtype, query.strip() or None)
+    if view == 'Zu prüfen':
+        docs = [d for d in docs if d['status'] in ('neu', 'pruefen', 'teilweise', 'fehlgeschlagen')]
+    elif view == 'Erledigt':
+        docs = [d for d in docs if d['status'] in ('verarbeitet', 'ignoriert')]
+    st.caption(f'{len(docs)} Belege in dieser Ansicht. Zeilen markieren, um Original und Prüfbericht zu öffnen.')
+    pending = [d for d in docs if d['status'] in ('neu', 'pruefen', 'teilweise', 'fehlgeschlagen')]
+    pdf_ids = [d['id'] for d in docs if d['file_type'] == 'pdf']
+    if (pdf_ids or pending) and st.button('Erkennung für diese Ansicht aktualisieren', key='documents_recheck',
+                            help='PDFs erneut lesen, offene Tabellen prüfen und Abweichungen zu vorhandenen Buchungen markieren.'):
+        from ..processing import process_tables
+        with st.spinner('Belege werden erneut gelesen …'):
+            results = C.process_documents(repo, pdf_ids, reextract=True)
+            results.extend(process_tables(repo, [(d, d['doc_type'] == 'OeKB-Fondsmeldung') for d in pending
+                        if d['file_type'] in ('csv', 'txt', 'xlsx')], **C.document_analysis_options()))
+        C.after_processing(results)
+    selected = document_grid(repo, docs, 'document_list')
+    if selected:
+        did = selected[0] if len(selected) == 1 else st.selectbox('Ausgewählten Beleg öffnen', selected,
+                    format_func=lambda did: repo.document(did)['original_filename'], key='document_detail_selected')
+        st.divider()
+        _document_detail(repo, repo.document(did), y, review_first=True, prefix='document_')

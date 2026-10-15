@@ -249,8 +249,8 @@ class Repository:
             sql += " AND d.status=?"
             params.append(status)
         if search:
-            sql += " AND (d.original_filename LIKE ? OR d.notes LIKE ? OR d.sha256 LIKE ?)"
-            params += [f"%{search}%"] * 3
+            sql += " AND (d.original_filename LIKE ? OR d.notes LIKE ? OR d.sha256 LIKE ? OR d.extraction_json LIKE ?)"
+            params += [f"%{search}%"] * 4
         return self.db.query(sql + " ORDER BY d.imported_at DESC, d.id DESC", tuple(params))
 
     def document_event(self, doc_id: int, event: str, details: Any = None) -> None:

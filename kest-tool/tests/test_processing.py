@@ -122,7 +122,7 @@ def test_corporate_action_and_info_documents():
     split = parse_text("Trade Republic\nAKTIENSPLIT\nApple Inc. ISIN: US0378331005\nVerhältnis 4:1\nDatum 31.08.2020")
     assert not split.creates_transaction and _check(split, "Dokumentart")["result"] == "error"
     info = parse_text("Kosteninformation (ex-ante)\nKauf Apple Inc. US0378331005 10 Stk. 150,00 EUR 1.500,00 EUR")
-    assert info.doc_type == "Informationsdokument" and not info.creates_transaction
+    assert info.doc_type == "Kosteninformation" and not info.creates_transaction
     vorab = parse_text("Vorabpauschale 2024\nIE00B4L5Y983\nDatum 02.01.2024")
     assert _check(vorab, "Dokumentart")["result"] == "info" and not vorab.creates_transaction
 
