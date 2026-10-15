@@ -75,13 +75,18 @@ def upload_box(y: int, key: str, expanded: bool = True) -> None:
             max_mb = int(c.settings.get("import.max_upload_mb", 50))
             for up in files:
                 data = up.getvalue()
-                if len(data) > max_mb * 1024 * 1024 and not up.name.lower().endswith(".zip"):
+                if len(data) > max_mb * 1024 * 1024:
                     problems.append((up.name, f"größer als {max_mb} MB"))
                     continue
                 try:
                     items += expand_upload(up.name, data)
                 except ValueError as exc:
                     problems.append((up.name, str(exc)))
+            if not items:
+                st.warning("Keine unterstützten Dateien zum Import gefunden.")
+                for filename, reason in problems:
+                    st.error(f"{filename}: {reason}")
+                st.stop()
             with st.spinner(f"{len(items)} Datei(en) werden abgelegt und geprüft …"):
                 res = store_uploads(c.repo, items, y, c.settings.get("pdf.engine", "auto"))
                 results = process_documents(c.repo, res.pdf_ids, deps.get(dflt)) if res.pdf_ids else []
