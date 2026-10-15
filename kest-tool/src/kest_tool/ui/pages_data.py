@@ -441,6 +441,7 @@ def _open_documents(repo) -> list[dict]:
 
 def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = "") -> None:
     from ..importers.pdf_importer import PdfError, extract_pdf
+    from ..processing import extraction_for
     from .pages_import import pdf_review_form
 
     did = doc["id"]
@@ -457,15 +458,30 @@ def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = 
             repo.document_event(did, "manuell erledigt")
             st.rerun()
     if doc["file_type"] == "pdf":
+        if st.button("PDF-Analyse aktualisieren", key=f"{prefix}refresh_{did}",
+                     help="Liest das Original erneut aus. Bestehende Buchungen bleiben unverändert."):
+            try:
+                updated = extract_pdf(path.read_bytes()).to_dict()
+                repo.update_document(did, extraction_json=json.dumps(updated, ensure_ascii=False, default=str))
+                doc = repo.document(did)
+                st.success("PDF wurde erneut analysiert. Der Prüfbericht wurde aktualisiert.")
+            except (PdfError, OSError, ValueError) as exc:
+                st.error(f"Erneute Analyse fehlgeschlagen: {exc}. Die bisherige Analyse bleibt erhalten.")
         try:
-            exd = extract_pdf(path.read_bytes()).to_dict()  # immer aktuell auslesen
-        except (PdfError, OSError) as exc:
-            st.error(f"Die Datei kann nicht gelesen werden ({exc}). Werte bitte manuell unter **Transaktionen** "
-                     "erfassen und das Dokument danach hier als erledigt markieren.")
+            exd = extraction_for(repo, doc)
+        except (PdfError, OSError, ValueError) as exc:
+            st.error(f"Die Datei kann nicht gelesen werden ({exc}). Werte bei Bedarf manuell unter "
+                     "**Transaktionen** erfassen.")
             exd = None
         if exd:
             exd.setdefault("status_text", "")
-            if review_first:
+            if repo.transactions_for_document(did):
+                st.info("Dieses Dokument ist bereits mit einer Buchung verknüpft. "
+                        "Eine weitere automatische Buchung wird hier nicht angeboten.")
+                from .guide import show_check_report
+                if exd.get("checks"):
+                    show_check_report(exd["checks"])
+            elif review_first:
                 pdf_review_form(doc, exd, None, key=f"{prefix}doc{did}")
             else:
                 with st.expander("Prüfbericht und Buchung anlegen"):
@@ -481,10 +497,12 @@ def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = 
             st.caption("Ändert nur Ablageort und Metadaten – der Dateiinhalt bleibt unverändert.")
             cols = st.columns(4)
             ny = cols[0].number_input("Steuerjahr", 2000, 2100, value=int(doc["tax_year"] or y))
-            ns = cols[1].selectbox("Quelle", DOC_SOURCES, index=DOC_SOURCES.index(doc["source"]))
+            ns = cols[1].selectbox("Quelle", DOC_SOURCES, index=DOC_SOURCES.index(doc["source"])
+                                   if doc["source"] in DOC_SOURCES else 0)
             nt = cols[2].selectbox("Typ", DOC_TYPES, index=DOC_TYPES.index(doc["doc_type"]) if doc["doc_type"]
                                    in DOC_TYPES else DOC_TYPES.index("Unbekannt"))
-            nst = cols[3].selectbox("Status", DOC_STATUS, index=DOC_STATUS.index(doc["status"]),
+            nst = cols[3].selectbox("Status", DOC_STATUS, index=DOC_STATUS.index(doc["status"])
+                                     if doc["status"] in DOC_STATUS else 0,
                                     format_func=lambda v: DOC_STATUS_LABEL.get(v, v))
             notes = st.text_input("Notiz", doc["notes"] or "")
             if st.form_submit_button("Speichern"):
@@ -517,12 +535,25 @@ def _bulk_document_editor(repo, docs: list[dict], key: str) -> None:
     """Edit document metadata in bulk; never create tax transactions implicitly."""
     if not docs:
         return
-    labels = {d["id"]: f"{d['original_filename']} (#{d['id']})" for d in docs}
-    with st.expander("Mehrere Dokumente markieren und gemeinsam bearbeiten", expanded=False):
-        selected = st.multiselect(
-            "Dokumente auswählen", list(labels), format_func=lambda i: labels[i],
-            key=f"{key}_selected", placeholder="Dokumente markieren …")
-        st.caption(f"{len(selected)} von {len(docs)} Dokumenten ausgewählt. Nur aktivierte Felder werden geändert.")
+    with st.expander("Dokumente markieren und gemeinsam bearbeiten", expanded=False):
+        table = pd.DataFrame([
+            {"Markieren": False, "Datei": d["original_filename"], "Typ": d["doc_type"],
+             "Status": DOC_STATUS_LABEL.get(d["status"], d["status"]),
+             "Jahr": d["tax_year"], "ID": d["id"]}
+            for d in docs
+        ])
+        edited = st.data_editor(
+            table, key=f"{key}_selection_table", hide_index=True, height=330,
+            disabled=["Datei", "Typ", "Status", "Jahr", "ID"],
+            column_config={"Markieren": st.column_config.CheckboxColumn("✓", help="Dokument auswählen"),
+                           "ID": st.column_config.NumberColumn("ID", width="small")},
+            use_container_width=True,
+        )
+        allowed_ids = {d["id"] for d in docs}
+        selected = [int(row["ID"]) for row in edited.to_dict("records")
+                    if row["Markieren"] and row["ID"] in allowed_ids]
+        st.caption(f"{len(selected)} von {len(docs)} Dokumenten markiert. "
+                   "Nur aktivierte Felder werden geändert.")
         if not selected:
             return
         with st.form(f"{key}_bulk_form"):
@@ -593,7 +624,8 @@ def documents() -> None:
                     from ..processing import process_documents
                     C.after_processing(process_documents(repo, pdf_ids, deps.get(dflt)))
             _bulk_document_editor(repo, open_docs, "open_docs")
-            did = st.radio("Dokument", [d["id"] for d in open_docs], key="open_doc_sel",
+            did = st.selectbox("Dokument zur Einzelprüfung öffnen", [d["id"] for d in open_docs],
+                               key="open_doc_sel",
                            format_func=lambda i: next(
                                f"{DOC_STATUS_LABEL.get(d['status'], d['status'])} · {d['original_filename']} "
                                f"({d['doc_type']}, {d['tax_year'] or 'ohne Jahr'})" for d in open_docs if d["id"] == i))
