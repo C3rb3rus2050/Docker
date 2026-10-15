@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from .text_patterns import normalize_document_text
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,7 @@ class DocumentProfile:
 
 
 def document_profile(text: str) -> DocumentProfile | None:
+    text = normalize_document_text(text)
     # Public extractor fixtures prepend version metadata; real PDFs have addresses.
     flags = re.I | re.M
     header = re.split(r'(?im)^\s*(?:ÜBERSICHT|OVERVIEW|BUCHUNGEN|ABRECHNUNG|'
@@ -49,9 +51,9 @@ def document_profile(text: str) -> DocumentProfile | None:
         return DocumentProfile('Kontoauszug', 'info',
             'Kontoübersicht; Nettobewegungen werden nicht als zusätzliche Bruttobuchungen übernommen.',
             'Für Wertpapiererträge die zugehörigen Einzelabrechnungen verwenden.')
-    if heading(r'Depotauszug.*|Depotübersicht.*|Vermögensübersicht.*|Securities statement.*|Portfolio statement.*'):
+    if heading(r'(?:Jahres)?Depotauszug.*|Depotübersicht.*|Vermögensübersicht.*|Securities statement.*|Portfolio statement.*'):
         return DocumentProfile('Depotauszug', 'info', 'Bestandsübersicht ohne Kaufhistorie und Anschaffungskosten.')
-    if heading(r'.*Vorabpauschale.*|Preliminary lump sum.*|Advance tax.*'):
+    if heading(r'.*Vorabpauschale.*|Preliminary lump sum.*|Advance lump sum.*|Advance tax.*'):
         return DocumentProfile('Vorabpauschale (DE)', 'info',
                                'Deutsche Vorabpauschale als separater Beleg erkannt; keine österreichische Ertragsbuchung.')
     if heading(r'Steuer(?:abrechnung|optimierung|korrektur|neuberechnung|ausgleichsrechnung|erstattung).*|Steuerliche Optimierung.*|'
@@ -75,6 +77,17 @@ def document_profile(text: str) -> DocumentProfile | None:
         return DocumentProfile('Kryptoabrechnung', 'review',
             'Kryptogeschäft erkannt; nicht als Wertpapiergeschäft mit erfundener ISIN übernehmen.',
             'Kryptoabrechnung gesondert prüfen.')
+    if heading(r'Abrechnung über den (?:Kauf|Verkauf) von Kryptowerten'):
+        return DocumentProfile('Kryptoabrechnung', 'review', 'Abrechnung über Kryptowerte erkannt.',
+                               'Kryptowerte gesondert prüfen; keine Wertpapierbuchung anlegen.')
+    if heading(r'Ertragsthesaurierung|Wahldividende|Ausschüttung / Ausschüttungsgleicher Ertrag'):
+        return DocumentProfile('Ertragsabrechnung', 'review',
+            'Thesaurierung, Wahlrecht oder steuerliche Sammelkorrektur; keine bestätigte Barausschüttung.',
+            'Zahlungsfluss, Wahlrecht und Fonds-Steuermeldung vergleichen.')
+    if heading(r'Zinsberechnung: Betrag in [A-Z]{3}|Calculation of Interest: Amount in [A-Z]{3}') and not heading(
+            r'Rechnungsabschluss.*|Statement of interest and charges.*'):
+        return DocumentProfile('Zinsabrechnung', 'review', 'Zinsberechnung kann Guthaben- oder Überziehungszinsen enthalten.',
+                               'Vorzeichen, Zinsart und Abschlussbuchung prüfen.')
     interest = heading(r'ABRECHNUNG(?:\s*[-–])? ZINSEN|ZINSABRECHNUNG|ZINSZAHLUNG|INTEREST INVOICE|INTEREST STATEMENT')
     closing = heading(r'Rechnungsabschluss.*|Statement of interest and charges.*')
     if interest and re.search(r'(?im)^(?:ABRECHNUNG\s*[-–]\s*DIVIDENDE|Geldmarkt\s+Dividende)', text):
@@ -87,7 +100,7 @@ def document_profile(text: str) -> DocumentProfile | None:
         return DocumentProfile('Kontoauszug', 'info', 'Rechnungsabschluss ohne eindeutig ausgewiesene Guthabenzinsen.')
     if heading(r'ABRECHNUNG EINZAHLUNG|ÜBERWEISUNGSDETAILS|TRANSFER DETAILS|PAYMENT CONFIRMATION'):
         return DocumentProfile('Zahlungsbeleg', 'info', 'Einzahlung oder Überweisung; kein steuerlicher Wertpapierertrag.')
-    if heading(r'Rechnung(?:\s+Nr.*)?|FACTURE.*|KARTENABRECHNUNG|CARD INVOICE'):
+    if heading(r'Rechnung(?:\s+Nr.*)?|Vergütung des Vermögensverwalters|FACTURE.*|KARTENABRECHNUNG|CARD INVOICE|PAIEMENTS PAR CARTE TRADE REPUBLIC'):
         return DocumentProfile('Gebührenabrechnung', 'review', 'Gebühren- oder Kartenrechnung erkannt.',
                                'Tatsächliche Belastung und steuerliche Zuordnung vor der Übernahme prüfen.')
     if heading(r"NOTE DE CONTRAT|NOTA CONTRATTUALE|TRANSACTIEBEVESTIGING|CONFIRMATION DE.*|"

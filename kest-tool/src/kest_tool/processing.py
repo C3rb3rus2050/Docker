@@ -206,7 +206,7 @@ def process_documents(repo: Repository, doc_ids: list[int] | None = None, defaul
                     continue
                 msg, action = _problems(ex) if any(c["result"] in ("error", "warn") for c in ex.get("checks", [])) \
                     else (f"{ex.get('doc_type')}: keine Einzelbuchung", "")
-                if ex.get("doc_type") in INFO_ONLY:
+                if ex.get("doc_type") in INFO_ONLY and ex.get('classification', {}).get('confidence', 1) >= .8:
                     repo.update_document(doc["id"], status="verarbeitet", doc_type=ex.get("doc_type"))
                     info = next((c for c in ex.get("checks", []) if c["name"] == "Dokumentart"), {})
                     results.append(ProcessResult(doc["id"], name, "beleg", info.get("detail") or msg,

@@ -39,3 +39,21 @@ Die Listen bieten Textsuche, Prüfstatus, Sortierung, Auswahl und direkte Bearbe
 - [Scalable Österreich: Steuerleicht](https://at.scalable.capital/steuerleicht)
 
 Dokumentart und deutsche Steuerbegriffe bestimmen nicht automatisch die österreichische Steuerbehandlung. Individuelle Broker-Abrechnungen sind nicht durch öffentliche Muster oder Internetdaten ersetzbar.
+
+## Ergänzung: Textbausteine und beschädigte Überschriften
+
+Die Erkennung berücksichtigt zusätzlich bedingte Trennstriche, unsichtbare Zeichen, bekannte über zwei Zeilen getrennte Überschriften und vollständig mit Buchstabenabständen geschriebene Titel. Zahlen und ISINs werden dabei nicht umformatiert.
+
+Fehlt eine eindeutige Überschrift, werden unabhängige Inhaltsmerkmale kombiniert: etwa Anfangs- und Endsaldo, Bescheinigung nach § 45a plus Kapitalertragssumme, Depotbestand plus ISIN-Bewertungstabelle, Produktkosten plus Kostenvorschau oder berechtigtes Wertpapier plus Ex-/Zahltagsangaben. Auch explizite Ausführungssätze zusammen mit Kurswerten und Zinszeitraum zusammen mit Bruttozinsen unterstützen eine vorläufige Einordnung. Ein einzelnes Stichwort reicht für diese Rückfallebene nicht aus. Mehrere widersprechende Familien ergeben eine prüfpflichtige Sammelabrechnung.
+
+Eine anhand solcher Inhaltsmerkmale erschlossene Familie wird nicht automatisch als abschließend verarbeitet oder gebucht. Der Prüfbericht und die Belegdetails zeigen die gefundenen Textstellen und die Methode. Eine klare vorhandene Abrechnungsüberschrift hat Vorrang vor diesen Inhaltsmerkmalen.
+
+Weitere bekannte Titel umfassen Advance Lump Sum, Jahresdepotauszug, Ertragsthesaurierung, Wahldividende, Vergütung des Vermögensverwalters und Abrechnung über den Kauf von Kryptowerten. Thesaurierung, Wahlrechte und die Trade-Republic-Überschrift „Ausschüttung / Ausschüttungsgleicher Ertrag“ werden zur gesonderten Prüfung eingeordnet.
+
+Der Abgleich nutzt zusätzlich die öffentlichen Implementierungen der Musterfamilien im selben fixierten Portfolio-Performance-Commit:
+
+- [TradeRepublicPDFExtractor.java](https://github.com/portfolio-performance/portfolio/blob/c54f42fcbe22eb6d308d57190920ea4d4c36a09e/name.abuchen.portfolio/src/name/abuchen/portfolio/datatransfer/pdf/TradeRepublicPDFExtractor.java)
+- [ScalableCapitalPDFExtractor.java](https://github.com/portfolio-performance/portfolio/blob/c54f42fcbe22eb6d308d57190920ea4d4c36a09e/name.abuchen.portfolio/src/name/abuchen/portfolio/datatransfer/pdf/ScalableCapitalPDFExtractor.java)
+- [BaaderBankPDFExtractor.java](https://github.com/portfolio-performance/portfolio/blob/c54f42fcbe22eb6d308d57190920ea4d4c36a09e/name.abuchen.portfolio/src/name/abuchen/portfolio/datatransfer/pdf/BaaderBankPDFExtractor.java)
+
+Diese Quellen dienen dem Layoutabgleich; ihre deutschen Buchungs- oder Steuerannahmen werden nicht automatisch übernommen. Die lokalen Testfälle bleiben synthetisch.

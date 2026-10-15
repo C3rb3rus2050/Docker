@@ -515,6 +515,15 @@ def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = 
             exd = None
         if exd:
             exd.setdefault("status_text", "")
+            classification = exd.get('classification', {})
+            if classification:
+                st.caption(f"Einordnung: {classification.get('doc_type', 'Unbekannt')} · "
+                           f"Methode: {classification.get('method', '')}")
+                with st.expander('Erkannte Textmuster zur Einordnung'):
+                    for evidence in classification.get('evidence', []):
+                        st.text(evidence)
+                    if classification.get('confidence', 0) < .8:
+                        st.info('Vorläufige Zuordnung. Dokumentart und Original vergleichen.')
             if exd.get('components'):
                 st.markdown('**Getrennt erkannte Bestandteile dieser Abrechnung**')
                 C.df(exd['components'])
