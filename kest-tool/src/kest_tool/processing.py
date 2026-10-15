@@ -267,13 +267,18 @@ def expand_upload(name: str, data: bytes) -> list[tuple[str, bytes]]:
             if len(infos) > MAX_ZIP_FILES:
                 raise ValueError(f"ZIP enthält zu viele Dateien ({len(infos)})")
             for info in infos:
+                if info.flag_bits & 0x1:
+                    raise ValueError("Passwortgeschützte ZIP-Dateien werden nicht unterstützt")
                 base = PurePosixPath(info.filename.replace("\\", "/")).name
                 if not base.lower().endswith((".pdf", ".csv", ".xlsx")) or base.startswith("."):
                     continue
                 total += info.file_size
                 if total > MAX_ZIP_TOTAL:
                     raise ValueError("ZIP-Inhalt ist zu groß")
-                out.append((base, zf.read(info)))
+                try:
+                    out.append((base, zf.read(info)))
+                except (RuntimeError, zipfile.BadZipFile) as exc:
+                    raise ValueError("ZIP-Datei enthält beschädigte oder nicht lesbare Einträge") from exc
     except zipfile.BadZipFile as exc:
         raise ValueError(f"„{name}“ ist kein gültiges ZIP-Archiv") from exc
     return out
@@ -300,7 +305,8 @@ def store_uploads(repo: Repository, files: list[tuple[str, bytes]], fallback_yea
                     continue
                 doc, _, new = store_pdf(repo, data, name, fallback_year, "upload", engine=engine)
                 res.duplicates += int(not new)
-                res.pdf_ids.append(doc["id"])
+                if new:
+                    res.pdf_ids.append(doc["id"])
             elif low.endswith((".csv", ".txt", ".xlsx")):
                 head = data[:4000].decode("utf-8", errors="ignore").lower()
                 is_oekb = "isin" in head and ("meldedatum" in head or "ausschüttungsgleich" in head)
@@ -308,7 +314,8 @@ def store_uploads(repo: Repository, files: list[tuple[str, bytes]], fallback_yea
                                              "Transaktionsexport (CSV)", source="OeKB" if is_oekb else "Unclassified",
                                              tax_year=fallback_year, import_method="upload", status="pruefen")
                 res.duplicates += int(not new)
-                res.csv_docs.append((doc, is_oekb))
+                if new:
+                    res.csv_docs.append((doc, is_oekb))
             else:
                 res.skipped.append((name, "Dateityp wird nicht unterstützt (erlaubt: PDF, ZIP, CSV, XLSX)"))
         except PdfError as exc:
