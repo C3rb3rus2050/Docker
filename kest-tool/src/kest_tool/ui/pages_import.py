@@ -221,7 +221,8 @@ def pdf_review_form(doc: dict, extraction: dict, depot_id: int | None, key: str)
 
     def conf(name):
         fld = f.get(name)
-        return f" (Konfidenz {fld['confidence']:.0%})" if fld else " (nicht gefunden)"
+        confidence = fld.get("confidence") if isinstance(fld, dict) else None
+        return f" (Konfidenz {confidence:.0%})" if isinstance(confidence, (int, float)) else " (nicht gefunden)"
 
     broker = {"TradeRepublic": "Trade Republic", "ScalableCapital": "Scalable Capital", "OeKB": "OeKB"}.get(
         extraction.get("broker"), "nicht erkannt")
@@ -242,6 +243,10 @@ def pdf_review_form(doc: dict, extraction: dict, depot_id: int | None, key: str)
     st.caption("Felder mit Konfidenz unter 80 % bzw. „nicht gefunden“ bitte mit dem Original vergleichen. Erst mit "
                "„Als Buchung übernehmen“ wird gebucht.")
     deps = C.depot_options()
+    if not deps:
+        st.warning("Noch kein Depot vorhanden. Legen Sie zuerst ein Depot an, um eine Buchung zu übernehmen.")
+        C.link("depots", "Broker und Depots verwalten")
+        return
     with st.form(f"pdfform_{key}"):
         dl = list(deps)
         di = list(deps.values()).index(depot_id) if depot_id in deps.values() else 0
@@ -320,45 +325,58 @@ def _store_pdf(data: bytes, name: str, y: int, depot_id: int | None, method: str
 
 
 def _pdf_import(y: int, deps: dict) -> None:
+    """Import only after a deliberate click; rerendering the page never reimports PDFs."""
+    from ..processing import extraction_for
+
     repo = C.ctx().repo
-    depot_label = st.selectbox("Depot (falls nicht eindeutig über den Broker bestimmbar)", list(deps), key="pdf_depot")
+    depot_label = st.selectbox("Depot (falls nicht eindeutig über den Broker bestimmbar)",
+                               ["automatisch"] + list(deps), key="pdf_depot")
+    default_depot = deps.get(depot_label)
     auto = st.checkbox("Vollständig erkannte Abrechnungen automatisch als Buchung übernehmen", value=True,
-                       help="Nur Dokumente, bei denen alle Pflichtwerte sicher erkannt wurden. Alle anderen erscheinen "
-                            "unten zur manuellen Prüfung.")
+                       help="Nur Dokumente ohne Widersprüche. Dublettenverdacht wird zur Prüfung zurückgestellt.")
     ups = st.file_uploader("PDF-Abrechnungen", type=["pdf"], accept_multiple_files=True, key="pdf_up")
     st.caption("Die Texterkennung läuft lokal (pdfplumber/PyMuPDF). Gescannte PDFs ohne Textebene können nicht "
                "ausgelesen werden – Werte dann manuell eintragen. Keine Übertragung an externe Dienste.")
-    stored = []
-    for up in ups or []:
-        data = up.getvalue()
-        err = _check_upload(up.name, data)
-        if err:
-            st.error(f"{up.name}: {err}")
+
+    if ups and st.button(f"{len(ups)} PDF(s) importieren und prüfen", type="primary",
+                         key="pdf_import_confirm"):
+        ids, errors = [], []
+        for up in ups:
+            data = up.getvalue()
+            err = _check_upload(up.name, data)
+            if err:
+                errors.append((up.name, err))
+                continue
+            try:
+                doc, _, _ = _store_pdf(data, up.name, y, default_depot, "pdf-upload")
+                ids.append(doc["id"])
+            except (PdfError, OSError, ValueError) as exc:
+                errors.append((up.name, str(exc)))
+        st.session_state["pdf_import_ids"] = list(dict.fromkeys(ids))
+        st.session_state["pdf_import_errors"] = errors
+        st.session_state["pdf_import_results"] = (
+            process_documents(repo, ids, default_depot) if auto and ids else []
+        )
+        if auto and ids:
+            C.invalidate_results()
+
+    for name, error in st.session_state.get("pdf_import_errors", []):
+        st.error(f"„{name}“: {error}")
+    results = st.session_state.get("pdf_import_results", [])
+    if results:
+        C.show_process_results(results)
+    ids = st.session_state.get("pdf_import_ids", [])
+    for did in ids:
+        doc = repo.document(did)
+        if not doc or repo.transactions_for_document(did):
             continue
         try:
-            doc, exd, new = _store_pdf(data, up.name, y, deps[depot_label], "pdf-upload")
-        except PdfError:
+            exd = extraction_for(repo, doc)
+        except (PdfError, OSError, ValueError) as exc:
+            st.error(f"PDF „{doc['original_filename']}“ konnte nicht analysiert werden: {exc}")
             continue
-        stored.append((doc, exd, new))
-    if not stored:
-        return
-    done = st.session_state.setdefault("pdf_processed", {})
-    if auto:
-        todo = [d["id"] for d, _, _ in stored if d["id"] not in done]
-        if todo:
-            for r in process_documents(
-                    repo, todo, deps[depot_label]):
-                done[r.document_id] = r
-        C.show_process_results([done[d["id"]] for d, _, _ in stored if d["id"] in done])
-        C.auto_fill_fx()
-    for doc, exd, new in stored:
-        doc = repo.document(doc["id"])
-        if repo.transactions_for_document(doc["id"]):
-            continue
-        if doc.get("extraction_json"):
-            exd = json.loads(doc["extraction_json"])
         st.subheader(f"Prüfen: {doc['original_filename']}")
-        pdf_review_form(doc, exd, deps[depot_label], key=doc["sha256"][:12])
+        pdf_review_form(doc, exd, default_depot, key=doc["sha256"][:12])
 
 
 def _doc_only_import(y: int) -> None:
