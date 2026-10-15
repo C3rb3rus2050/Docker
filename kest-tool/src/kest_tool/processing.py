@@ -256,7 +256,8 @@ def data_status(repo: Repository, year: int) -> dict:
     docs_open = repo.db.query(
         "SELECT d.* FROM documents d WHERE d.status IN ('neu','pruefen','teilweise','fehlgeschlagen') "
         "AND NOT EXISTS (SELECT 1 FROM transactions t WHERE t.document_id=d.id AND t.deleted=0) "
-        "AND NOT EXISTS (SELECT 1 FROM document_links l WHERE l.document_id=d.id)")
+        "AND NOT EXISTS (SELECT 1 FROM document_links l JOIN transactions lt ON lt.id=l.transaction_id "
+        "WHERE l.document_id=d.id AND lt.deleted=0)")
     return {
         "depots": len(repo.depots(active_only=True)),
         "tx_by_year": {int(r["y"]): r["n"] for r in years},
