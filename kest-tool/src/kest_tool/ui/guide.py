@@ -73,13 +73,20 @@ def upload_box(y: int, key: str, expanded: bool = True) -> None:
                                use_container_width=True, key=f"upl_go_{key}"):
             items, problems = [], []
             max_mb = int(c.settings.get("import.max_upload_mb", 50))
+            batch_bytes = 0
             for up in files:
                 data = up.getvalue()
                 if len(data) > max_mb * 1024 * 1024:
                     problems.append((up.name, f"größer als {max_mb} MB"))
                     continue
                 try:
-                    items += expand_upload(up.name, data)
+                    expanded = expand_upload(up.name, data)
+                    expanded_size = sum(len(payload) for _, payload in expanded)
+                    if len(items) + len(expanded) > 2000 or batch_bytes + expanded_size > 500 * 1024 * 1024:
+                        problems.append((up.name, "Gesamter Upload zu groß (max. 2.000 Dateien / 500 MB entpackt)"))
+                        continue
+                    items.extend(expanded)
+                    batch_bytes += expanded_size
                 except ValueError as exc:
                     problems.append((up.name, str(exc)))
             if not items:
