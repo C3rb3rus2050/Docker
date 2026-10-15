@@ -11,6 +11,13 @@ mehrerer Depots (Trade Republic, Scalable Capital, weitere Broker), berechnet si
 
 PDFs, ZIP-Archive, CSV- und Excel-Dateien werden manuell heruntergeladen und direkt im Browser über **Dokumente hinzufügen** oder **Import** eingelesen. Ein automatischer Broker-Download ist nicht Bestandteil des Projekts.
 
+Der gemeinsame Upload startet direkt nach dem Hinzufügen der Dateien. Importtyp, erkannte Spalten und
+eindeutige Broker/Depots werden automatisch zugeordnet. CSV-Vorspann, wiederholte Tabellenabschnitte,
+mehrere Excel-Blätter und OeKB-Tabellen werden berücksichtigt. Eindeutige Bruttobuchungen werden übernommen;
+unklare Brutto-/Nettobeträge, fehlende Währungen, beschädigte Tabellen und mehrdeutige Depotzuordnungen bleiben
+mit Begründung zur Prüfung erhalten. Bereits vorhandene offene Tabellen können erneut hochgeladen werden;
+erkannte Dubletten werden nicht erneut gebucht. Manuelle Sonderimporte sind optional eingeklappt.
+
 ---
 
 ## Inhalt

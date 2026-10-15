@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+
 import streamlit as st
 
-from ..processing import expand_upload, store_uploads
+from ..processing import expand_upload, store_uploads, process_tables
 from . import common as C
 
 RESULT_ICON = {"ok": "✅", "info": "ℹ️", "warn": "⚠️", "error": "❌"}
@@ -17,8 +19,8 @@ def quickstart() -> bool:
         return False
     with st.container(border=True):
         st.subheader("👋 Schnellstart")
-        st.markdown("**Schritt 1 – Broker auswählen.** Für jeden gewählten Broker wird ein Depot angelegt. "
-                    "Tipp: Laden Sie einfach Abrechnungen hoch – erkannte Broker werden dann automatisch angelegt.")
+        st.markdown("**Einfach unten Dateien hochladen.** Erkannte Broker und eindeutige Depots werden "
+                    "automatisch angelegt. Die manuelle Einrichtung hier ist optional.")
         with st.form("quickstart"):
             cols = st.columns(3)
             tr = cols[0].checkbox("Trade Republic", value=True)
@@ -38,7 +40,7 @@ def quickstart() -> bool:
                     st.rerun()
                 else:
                     st.warning("Bitte mindestens einen Broker auswählen oder einen Namen eingeben.")
-        st.markdown("**Schritt 2 – Dokumente hochladen** (unten). **Schritt 3 – Status prüfen** und Excel exportieren.")
+        st.markdown("Nach dem automatischen Import den Status prüfen und Excel exportieren.")
     return True
 
 
@@ -46,35 +48,26 @@ def upload_box(y: int, key: str, expanded: bool = True) -> None:
     """Drag-and-drop für mehrere PDFs, ZIP-Archive und CSV/Excel-Dateien."""
     c = C.ctx()
     with st.expander("📥 Dokumente per Drag & Drop importieren", expanded=expanded):
-        st.caption("PDF-Abrechnungen werden gelesen, geprüft und – wenn alle Werte sicher erkannt und stimmig sind – "
-                   "automatisch als Buchung übernommen. Alles andere erscheint mit Grund und „Was tun?“ zur Prüfung. "
+        st.caption("Dateien werden nach dem Hochladen automatisch erkannt, zugeordnet und geprüft. Sichere PDF- und Tabellenwerte werden "
+                   "als Buchungen übernommen. Unklare Angaben erscheinen mit einem konkreten Grund zur Prüfung. "
                    "ZIP-Archive aus Ihren eigenen Downloads werden entpackt. Fehlende oder widersprüchliche Angaben bleiben zur manuellen Prüfung offen.")
-        mode = st.selectbox("Upload-Art auswählen",
-                            ["Einzeldateien / ZIP", "Kompletten Ordner"],
-                            key=f"upl_mode_{key}",
-                            help="Wählen Sie einzelne Dateien bzw. ZIP-Archive oder einen ganzen Ordner.")
-        folder_mode = mode == "Kompletten Ordner"
-        if folder_mode:
-            st.caption("Ordner dürfen Unterordner und ZIP-Dateien enthalten. Alle unterstützten Dateien werden "
-                       "gemeinsam verarbeitet; nicht unterstützte Dateien werden übersprungen.")
         files = st.file_uploader(
-            "Ordner auswählen" if folder_mode else "PDFs, ZIP-Archive oder Tabellen hierher ziehen",
+            "PDFs, ZIP-Archive und Tabellen gemeinsam hierher ziehen",
             type=["pdf", "zip", "csv", "txt", "xlsx"],
-            accept_multiple_files="directory" if folder_mode else True,
-            key=f"upl_{key}_{mode}")
-        deps = C.depot_options()
-        dflt = st.selectbox("Depot, falls es nicht automatisch erkannt wird", ["automatisch"] + list(deps),
-                            key=f"upl_depot_{key}",
-                            help="Trade Republic und Scalable Capital werden aus dem Dokument erkannt. Bei mehreren "
-                                 "Depots desselben Brokers hier das richtige wählen.")
-        if files:
-            st.caption(f"{len(files)} ausgewählte Datei(en) – die Originale bleiben erhalten; Dubletten werden erkannt.")
-        if files and st.button(f"{len(files)} Datei(en) importieren und prüfen", type="primary",
-                               use_container_width=True, key=f"upl_go_{key}"):
+            accept_multiple_files=True, key=f"upl_auto_{key}")
+        with st.expander("Ganzen Ordner hochladen (optional)"):
+            folder = st.file_uploader("Ordner", type=["pdf", "zip", "csv", "txt", "xlsx"],
+                                      accept_multiple_files="directory", key=f"upl_folder_{key}")
+        files = (files or []) + (folder or [])
+        seen = st.session_state.setdefault(f"upl_seen_{key}", set())
+        fresh = [(up, hashlib.sha256(up.getvalue()).hexdigest()) for up in files]
+        fresh = [(up, digest) for up, digest in fresh if digest not in seen]
+        if fresh:
             items, problems = [], []
             max_mb = int(c.settings.get("import.max_upload_mb", 50))
             batch_bytes = 0
-            for up in files:
+            for up, digest in fresh:
+                seen.add(digest)
                 data = up.getvalue()
                 if len(data) > max_mb * 1024 * 1024:
                     problems.append((up.name, f"größer als {max_mb} MB"))
@@ -96,10 +89,10 @@ def upload_box(y: int, key: str, expanded: bool = True) -> None:
                 st.stop()
             with st.spinner(f"{len(items)} Datei(en) werden abgelegt und geprüft …"):
                 res = store_uploads(c.repo, items, y, c.settings.get("pdf.engine", "auto"))
-                results = C.process_documents(c.repo, res.pdf_ids, deps.get(dflt)) if res.pdf_ids else []
+                results = C.process_documents(c.repo, res.pdf_ids) if res.pdf_ids else []
+                results.extend(process_tables(c.repo, res.csv_docs, **C.document_analysis_options()))
             st.session_state["upload_notes"] = {
                 "skipped": problems + res.skipped,
-                "csv": [(d["original_filename"], oekb) for d, oekb in res.csv_docs],
                 "duplicates": res.duplicates}
             C.after_processing(results) if results else st.rerun()
     if "last_process_results" in st.session_state:
@@ -111,11 +104,7 @@ def upload_box(y: int, key: str, expanded: bool = True) -> None:
                     "doppelt abgelegt.")
         for name, why in notes["skipped"]:
             st.error(f"„{name}“ wurde nicht übernommen: {why}")
-        for name, oekb in notes["csv"]:
-            st.warning(f"„{name}“ wurde abgelegt. CSV-Dateien brauchen eine Spaltenzuordnung → **Import → "
-                       f"{'OeKB – Fondsdaten' if oekb else 'CSV/Excel – Transaktionen'}** (dieselbe Datei dort erneut "
-                       "auswählen).")
-            C.link("import", "Zur Import-Seite")
+
 
 
 def data_check(y: int) -> list[tuple[str, str, str, str]]:

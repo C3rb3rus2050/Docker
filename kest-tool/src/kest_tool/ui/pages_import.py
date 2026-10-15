@@ -68,31 +68,27 @@ def render() -> None:
     st.title("Dokumente importieren")
     from .guide import upload_box
     upload_box(y, "import_page", expanded=True)
-    st.info("Dateien, ZIP-Archive oder ganze Ordner vom eigenen Computer können Sie oben hochladen. "
-            "Die erweiterten Importarten unten dienen der CSV/Excel-Spaltenzuordnung, "
-            "den OeKB-Fondsdaten und optionalen Serverordnern.")
+    st.caption("Format, Spalten und eindeutige Depots werden automatisch erkannt. "
+               "Originale bleiben erhalten; identische Dateien und Buchungen werden erkannt.")
     C.link("dashboard", "Zur Übersicht")
-    st.caption("Originaldateien werden unverändert in der Ablage gespeichert. Erneut importierte Dateien werden über "
-               "SHA-256 erkannt. Vor jedem Import wird eine Vorschau angezeigt.")
-    if "last_process_results" in st.session_state:
-        C.show_process_results(st.session_state.pop("last_process_results"))
-    kind = st.selectbox("Erweiterte Importart", IMPORT_TYPES)
-    deps = C.depot_options()
-    if kind.startswith("CSV") and not deps:
-        st.warning("Bitte zuerst unter **Broker & Depots** ein Depot anlegen.")
-        return
-    if kind.startswith("CSV"):
-        _csv_import(y, deps)
-    elif kind.startswith("PDF – Abr"):
-        _pdf_import(y, deps)
-    elif kind.startswith("PDF – Jahres"):
-        _doc_only_import(y)
-    elif kind.startswith("OeKB – Fondsdaten"):
-        _oekb_csv(y)
-    elif kind.startswith("OeKB – Fondsmeldung"):
-        _oekb_pdf(y)
-    else:
-        _folder_import(y, deps)
+    with st.expander("Manuelle Sonderimporte und Serverordner (optional)"):
+        kind = st.selectbox("Erweiterte Importart", IMPORT_TYPES)
+        deps = C.depot_options()
+        if kind.startswith("CSV") and not deps:
+            st.warning("Bitte zuerst unter **Broker & Depots** ein Depot anlegen.")
+            return
+        if kind.startswith("CSV"):
+            _csv_import(y, deps)
+        elif kind.startswith("PDF – Abr"):
+            _pdf_import(y, deps)
+        elif kind.startswith("PDF – Jahres"):
+            _doc_only_import(y)
+        elif kind.startswith("OeKB – Fondsdaten"):
+            _oekb_csv(y)
+        elif kind.startswith("OeKB – Fondsmeldung"):
+            _oekb_pdf(y)
+        else:
+            _folder_import(y, deps)
     st.divider()
     st.subheader("Fehler- und Importprotokoll")
     runs = c.repo.import_runs(20)

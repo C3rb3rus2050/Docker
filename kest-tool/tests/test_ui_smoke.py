@@ -83,3 +83,35 @@ def test_quickstart_creates_depots(tmp_path, monkeypatch):
                                                                          "Scalable Capital Depot"}
     db.close()
     assert not any("Schnellstart" in s.value for s in at.subheader)
+
+
+def test_upload_runs_without_import_button_and_survives_reruns(tmp_path, monkeypatch):
+    import streamlit as st
+    from kest_tool.db import Database
+
+    home = tmp_path / 'auto-upload'
+    monkeypatch.setenv('KEST_TOOL_HOME', str(home))
+    class Upload:
+        name = 'TradeRepublic.csv'
+        def __init__(self, day):
+            self.day = day
+        def getvalue(self):
+            return ('Datum;Typ;ISIN;Stück;Bruttobetrag;Währung\n'
+                    f'{self.day}.02.2024;Kauf;US0378331005;2;300,00;EUR\n').encode()
+    files = [Upload('01')]
+    original = st.file_uploader
+    def uploader(*args, **kwargs):
+        if kwargs.get('key') == 'upl_auto_import_page':
+            return files
+        return original(*args, **kwargs)
+    monkeypatch.setattr(st, 'file_uploader', uploader)
+    at = _run(AppTest.from_file(APP, default_timeout=120))
+    _goto(at, 'import')
+    _run(at)
+    _run(at)
+    db = Database(home / 'database' / 'kest_tool.db')
+    assert db.one('SELECT COUNT(*) n FROM transactions')['n'] == 1
+    files.append(Upload('15'))
+    _run(at)
+    assert db.one('SELECT COUNT(*) n FROM transactions')['n'] == 2
+    db.close()
