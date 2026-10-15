@@ -348,7 +348,7 @@ def expand_upload(name: str, data: bytes) -> list[tuple[str, bytes]]:
                     else:
                         output.append((filename, content))
         except (zipfile.BadZipFile, zipfile.LargeZipFile, EOFError, RuntimeError) as exc:
-            raise ValueError(f"„{name}“ enthält beschädigte oder nicht lesbare ZIP-Daten") from exc
+            raise ValueError(f"„{name}“ ist kein gültiges ZIP-Archiv oder enthält beschädigte Einträge") from exc
 
     unpack(data, 0)
     return output
