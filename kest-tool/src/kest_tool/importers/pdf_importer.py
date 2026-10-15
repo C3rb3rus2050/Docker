@@ -13,8 +13,9 @@ from __future__ import annotations
 import io
 import logging
 import re
+import unicodedata
 from dataclasses import asdict, dataclass, field
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from ..models import TxType, isin_checksum_ok
@@ -22,6 +23,7 @@ from .parsing import parse_number
 
 log = logging.getLogger(__name__)
 
+PARSER_VERSION = 3
 MAX_PAGES = 30
 MAX_PDF_BYTES = 50 * 1024 * 1024
 
@@ -42,9 +44,13 @@ def extract_text(data: bytes, engine: str = "auto") -> tuple[str, str]:
             import pdfplumber
 
             with pdfplumber.open(io.BytesIO(data)) as pdf:
+                if len(pdf.pages) > MAX_PAGES:
+                    raise PdfError(f"PDF hat mehr als {MAX_PAGES} Seiten; bitte in einzelne Abrechnungen aufteilen.")
                 text = "\n".join((p.extract_text() or "") for p in pdf.pages[:MAX_PAGES])
             if text.strip():
                 return text, "pdfplumber"
+        except PdfError:
+            raise
         except Exception as exc:  # beschädigte PDFs
             errors.append(f"pdfplumber: {exc}")
     if engine in ("auto", "pymupdf"):
@@ -52,9 +58,13 @@ def extract_text(data: bytes, engine: str = "auto") -> tuple[str, str]:
             import pymupdf as fitz
 
             with fitz.open(stream=data, filetype="pdf") as doc:
-                text = "\n".join(doc[i].get_text() for i in range(min(len(doc), MAX_PAGES)))
+                if len(doc) > MAX_PAGES:
+                    raise PdfError(f"PDF hat mehr als {MAX_PAGES} Seiten; bitte in einzelne Abrechnungen aufteilen.")
+                text = "\n".join(page.get_text(sort=True) for page in doc)
             if text.strip():
                 return text, "pymupdf"
+        except PdfError:
+            raise
         except Exception as exc:
             errors.append(f"pymupdf: {exc}")
     if errors:
@@ -63,25 +73,27 @@ def extract_text(data: bytes, engine: str = "auto") -> tuple[str, str]:
 
 
 # --------------------------------------------------------------------------- #
-NUM = r"-?\d{1,3}(?:[.  ]\d{3})*(?:,\d+)?|-?\d+(?:,\d+)?|-?\d{1,3}(?:,\d{3})*(?:\.\d+)?|-?\d+(?:\.\d+)?"
-CUR = r"EUR|USD|CHF|GBP|CAD|JPY|DKK|SEK|NOK|AUD|€|\$"
-DATE = r"\d{1,2}\.\d{1,2}\.\d{4}|\d{4}-\d{2}-\d{2}"
+NUM = r"[+-]?(?:\d{1,3}(?:[.,' ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)-?(?![\d.,])"
+CUR = r"EUR|USD|CHF|GBP|CAD|JPY|DKK|SEK|NOK|AUD|NZD|HKD|SGD|PLN|CZK|HUF|CNY|ZAR|€|\$"
+DATE = r"\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4}"
+UNIT = r"(?:Stk\.?|Stück(?:e)?|Pcs\.?|Shares?|Units?|Anteile?)"
 ISIN_RX = re.compile(r"\b([A-Z]{2}[A-Z0-9]{9}[0-9])\b")
 
-TRADE_DATE_LABELS = ["Schlusstag", "Handelstag", "Ausführungstag", "Ausführungsdatum", "Ausführung"]
-INCOME_DATE_LABELS = ["Zahltag", "Zahlungstag", "Valuta", "Buchungsdatum", "Datum", "Abrechnungsdatum"]
+TRADE_DATE_LABELS = ["Schlusstag", "Handelstag", "Ausführungstag", "Ausführungsdatum", "Ausführung", "Trade Date", "Execution Date"]
+INCOME_DATE_LABELS = ["Zahltag", "Zahlungstag", "Payment Date", "Pay Date", "Value Date", "Valuta", "Buchungsdatum", "Datum", "Abrechnungsdatum"]
 GENERIC_DATE_LABELS = ["Buchungsdatum", "Datum", "Abrechnungsdatum", "Valuta"]
 FEE_LABELS = ["Fremdkostenzuschlag", "Ordergebühr", "Ordergebuehr", "Orderentgelt", "Provision", "Transaktionsgebühr",
-              "Transaktionskosten", "Handelsplatzgebühr", "Börsengebühr", "Gebühr", "Fremde Spesen", "Spesen"]
-GROSS_LABELS_TRADE = ["Kurswert", "Ordervolumen", "Kaufpreis", "Verkaufspreis", "Gesamtkurswert"]
+              "Transaktionskosten", "Handelsplatzgebühr", "Börsengebühr", "Gebühr", "Fremde Spesen", "Spesen", "Commission", "Transaction Fee", "Gesamtgebühren", "Gebühren gesamt", "Total Fees", "Gebühren", "Fees", "Ordergebühren", "External cost surcharge"]
+GROSS_LABELS_TRADE = ["Kurswert", "Ordervolumen", "Kaufpreis", "Verkaufspreis", "Gesamtkurswert", "Gross Amount", "Trade Value", "Consideration"]
 GROSS_LABELS_INCOME = ["Bruttobetrag", "Brutto", "Dividende brutto", "Ausschüttung brutto", "Bruttoertrag",
-                       "Zinsbetrag brutto", "Ertrag", "Dividende", "Ausschüttung", "Zinsen"]
-TOTAL_LABELS = ["Gesamt", "Endbetrag", "Zu Lasten", "Zu Gunsten", "Ausmachender Betrag", "Gutschrift", "Belastung", "Betrag zu Ihren Lasten",
-                "Betrag zu Ihren Gunsten", "Total"]
+                       "Zinsbetrag brutto", "Gross Dividend", "Gross Amount", "Gross Income", "Ertrag", "Dividende", "Ausschüttung", "Zinsen"]
+TOTAL_LABELS = ["Endbetrag", "Ausmachender Betrag", "Zu Lasten", "Zu Gunsten", "Betrag zu Ihren Lasten",
+                "Betrag zu Ihren Gunsten", "Settlement Amount", "Net Amount", "Nettobetrag", "Netto",
+                "Gesamtbetrag", "Gesamt", "Total", "Gutschrift", "Belastung"]
 WHT_LABELS = ["Quellensteuer", "Ausländische Quellensteuer", "US-Quellensteuer", "Withholding Tax",
-              "Anrechenbare Quellensteuer"]
+              "Withholding Tax Amount"]
 KEST_LABELS = ["Kapitalertragsteuer Österreich", "KESt Österreich", "KESt"]
-GERMAN_TAX_LABELS = ["Kapitalertragsteuer", "Solidaritätszuschlag", "Kirchensteuer"]
+GERMAN_TAX_LABELS = ["Kapitalertragsteuer", "Solidaritätszuschlag", "Kirchensteuer", "Capital gains tax", "Solidarity surcharge"]
 
 
 @dataclass
@@ -93,6 +105,7 @@ class Field:
 
 @dataclass
 class Extraction:
+    parser_version: int = PARSER_VERSION
     broker: str = "Unclassified"
     doc_type: str = "Unbekannt"
     tx_type: str | None = None
@@ -132,11 +145,16 @@ class Extraction:
         return "fehlgeschlagen"
 
 
-def _num(s: str) -> float | None:
-    s = s.strip()
-    dec = "," if re.search(r",\d{1,}$", s) or ("," in s and "." in s and s.rfind(",") > s.rfind(".")) else "."
-    if dec == "." and re.fullmatch(r"-?\d{1,3}(\.\d{3})+", s):
+def _num(s: str, *, rate: bool = False) -> float | None:
+    s = s.strip().rstrip("-") if not s.strip().endswith("-") else "-" + s.strip()[:-1]
+    if "," in s and "." in s:
+        dec = "," if s.rfind(",") > s.rfind(".") else "."
+    elif "," in s:
         dec = ","
+    elif not rate and not s.lstrip("+-").startswith("0.") and re.fullmatch(r"-?\d{1,3}(\.\d{3})+", s):
+        dec = ","
+    else:
+        dec = "."
     try:
         return parse_number(s, dec)
     except ValueError:
@@ -144,15 +162,11 @@ def _num(s: str) -> float | None:
 
 
 def _date(s: str) -> date | None:
-    m = re.match(r"(\d{1,2})\.(\d{1,2})\.(\d{4})", s)
-    try:
-        if m:
-            return date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
-        m = re.match(r"(\d{4})-(\d{2})-(\d{2})", s)
-        if m:
-            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-    except ValueError:
-        return None
+    for fmt in ("%d.%m.%Y", "%Y-%m-%d", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(s.strip(), fmt).date()
+        except ValueError:
+            continue
     return None
 
 
@@ -173,6 +187,8 @@ def _labeled_amount(text: str, labels: list[str]) -> tuple[float, str, str] | No
     """Sucht 'Label … Betrag Währung' (oder 'Währung Betrag'); liefert (Betrag, Währung, Label)."""
     for label in labels:
         for m in _amount_line(label).finditer(text):
+            if re.search(r"(?i)\b(?:je|per|pro)\s+(?:anteil|aktie|stück|share|unit)|%", m.group(0)):
+                continue
             r = _match_amount(m)
             if r:
                 return r[0], r[1], label
@@ -206,6 +222,17 @@ def detect_broker(text: str) -> str:
 def detect_type(text: str) -> tuple[str, str | None]:
     """Liefert (Dokumenttyp, Buchungsart)."""
     t = text.lower()
+    execution = re.search(r"(?im)^(?:(?:Market|Limit|Stop)[ -]Order\s+)?(Buy|Sell|Kauf|Verkauf)\s+(?:on|am)\s+\d", text)
+    savings = re.search(r"(?im)^\s*(?:Savings plan execution|Sparplanausführung)\s+(?:on|am)\s+\d", text)
+    if execution:
+        sell = execution.group(1).lower() in {"sell", "verkauf"}
+        return ("Verkaufsabrechnung", TxType.SELL.value) if sell else ("Kaufabrechnung", TxType.BUY.value)
+    if savings:
+        return "Kaufabrechnung", TxType.BUY.value
+    title = re.search(r"(?im)^\s*(?:wertpapierabrechnung\s*[:–-]?\s*|trade confirmation\s*[:–-]?\s*)(kauf|verkauf|buy|sell)\b", text)
+    if title and not re.search(r"jahressteuerbescheinigung|steuerbescheinigung|jahressteuerbericht|steuerreport", t):
+        sell = title.group(1).lower() in {"verkauf", "sell"}
+        return ("Verkaufsabrechnung", TxType.SELL.value) if sell else ("Kaufabrechnung", TxType.BUY.value)
     if re.search(r"jahressteuerbescheinigung|steuerbescheinigung|jahressteuerbericht|steuerreport", t):
         return "Jahressteuerbescheinigung", None
     if re.search(r"steuerliche behandlung|ausschüttungsgleiche erträge|meldefonds|steuerdaten.*fonds", t) and \
@@ -217,7 +244,7 @@ def detect_type(text: str) -> tuple[str, str | None]:
         return "Ausschüttungsabrechnung", TxType.DISTRIBUTION.value
     if re.search(r"dividende|dividend|bardividende", t):
         return "Dividendenabrechnung", TxType.DIVIDEND.value
-    if re.search(r"zinsabrechnung|zinszahlung|kupon|\bzinsen\b", t) and not re.search(r"\bkauf\b|\bverkauf\b", t):
+    if re.search(r"zinsabrechnung|zinszahlung|kupon|\bzinsen\b|interest payment|coupon payment", t) and not re.search(r"\bkauf\b|\bverkauf\b", t):
         return "Ertragsabrechnung", TxType.INTEREST.value
     if re.search(r"\bverkauf\b|\bsell\b|veräußerung", t):
         return "Verkaufsabrechnung", TxType.SELL.value
@@ -237,10 +264,278 @@ REQUIRED = {
 FIELD_LABELS = {"trade_date": "Buchungsdatum", "isin": "ISIN", "quantity": "Stückzahl", "amount": "Bruttobetrag",
                 "price": "Kurs", "fees": "Gebühren", "withholding_tax": "Quellensteuer", "currency": "Währung",
                 "security_name": "Wertpapiername", "fx_rate": "Devisenkurs", "kest_at_eur": "österr. KESt",
-                "total": "Endbetrag"}
+                "total": "Endbetrag", "value_date": "Valuta / Wertstellung", "amount_eur": "Bruttobetrag in EUR",
+                "fx_source": "Kursquelle", "price_currency": "Währung des Stückkurses", "total_currency": "Währung des Endbetrags",
+                "income_per_unit": "Ertrag je Anteil", "fees_original": "Gebühren im Original",
+                "withholding_tax_original": "Quellensteuer im Original", "kest_at_eur_original": "KESt im Original",
+                "price_original": "Stückkurs im Original", "income_per_unit_currency": "Währung des Ertrags je Anteil",
+                "document_fx_quote": "Umrechnung im Beleg", "withholding_country": "Quellenstaat"}
 
 
-def parse_text(text: str) -> Extraction:
+def _currency(value: str) -> str:
+    return value.upper().replace("€", "EUR").replace("$", "USD")
+
+
+def _normalize_text(text: str) -> str:
+    text = unicodedata.normalize("NFKC", text).replace("−", "-").replace("\r\n", "\n").replace("\r", "\n")
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
+    amount_labels = FEE_LABELS + GROSS_LABELS_TRADE + GROSS_LABELS_INCOME + TOTAL_LABELS + WHT_LABELS + KEST_LABELS
+    date_labels = TRADE_DATE_LABELS + INCOME_DATE_LABELS + GENERIC_DATE_LABELS + ["Ex-Tag", "Settlement Date"]
+    labels = {label.casefold() for label in amount_labels + date_labels +
+              ["ISIN", "Stückzahl", "Quantity", "Anzahl", "Kurs", "Price", "Wertpapierbezeichnung", "Security Name"]}
+    out, i = [], 0
+    while i < len(lines):
+        line = lines[i]
+        if line.rstrip(":").casefold() in labels and i + 1 < len(lines) and lines[i + 1]:
+            following = lines[i + 1]
+            # Join only a standalone label with its immediate value, not entire tables.
+            key = line.rstrip(":").casefold()
+            is_amount = key in {label.casefold() for label in amount_labels}
+            is_date = key in {label.casefold() for label in date_labels}
+            valid_value = True
+            if is_amount:
+                valid_value = bool(re.fullmatch(rf"(?:{CUR})|(?:{CUR})?\s*{NUM}\s*(?:{CUR})?", following, re.I))
+            elif is_date:
+                valid_value = bool(re.match(DATE, following))
+            elif key == "isin":
+                valid_value = bool(ISIN_RX.fullmatch(following))
+            if valid_value and following.rstrip(":").casefold() not in labels:
+                line += " " + following
+                i += 1
+                if re.fullmatch(CUR, following, re.I) and i + 1 < len(lines) and re.fullmatch(NUM, lines[i + 1]):
+                    line += " " + lines[i + 1]
+                    i += 1
+        out.append(line)
+        i += 1
+    normalized = "\n".join(out)
+    split_position = re.compile(rf"(?im)^([^\n]+?)[ \t]+({NUM})[ \t]+({CUR})[ \t]*\n[ \t]*({NUM})[ \t]*{UNIT}[ \t]+({NUM})[ \t]+({CUR})[ \t]*$")
+    def join_position(match):
+        if _currency(match.group(3)) != _currency(match.group(6)):
+            return match.group(0)
+        return f"{match.group(1)} {match.group(4)} Stück {match.group(5)} {match.group(6)} {match.group(2)} {match.group(3)}"
+    return split_position.sub(join_position, normalized)
+
+
+def _document_fx(text: str, currency: str) -> tuple[Field | None, str | None]:
+    """Normalize explicit currency equations and pairs to foreign currency per EUR."""
+    if currency == "EUR":
+        return None, None
+    candidates = []
+    for m in re.finditer(rf"(?i)(?<![\w.,])(1(?:[.,]0+)?)\s*([A-Z]{{3}})\s*=\s*({NUM})\s*([A-Z]{{3}})\b", text):
+        left, right, rate = m.group(2).upper(), m.group(4).upper(), _num(m.group(3), rate=True)
+        if rate and rate > 0 and {left, right} == {"EUR", currency}:
+            candidates.append((rate if left == "EUR" else 1 / rate, m.group(0)))
+    pair = rf"(?:EUR\s*/\s*{currency}|{currency}\s*/\s*EUR)"
+    # Pair notation follows the existing broker convention: EUR/USD means USD per EUR.
+    for pattern in (rf"(?i)({pair})[ \t:]*({NUM})(?![ \t]*(?:{CUR})(?!\w))", rf"(?i)(?<![\w.,])({NUM})[ \t]+({pair})\b"):
+        for m in re.finditer(pattern, text):
+            rate_text, pair_text = (m.group(2), m.group(1)) if "/" in m.group(1) else (m.group(1), m.group(2))
+            rate = _num(rate_text, rate=True)
+            if rate and rate > 0:
+                candidates.append((rate if pair_text.upper().startswith("EUR") else 1 / rate, m.group(0)))
+    if candidates:
+        first = candidates[0][0]
+        if any(abs(r - first) > max(0.000001, first * 0.0001) for r, _ in candidates[1:]):
+            return None, "Widersprüchliche Devisenkurse im Dokument – Umrechnung manuell prüfen."
+        return Field(first, 0.95, f"Belegkurs: {candidates[0][1]} → {currency} je EUR"), None
+    m = re.search(rf"(?im)^\s*(?:Devisenkurs|Wechselkurs|Umrechnungskurs|Exchange Rate|FX Rate)\s*[: ]+({NUM})\s*$", text)
+    if m and (rate := _num(m.group(1), rate=True)) and rate > 0:
+        return Field(rate, 0.5, "Kurs ohne erkennbare Notierungsrichtung"), "Devisenkurs ohne Währungspaar – Notierungsrichtung prüfen."
+    return None, None
+
+
+def _convert(value: float, source: str, target: str, rate: float | None, main: str) -> float | None:
+    if source == target:
+        return value
+    if not rate or {source, target} != {"EUR", main}:
+        return None
+    return value * rate if source == "EUR" else value / rate
+
+
+def _apply_broker_tables(ex: Extraction, text: str) -> None:
+    """Read explicit booking table columns; never treat a net payment as gross income."""
+    f = ex.fields
+    # Trade Republic booking row supplies the final settlement after the earlier overview total.
+    booking = re.search(rf"(?im)^(?:VERRECHNUNGSKONTO|CLEARING ACCOUNT)[^\n]*(?:BETRAG|AMOUNT)\s*\n"
+                        rf"[A-Z]{{2}}[A-Z0-9]+[ \t]+({DATE})[ \t]+({NUM})[ \t]+({CUR})[ \t]*$", text)
+    if booking:
+        day = _date(booking.group(1))
+        bank_total = abs(_num(booking.group(2)))
+        billing = re.search(r"(?ims)^(?:ABRECHNUNG|BILLING)\s*\n(.*?)(?=^(?:BUCHUNG|BOOKING)\s*$|\Z)", text)
+        summary = _labeled_amount(billing.group(1), TOTAL_LABELS) if billing else None
+        if summary and (summary[1] or _currency(booking.group(3))) == _currency(booking.group(3)) and abs(abs(summary[0]) - bank_total) > .02:
+            ex.check("Endbetrag stimmt", "warn", "Endbetrag der Abrechnung weicht von der Buchungstabelle ab.",
+                     "Beide Endbeträge im Original vergleichen.")
+        f["total"] = Field(abs(_num(booking.group(2))), 0.95, "Endbetrag in der Buchungstabelle")
+        f["total_currency"] = Field(_currency(booking.group(3)), 0.95, "Buchungstabelle")
+        if day:
+            f["value_date"] = Field(day, 0.95, "Wertstellung in der Buchungstabelle")
+            if ex.tx_type in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value):
+                f["trade_date"] = Field(day, 0.95, "Zahlungstag in der Buchungstabelle")
+                ex.warnings = [w for w in ex.warnings if w != "Buchungsdatum nur heuristisch ermittelt"]
+    # Older Baader PDFs put trade date and time on the row after the column headings.
+    if ex.tx_type in (TxType.BUY.value, TxType.SELL.value):
+        trade = re.search(rf"(?im)^Handelsdatum[ \t]+Handelsuhrzeit[^\n]*\n[ \t]*({DATE})\b", text)
+        if trade:
+            f["trade_date"] = Field(_date(trade.group(1)), 0.95, "Handelsdatum in der Ausführungstabelle")
+            ex.warnings = [w for w in ex.warnings if w != "Buchungsdatum nur heuristisch ermittelt"]
+    if ex.broker != "ScalableCapital" or ex.tx_type not in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value):
+        return
+    header = re.search(r"(?im)^(?:Buchung Wertstellung Typ Betrag / Stk\. Berechtigte Anzahl Gesamt|"
+                       r"Booking Value date Type Amount / pcs\. Entitled quantity Total amount)\s*$", text)
+    if not header:
+        return
+    tail = text[header.end():]
+    row_pattern = rf"(?im)^[ \t]*({DATE})[ \t]+({DATE})[ \t]+(?:Gutschrift|Credit)[ \t]+({NUM})[ \t]+({CUR})[ \t]+({NUM})[ \t]+({NUM})[ \t]+({CUR})[ \t]*$"
+    rows = list(re.finditer(row_pattern, tail))
+    if len(rows) != 1:
+        ex.check("Ertragstabelle", "warn", "Ertragstabelle enthält keine eindeutige Einzelbuchung.", "Buchungszeilen einzeln prüfen.")
+        return
+    row = rows[0]
+    f["trade_date"] = Field(_date(row.group(1)), 0.95, "Buchungsdatum in der Scalable-Ertragstabelle")
+    f["value_date"] = Field(_date(row.group(2)), 0.95, "Wertstellung in der Scalable-Ertragstabelle")
+    f["income_per_unit"] = Field(_num(row.group(3), rate=True), 0.95, "Betrag je Stück in der Ertragstabelle")
+    f["income_per_unit_currency"] = Field(_currency(row.group(4)), 0.95, "Ertragstabelle")
+    f["quantity"] = Field(_num(row.group(5)), 0.95, "Berechtigte Anzahl in der Ertragstabelle")
+    f["amount"] = Field(abs(_num(row.group(6))), 0.95, "Brutto-Gutschrift vor den separat ausgewiesenen Steuern")
+    f["currency"] = Field(_currency(row.group(7)), 0.95, "Währung der Brutto-Gutschrift")
+    name = re.search(r"(?im)^(?:Berechtigtes Wertpapier|Entitled security)[ \t]+(.+)$", text)
+    if name:
+        f["security_name"] = Field(name.group(1).strip(), 0.95, "Berechtigtes Wertpapier")
+    fx = re.search(rf"(?im)^([A-Z]{{3}}[ \t]*/[ \t]*[A-Z]{{3}})[ \t]+({NUM})[ \t]*$", tail)
+    if fx:
+        f["document_fx_quote"] = Field(fx.group(0).strip(), 0.95, "Umrechnung im Beleg; Bruttobetrag bereits in Abrechnungswährung")
+    ex.warnings = [w for w in ex.warnings if w != "Buchungsdatum nur heuristisch ermittelt"]
+
+
+def _finish_fields(ex: Extraction, text: str, reference_fx: Field | None) -> None:
+    f = ex.fields
+    unit_amount = re.search(rf"(?im)^\s*(?:Dividende|Ausschüttung|Ertrag|Dividend|Distribution)\s+(?:je|pro|per)\s+(?:Aktie|Anteil|Stück|Share|Unit)\s*[: ]*(?:({CUR})\s*)?({NUM})\s*({CUR})?\s*$", text)
+    if "currency" not in f and unit_amount and (unit_amount.group(1) or unit_amount.group(3)):
+        f["currency"] = Field(_currency(unit_amount.group(1) or unit_amount.group(3)), 0.9, "Währung des Ertrags je Anteil")
+    # Explicit labels are preferable to the nearby line heuristics.
+    name = re.search(r"(?im)^\s*(?:Wertpapierbezeichnung|Wertpapiername|Security Name|Instrument Name)\s*[: ]+(.+)$", text)
+    if name:
+        value = ISIN_RX.sub("", name.group(1)).strip(" :|-")
+        if 2 < len(value) < 120:
+            f["security_name"] = Field(value, 0.9, name.group(0).strip())
+    for label in ["Valuta", "Wertstellung", "Settlement Date", "Value Date"]:
+        m = re.search(rf"(?i)\b{re.escape(label)}\b[^\n\d]{{0,20}}({DATE})", text)
+        if m and (day := _date(m.group(1))):
+            f["value_date"] = Field(day, 0.9, f"Label „{label}“")
+            break
+    if "currency" not in f:
+        candidates = {_currency(m) for m in re.findall(rf"(?<!\w)({CUR})(?!\w)", text, re.I)}
+        if len(candidates) == 1:
+            f["currency"] = Field(candidates.pop(), 0.85, "einheitliche Währung im Dokument")
+        elif candidates:
+            ex.check("Währung eindeutig", "warn", "Mehrere Währungen ohne eindeutige Brutto-Zuordnung.", "Währung des Bruttobetrags auswählen.")
+    cur = ex.value("currency")
+    if not cur:
+        ex.check("Währung", "error", "Währung nicht im Dokument gefunden.", "Währung aus dem Original ergänzen.")
+        return
+    fx, problem = _document_fx(text, cur)
+    if fx:
+        f["fx_rate"] = fx
+        f["fx_source"] = Field(fx.source, fx.confidence, "Dokument")
+    if problem:
+        ex.check("Devisenkurs eindeutig", "warn", problem, "Kurs und Notierungsrichtung mit dem Original vergleichen.")
+    if not fx and not problem and reference_fx and cur != "EUR":
+        f["fx_rate"] = reference_fx
+        f["fx_source"] = Field(reference_fx.source, reference_fx.confidence, "EZB")
+        ex.check("Online-Umrechnung", "info", reference_fx.source, "Referenzkurs ist vorläufig; Bankkurs prüfen.")
+    rate = ex.value("fx_rate")
+    for key, labels, target in (("fees", FEE_LABELS, cur), ("withholding_tax", WHT_LABELS, cur),
+                                ("kest_at_eur", KEST_LABELS, "EUR")):
+        entries = _all_labeled_amounts(text, labels)
+        if not entries:
+            continue
+        f.pop(key, None)
+        values, descriptions = [], []
+        missing_units = False
+        for amount, source, label in entries:
+            if not source and ex.value("total_currency", cur) != cur:
+                missing_units = True
+                ex.check(FIELD_LABELS[key], "warn", f"Währung bei „{label}“ fehlt in einer Abrechnung mit mehreren Währungen.",
+                         "Währung der Gebühr bzw. Steuer im Original prüfen.")
+            source = source or cur
+            result = _convert(abs(amount), source, target, rate, cur)
+            descriptions.append(f"{label}: {abs(amount):g} {source}")
+            if result is None:
+                ex.check(FIELD_LABELS[key], "warn", f"{label} in {source} kann noch nicht nach {target} umgerechnet werden.",
+                         "Fehlenden Devisenkurs ergänzen oder Betrag manuell in die Buchungswährung umrechnen.")
+            else:
+                values.append(result)
+        f[key + "_original"] = Field("; ".join(descriptions), 0.9, "Originalbeträge und Währungen")
+        if len(values) == len(entries) and not missing_units:
+            if key == "fees":
+                summaries = [i for i, entry in enumerate(entries) if entry[2] in {"Fees", "Gebühren", "Gesamtgebühren", "Gebühren gesamt", "Total Fees"}]
+                details = [i for i in range(len(entries)) if i not in summaries]
+                if summaries and details:
+                    summary = values[summaries[0]]
+                    if abs(summary - sum(values[i] for i in details)) > 0.02 or len(summaries) > 1:
+                        ex.check("Gebühren eindeutig", "warn", "Gebührensumme und einzelne Gebühren sind nicht eindeutig abgleichbar.",
+                                 "Gebührensumme im Original prüfen.")
+                    values = [summary]
+            f[key] = Field(round(sum(values), 8), 0.9, "; ".join(descriptions) + f" → {target}")
+    # Explicit country fields are stronger evidence than an ISIN prefix.
+    countries = {"USA": "US", "UNITED STATES": "US", "DEUTSCHLAND": "DE", "GERMANY": "DE",
+                 "SCHWEIZ": "CH", "SWITZERLAND": "CH", "FRANKREICH": "FR", "FRANCE": "FR",
+                 "KANADA": "CA", "CANADA": "CA", "IRLAND": "IE", "IRELAND": "IE"}
+    country = re.search(r"(?im)^\s*(?:Quellenstaat|Quellenland|Withholding Country|Tax Country)\s*[: ]+([A-ZÄÖÜ ]+)\s*$", text)
+    if country:
+        value = country.group(1).strip().upper()
+        value = countries.get(value, value)
+        if re.fullmatch(r"[A-Z]{2}", value):
+            f["withholding_country"] = Field(value, 0.95, country.group(0).strip())
+            ex.warnings = [w for w in ex.warnings if not w.startswith("Quellenstaat nur aus ISIN")]
+    # Preserve contradictory gross totals instead of silently accepting the first one.
+    labels = GROSS_LABELS_INCOME if ex.tx_type in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value) else GROSS_LABELS_TRADE
+    candidates = _all_labeled_amounts(text, labels)
+    direct_values = {round(abs(value), 8) for value, currency, label in candidates
+                     if currency == cur and label not in {"Ertrag", "Dividende", "Ausschüttung", "Zinsen"}}
+    if len(direct_values) > 1:
+        ex.check("Bruttobetrag eindeutig", "warn", "Mehrere unterschiedliche Bruttobeträge in derselben Währung erkannt.",
+                 "Einzelpositionen bzw. mehrfache Abrechnungen im Original prüfen.")
+    if not ex.value("quantity"):
+        quantity = re.search(rf"(?im)^\s*(?:Nominale|Stückzahl|Anzahl|Quantity|Units)\s*[: ]*(?:STK\.?\s*)?({NUM})", text)
+        if quantity and (value := _num(quantity.group(1))) and value > 0:
+            f["quantity"] = Field(value, 0.9, quantity.group(0).strip())
+    if ex.tx_type in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value):
+        per_unit = re.search(rf"(?im)^\s*(?:Dividende|Ausschüttung|Ertrag|Dividend|Distribution)\s+(?:je|pro|per)\s+(?:Aktie|Anteil|Stück|Share|Unit)\s*[: ]*(?:({CUR})\s*)?({NUM})\s*({CUR})?\s*$", text)
+        if per_unit:
+            f["income_per_unit"] = Field(_num(per_unit.group(2)), 0.9, per_unit.group(0).strip())
+            unit_cur = _currency(per_unit.group(1) or per_unit.group(3) or cur)
+            if not ex.value("amount") and ex.value("quantity") and unit_cur == cur:
+                f["amount"] = Field(round(ex.value("quantity") * ex.value("income_per_unit"), 8), 0.65,
+                                    "aus Stückzahl × Ertrag je Anteil berechnet")
+    # Offer mathematical reconstructions, always visibly marked for review.
+    a, q, price = ex.value("amount"), ex.value("quantity"), ex.value("price")
+    if ex.tx_type in (TxType.BUY.value, TxType.SELL.value):
+        if a and price and not q and ex.value("price_currency", cur) == cur:
+            f["quantity"] = Field(a / price, 0.65, "aus Kurswert / Stückkurs berechnet")
+        if a and q and not price:
+            f["price"] = Field(a / q, 0.65, "aus Kurswert / Stückzahl berechnet")
+        if not a and ex.value("total") is not None and "fees" in f:
+            total_cur = ex.value("total_currency", cur)
+            gross = _convert(ex.value("total"), total_cur, cur, rate, cur)
+            # Sales may include additional tax deductions, so don't reconstruct them here.
+            if gross is not None and ex.tx_type == TxType.BUY.value and gross > ex.value("fees"):
+                f["amount"] = Field(gross - ex.value("fees"), 0.65, "aus Endbetrag minus ausgewiesenen Gebühren berechnet")
+    if ex.value("currency") and ex.value("currency") != "EUR" and ex.value("fx_rate"):
+        f["amount_eur"] = Field(ex.value("amount") / ex.value("fx_rate"), 0.8, ex.value("fx_source", "Belegkurs")) if ex.value("amount") is not None else Field(None, 0, "Brutto fehlt")
+    # Different original currencies for price and amount must be reconciled before q × price checks.
+    if price and ex.value("price_currency", cur) != cur:
+        converted = _convert(price, ex.value("price_currency"), cur, rate, cur)
+        if converted is not None:
+            f["price_original"] = Field(f"{price:g} {ex.value('price_currency')}", 0.9, "Originalkurs")
+            f["price"] = Field(converted, 0.85, f"Stückkurs umgerechnet nach {cur}")
+        else:
+            ex.check("Kurswährung", "warn", "Stückkurs und Bruttobetrag haben unterschiedliche Währungen ohne passenden Kurs.", "Umrechnung ergänzen.")
+
+
+def parse_text(text: str, *, reference_fx: Field | None = None) -> Extraction:
+    text = _normalize_text(text)
     ex = Extraction(text_excerpt=text[:4000])
     if not text.strip():
         ex.warnings.append("Kein Text extrahierbar (gescanntes PDF?). Lokale OCR ist nicht aktiviert – "
@@ -261,7 +556,7 @@ def parse_text(text: str) -> Extraction:
         ex.warnings.append(f"Mehrere ISIN im Dokument ({', '.join(uniq)}) – Zuordnung prüfen")
 
     # Positionszeile (z. B. Trade Republic): "<Name> 1 Stk. 497,40 EUR 497,40 EUR"
-    pos = re.search(rf"(?im)^(.*?)(?<![\w.,])({NUM})[ \t]*(?:Stk\.?|Stück)[ \t]+({NUM})[ \t]*({CUR})"
+    pos = re.search(rf"(?im)^(.*?)(?<![\w.,])({NUM})[ \t]*{UNIT}[ \t]+({NUM})[ \t]*({CUR})"
                     rf"(?:[ \t]+({NUM})[ \t]*({CUR}))?[ \t]*$", text)
     # Baader/Scalable: "STK 2,000 <Name> <ISIN>"
     stk = re.search(rf"(?im)^[ \t]*STK\.?[ \t]+({NUM})[ \t]*(.*)$", text)
@@ -279,7 +574,7 @@ def parse_text(text: str) -> Extraction:
             if len(name) < 3:
                 lines = text[:m.start()].rstrip().splitlines()
                 name = lines[-1].strip() if lines else ""
-    name = re.sub(rf"(?<![\w.,])({NUM})\s*(Stk\.?|Stück)\b.*", "", name).strip()
+    name = re.sub(rf"(?<![\w.,])({NUM})\s*{UNIT}(?!\w).*", "", name).strip()
     if 2 < len(name) < 120 and not re.search(r"position|anzahl|isin|nominale", name, re.I):
         f["security_name"] = Field(name, 0.6, "Positionszeile/Text neben ISIN")
 
@@ -287,7 +582,7 @@ def parse_text(text: str) -> Extraction:
     income_doc = ex.tx_type in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value,
                                 TxType.CAPITAL_REPAYMENT.value)
     if ex.tx_type in (TxType.BUY.value, TxType.SELL.value):
-        m = re.search(rf"(?i)\b(?:Kauf|Verkauf|Sparplanausführung|ausgeführt|Ausführung)\b[^\n\d]{{0,25}}\bam\s+({DATE})", text)
+        m = re.search(rf"(?i)\b(?:Kauf|Verkauf|Buy|Sell|Savings plan execution|Sparplanausführung|ausgeführt|Ausführung)\b[^\n\d]{{0,25}}\b(?:am|on)\s+({DATE})", text)
         if m and _date(m.group(1)):
             f["trade_date"] = Field(_date(m.group(1)), 0.9, "Ausführung am …")
     labels = INCOME_DATE_LABELS if income_doc else TRADE_DATE_LABELS + GENERIC_DATE_LABELS
@@ -309,20 +604,22 @@ def parse_text(text: str) -> Extraction:
     # Stückzahl & Kurs
     if pos:
         f["quantity"] = Field(abs(_num(pos.group(2)) or 0), 0.9, "Positionszeile")
-        f["price"] = Field(_num(pos.group(3)), 0.85, "Positionszeile")
-        f["currency"] = Field(pos.group(4).replace("€", "EUR"), 0.85, "Positionszeile")
+        f["price"] = Field(_num(pos.group(3), rate=True), 0.85, "Positionszeile")
+        f["currency"] = Field(_currency(pos.group(4)), 0.85, "Positionszeile")
+        f["price_currency"] = Field(_currency(pos.group(4)), 0.85, "Positionszeile")
     elif stk and _num(stk.group(1)):
         f["quantity"] = Field(abs(_num(stk.group(1))), 0.9, "STK-Angabe")
     else:
-        m = re.search(rf"(?i)(?<![\w.,])({NUM})[ \t]*(?:Stk\.?|Stück|Anteile|Shares)(?!\w)", text) or \
-            re.search(rf"(?i)\b(?:Stück|Anzahl|Stückzahl)\b[: \t]*({NUM})", text)
+        m = re.search(rf"(?i)(?<![\w.,])({NUM})[ \t]*{UNIT}(?!\w)", text) or \
+            re.search(rf"(?i)\b(?:Stück|Anzahl|Stückzahl|Quantity|Units)\b[: \t]*({NUM})", text)
         if m and _num(m.group(1)):
             f["quantity"] = Field(abs(_num(m.group(1))), 0.85, "Stück-Angabe")
     if "price" not in f:
-        m = re.search(rf"(?im)\b(?:Kurs|Ausführungskurs|Preis|Durchschnittskurs)\b[ \t:]*(?:({CUR})[ \t]*)?({NUM})[ \t]*({CUR})?", text)
-        if m and (m.group(1) or m.group(3)) and _num(m.group(2)):
-            f["price"] = Field(_num(m.group(2)), 0.8, "Kurs-Angabe")
-            f["currency"] = Field((m.group(3) or m.group(1)).replace("€", "EUR"), 0.8, "Währung beim Kurs")
+        m = re.search(rf"(?im)\b(?:Kurs|Ausführungskurs|Preis|Durchschnittskurs|Price|Unit Price)\b[ \t:]*(?:({CUR})[ \t]*)?({NUM})[ \t]*({CUR})?", text)
+        if m and (m.group(1) or m.group(3)) and _num(m.group(2), rate=True):
+            f["price"] = Field(_num(m.group(2), rate=True), 0.8, "Kurs-Angabe")
+            f["currency"] = Field(_currency(m.group(3) or m.group(1)), 0.8, "Währung beim Kurs")
+            f["price_currency"] = f["currency"]
 
     # Beträge
     income = ex.tx_type in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value,
@@ -330,17 +627,19 @@ def parse_text(text: str) -> Extraction:
     gross = _labeled_amount(text, GROSS_LABELS_INCOME if income else GROSS_LABELS_TRADE)
     if gross:
         f["amount"] = Field(abs(gross[0]), 0.85, f"Label „{gross[2]}“")
-        if gross[1] and "currency" not in f:
+        if gross[1]:
             f["currency"] = Field(gross[1], 0.8, f"Währung bei „{gross[2]}“")
     elif pos and pos.group(5):
         f["amount"] = Field(abs(_num(pos.group(5)) or 0), 0.85, "Betrag in der Positionszeile")
-        f["currency"] = Field(pos.group(6).replace("€", "EUR"), 0.85, "Positionszeile")
+        f["currency"] = Field(_currency(pos.group(6)), 0.85, "Positionszeile")
     elif not income and "quantity" in f and "price" in f and f["price"].value:
         f["amount"] = Field(round(f["quantity"].value * f["price"].value, 2), 0.6, "Stück × Kurs")
         ex.warnings.append("Kurswert aus Stück × Kurs berechnet – nicht im Dokument gefunden")
     total = _labeled_amount(text, TOTAL_LABELS)
     if total:
         f["total"] = Field(abs(total[0]), 0.8, f"Label „{total[2]}“")
+        if total[1]:
+            f["total_currency"] = Field(total[1], 0.9, f"Währung bei „{total[2]}“")
 
     fees = _all_labeled_amounts(text, FEE_LABELS)
     if fees:
@@ -362,16 +661,8 @@ def parse_text(text: str) -> Extraction:
     if kest:
         f["kest_at_eur"] = Field(round(sum(abs(v) for v, _, _ in kest), 2), 0.7, ", ".join(l for *_, l in kest))
 
-    m = re.search(rf"(?i)(?:Devisenkurs|Wechselkurs|Umrechnungskurs)[^\n\d]{{0,20}}(?:1\s*EUR\s*=\s*)?({NUM})", text) \
-        or re.search(rf"(?<![\w.,])(\d+,\d{{2,6}}|\d+\.\d{{2,6}})[ \t]*EUR/[A-Z]{{3}}\b", text) \
-        or re.search(rf"\bEUR/[A-Z]{{3}}[ \t:]*(\d+,\d{{2,6}}|\d+\.\d{{2,6}})", text)
-    if m and _num(m.group(1)):
-        f["fx_rate"] = Field(_num(m.group(1)), 0.75, "Devisenkurs (Fremdwährung je EUR)")
-    if "currency" not in f:
-        m = re.search(rf"\b({CUR})\b", text)
-        if m:
-            f["currency"] = Field(m.group(1).replace("€", "EUR"), 0.5, "erste Währungsangabe")
-
+    _apply_broker_tables(ex, text)
+    _finish_fields(ex, text, reference_fx)
     _run_checks(ex, text)
     return ex
 
@@ -472,29 +763,29 @@ def _run_checks(ex: Extraction, text: str) -> None:
         ex.check("Gebühren plausibel", "warn", f"Gebühren {fees:.2f} sind hoch im Verhältnis zum Betrag {a:.2f}.",
                  "Prüfen, ob eine Steuer oder ein anderer Betrag als Gebühr erkannt wurde.")
 
-    # Endbetrag abgleichen
-    tot, fx = ex.value("total"), ex.value("fx_rate")
+    # Reconcile all operands in the transaction currency first, then the settlement currency.
+    tot, fx, cur = ex.value("total"), ex.value("fx_rate"), ex.value("currency")
     wht, kest = ex.value("withholding_tax") or 0, ex.value("kest_at_eur") or 0
-    if a and tot:
-        if ex.tx_type == TxType.BUY.value:
-            exp, what = a + fees, "Kurswert + Gebühren"
-        elif ex.tx_type == TxType.SELL.value:
-            exp, what = a - fees - kest, "Kurswert − Gebühren − Steuern"
-        elif ex.tx_type in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value):
-            exp, what = a - wht, "Brutto − Quellensteuer"
-            if fx and ex.value("currency") not in (None, "EUR"):
-                exp, what = exp / fx - kest, "(Brutto − Quellensteuer) / Devisenkurs − KESt"
-            else:
-                exp -= kest
+    if a is not None and tot is not None:
+        total_cur = ex.value("total_currency", cur)
+        reference = str(ex.value("fx_source", "")).startswith("EZB-Referenzkurs")
+        kest_cur = _convert(kest, "EUR", cur, fx, cur) if kest else 0
+        expected = None
+        if kest_cur is not None:
+            if ex.tx_type == TxType.BUY.value:
+                expected = a + fees
+            elif ex.tx_type == TxType.SELL.value:
+                expected = a - fees - kest_cur
+            elif ex.tx_type in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value, TxType.CAPITAL_REPAYMENT.value):
+                expected = a - wht - fees - kest_cur
+        exp = _convert(expected, cur, total_cur, fx, cur) if expected is not None else None
+        if exp is None or (reference and total_cur != cur):
+            ex.check("Endbetrag stimmt", "info", "Währungsübergreifender Abgleich benötigt den Bankkurs; ein EZB-Referenzkurs ersetzt ihn nicht.")
+        elif abs(exp - tot) > max(0.02, 0.005 * tot):
+            ex.check("Endbetrag stimmt", "warn", f"Berechneter Endbetrag {exp:.2f} {total_cur}, laut Dokument {tot:.2f} {total_cur}.",
+                     "Gebühren, Steuern und Beträge im Original prüfen.")
         else:
-            exp = None
-        if exp is not None:
-            tol = max(0.02, 0.005 * tot)
-            if abs(exp - tot) > tol:
-                ex.check("Endbetrag stimmt", "warn", f"{what} = {exp:.2f}, Endbetrag laut Dokument {tot:.2f}.",
-                         "Fehlende Gebühr/Steuer oder falsch erkannten Betrag im Original suchen.")
-            else:
-                ex.check("Endbetrag stimmt", "ok", f"{what} = {exp:.2f} ≈ {tot:.2f}")
+            ex.check("Endbetrag stimmt", "ok", f"Berechneter Endbetrag {exp:.2f} ≈ {tot:.2f} {total_cur}")
     elif a and ex.tx_type in (TxType.BUY.value, TxType.SELL.value):
         ex.check("Endbetrag stimmt", "info", "Kein Endbetrag gefunden – Abgleich nicht möglich.")
 
@@ -502,7 +793,8 @@ def _run_checks(ex: Extraction, text: str) -> None:
     cur = ex.value("currency")
     if cur and cur != "EUR":
         if fx:
-            ex.check("Devisenkurs", "ok", f"{cur}: {fx} je EUR laut Dokument")
+            ex.check("Devisenkurs", "info" if str(ex.value("fx_source", "")).startswith("EZB-Referenzkurs") else "ok",
+                     f"{cur}: {fx} je EUR – {ex.value('fx_source', 'laut Dokument')}")
         else:
             ex.check("Devisenkurs", "info", f"Betrag in {cur} ohne Devisenkurs im Dokument.",
                      "Wird automatisch mit dem EZB-Referenzkurs ergänzt (abschaltbar).")
@@ -521,10 +813,10 @@ def _run_checks(ex: Extraction, text: str) -> None:
             ex.check("Quellenstaat", "warn", "Quellenstaat nicht erkannt.", "Land (ISO-2, z. B. US) eintragen.")
 
     # Deutsche Abzugsteuern (bei österreichischer Ansässigkeit nicht vorgesehen)
-    german = [g for g in _all_labeled_amounts(text, GERMAN_TAX_LABELS)
-              if g[0] and not re.search(r"österreich", g[2], re.I)]
+    german_text = "\n".join(line for line in text.splitlines() if not re.search(r"österreich|austria", line, re.I))
+    german = [g for g in _all_labeled_amounts(german_text, GERMAN_TAX_LABELS) if g[0]]
     german = [g for g in german if g[0] != 0]
-    if german and not kest:
+    if german:
         names = ", ".join(sorted({g[2] for g in german}))
         ex.check("Deutsche Steuer", "error", f"Deutsche Abzugsteuer einbehalten ({names}: "
                  f"{sum(abs(g[0]) for g in german):.2f}). Sie ist keine österreichische KESt.",
@@ -533,13 +825,68 @@ def _run_checks(ex: Extraction, text: str) -> None:
     if kest:
         ex.check("Österreichische KESt", "ok", f"{kest:.2f} einbehalten")
 
-    low = [c for c in ex.checks if c["result"] == "warn" and c["name"] in FIELD_LABELS.values()]
     errors = [c for c in ex.checks if c["result"] == "error"]
-    ex.complete = bool(ex.tx_type and not ex.missing and not low and not errors)
+    ex.complete = bool(ex.tx_type and not ex.missing and not ex.warnings and not errors)
 
 
-def extract_pdf(data: bytes, engine: str = "auto") -> Extraction:
+def _ocr_text(data: bytes) -> str:
+    import pymupdf
+    try:
+        with pymupdf.open(stream=data, filetype="pdf") as doc:
+            if len(doc) > 8:
+                raise PdfError("Lokale OCR ist auf 8 Seiten je Dokument begrenzt; bitte PDF aufteilen.")
+            pages = []
+            for page in doc:
+                if page.rect.width * page.rect.height > 2_000_000:
+                    raise PdfError("PDF-Seite für lokale OCR zu groß.")
+                tp = page.get_textpage_ocr(language="deu+eng", dpi=200, full=True)
+                pages.append(page.get_text(textpage=tp, sort=True))
+            return "\n".join(pages)
+    except PdfError:
+        raise
+    except Exception as exc:
+        raise PdfError("Lokale OCR nicht verfügbar oder fehlgeschlagen. Tesseract mit deutschen und englischen Sprachdaten prüfen.") from exc
+
+
+def extract_pdf(data: bytes, engine: str = "auto", *, fx_service=None, allow_download: bool = False,
+                ocr_enabled: bool = False) -> Extraction:
     text, used = extract_text(data, engine)
     ex = parse_text(text)
+    if engine == "auto" and ex.missing and text.strip():
+        alternative, alt_used = extract_text(data, "pymupdf")
+        other = parse_text(alternative)
+        # Choose a whole extraction; never combine conflicting readings across engines.
+        if len(other.missing) < len(ex.missing) and not any(c["result"] == "error" and c["name"] != "Bruttobetrag" for c in other.checks):
+            ex, text, used = other, alternative, alt_used
+    if ocr_enabled and (not text.strip() or (ex.creates_transaction and ex.missing)):
+        try:
+            ocr_text = _ocr_text(data)
+            other = parse_text(ocr_text)
+            if not text.strip() or len(other.missing) < len(ex.missing):
+                text, ex, used = ocr_text, other, "Tesseract (lokal)"
+        except PdfError as exc:
+            ex.check("Lokale OCR", "info", str(exc), "Original prüfen bzw. Werte manuell erfassen.")
+    cur, day = ex.value("currency"), ex.value("trade_date")
+    if (fx_service is not None and cur and cur != "EUR" and day and day <= date.today() and not ex.value("fx_rate")
+            and ex.creates_transaction and ex.tx_type and ex.fields["trade_date"].confidence >= 0.8
+            and ex.fields["currency"].confidence >= 0.8
+            and not any(c["name"] == "Devisenkurs eindeutig" for c in ex.checks)):
+        from ..fx import FxError
+        try:
+            rates = fx_service.rates(allow_download=allow_download, needed_until=day)
+            hit = rates.lookup(cur, day) if rates else None
+            if hit:
+                rate, rate_day = hit
+                source = (f"EZB-Referenzkurs {cur} {rate} vom {rate_day.isoformat()} "
+                          f"(Buchungsdatum {day.isoformat()}; {fx_service.url})")
+                ex = parse_text(text, reference_fx=Field(rate, 0.8, source))
+            else:
+                ex.check("Online-Umrechnung", "info", f"Kein EZB-Referenzkurs für {cur} am {day.isoformat()} verfügbar.")
+        except FxError as exc:
+            ex.check("Online-Umrechnung", "info", str(exc), "Kurs später erneut abrufen oder manuell ergänzen.")
+    if used == "Tesseract (lokal)":
+        ex.check("Lokale OCR", "warn", "Werte aus gescanntem Dokument erkannt; mögliche Zeichenfehler mit dem Original vergleichen.",
+                 "ISIN, Datum und sämtliche Beträge vor Übernahme kontrollieren.")
+        ex.complete = False
     ex.engine = used
     return ex

@@ -18,6 +18,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import math
 import urllib.request
 import zipfile
 from bisect import bisect_right
@@ -96,7 +97,7 @@ def parse_ecb_csv(text: str, source: str = "EZB") -> FxRates:
                 rate = float(val)
             except ValueError:
                 continue
-            if rate > 0:
+            if math.isfinite(rate) and rate > 0:
                 out.setdefault(cur, {})[d] = rate
     if not out:
         raise FxError("Keine Kurse in der Datei gefunden")
@@ -104,13 +105,22 @@ def parse_ecb_csv(text: str, source: str = "EZB") -> FxRates:
 
 
 def _csv_from_bytes(data: bytes) -> str:
-    if data[:2] == b"PK":
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            names = [n for n in zf.namelist() if n.lower().endswith(".csv")]
-            if not names:
-                raise FxError("ZIP enthält keine CSV-Datei")
-            return zf.read(names[0]).decode("utf-8-sig")
-    return data.decode("utf-8-sig")
+    if len(data) > MAX_DOWNLOAD_BYTES:
+        raise FxError("Kursdatei ist zu groß")
+    try:
+        if data[:2] == b"PK":
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                entries = [i for i in zf.infolist() if i.filename.lower().endswith(".csv")]
+                if len(entries) != 1:
+                    raise FxError("Kurs-ZIP muss genau eine CSV-Datei enthalten")
+                if entries[0].file_size > MAX_DOWNLOAD_BYTES:
+                    raise FxError("Entpackte Kursdatei ist zu groß")
+                return zf.read(entries[0]).decode("utf-8-sig")
+        return data.decode("utf-8-sig")
+    except FxError:
+        raise
+    except (zipfile.BadZipFile, UnicodeDecodeError, RuntimeError) as exc:
+        raise FxError("Kursdatei ist beschädigt oder nicht als UTF-8 lesbar") from exc
 
 
 class FxService:
@@ -121,6 +131,7 @@ class FxService:
         self.url = url
         self.timeout = timeout
         self._rates: FxRates | None = None
+        self._download_attempted = False
 
     @property
     def cache_file(self) -> Path:
@@ -167,7 +178,8 @@ class FxService:
                 log.warning("Kurs-Cache unbrauchbar: %s", exc)
         stale = (self._rates is None or (needed_until is not None and self._rates.last_date is not None
                                         and self._rates.last_date < min(needed_until, date.today() - timedelta(days=1))))
-        if stale and allow_download:
+        if stale and allow_download and not self._download_attempted:
+            self._download_attempted = True
             return self.download()
         return self._rates
 

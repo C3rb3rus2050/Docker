@@ -35,7 +35,7 @@ TARGET_FIELDS: dict[str, tuple[str, bool, tuple[str, ...]]] = {
     "price": ("Kurs", False, ("kurs", "preis", "price", "ausführungskurs", "ausfuehrungskurs", "kurs je stück",
                               "share price")),
     "currency": ("Währung", False, ("währung", "waehrung", "currency", "whg", "ccy")),
-    "amount": ("Betrag (brutto)", True, ("betrag", "amount", "kurswert", "bruttobetrag", "brutto", "gesamt",
+    "amount": ("Betrag (brutto)", True, ("betrag", "amount", "kurswert", "bruttobetrag", "brutto", "gross amount", "gesamt",
                                          "total", "wert", "value", "ordervolumen", "summe")),
     "fees": ("Gebühren", False, ("gebühren", "gebuehren", "gebühr", "fee", "fees", "provision", "kosten",
                                  "fremdkosten", "transaktionskosten", "commission")),

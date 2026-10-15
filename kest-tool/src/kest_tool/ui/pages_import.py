@@ -32,7 +32,6 @@ from ..importers.oekb_importer import (
 from ..importers.parsing import parse_tx_type
 from ..importers.pdf_importer import PdfError, extract_pdf
 from ..models import DOC_SOURCES, FundReportIn, ReviewStatus, TransactionIn, TxType
-from ..processing import process_documents
 from ..storage import sha256_bytes
 from . import common as C
 
@@ -69,31 +68,27 @@ def render() -> None:
     st.title("Dokumente importieren")
     from .guide import upload_box
     upload_box(y, "import_page", expanded=True)
-    st.info("Dateien, ZIP-Archive oder ganze Ordner vom eigenen Computer können Sie oben hochladen. "
-            "Die erweiterten Importarten unten dienen der CSV/Excel-Spaltenzuordnung, "
-            "den OeKB-Fondsdaten und optionalen Serverordnern.")
+    st.caption("Format, Spalten und eindeutige Depots werden automatisch erkannt. "
+               "Originale bleiben erhalten; identische Dateien und Buchungen werden erkannt.")
     C.link("dashboard", "Zur Übersicht")
-    st.caption("Originaldateien werden unverändert in der Ablage gespeichert. Erneut importierte Dateien werden über "
-               "SHA-256 erkannt. Vor jedem Import wird eine Vorschau angezeigt.")
-    if "last_process_results" in st.session_state:
-        C.show_process_results(st.session_state.pop("last_process_results"))
-    kind = st.selectbox("Erweiterte Importart", IMPORT_TYPES)
-    deps = C.depot_options()
-    if kind.startswith("CSV") and not deps:
-        st.warning("Bitte zuerst unter **Broker & Depots** ein Depot anlegen.")
-        return
-    if kind.startswith("CSV"):
-        _csv_import(y, deps)
-    elif kind.startswith("PDF – Abr"):
-        _pdf_import(y, deps)
-    elif kind.startswith("PDF – Jahres"):
-        _doc_only_import(y)
-    elif kind.startswith("OeKB – Fondsdaten"):
-        _oekb_csv(y)
-    elif kind.startswith("OeKB – Fondsmeldung"):
-        _oekb_pdf(y)
-    else:
-        _folder_import(y, deps)
+    with st.expander("Manuelle Sonderimporte und Serverordner (optional)"):
+        kind = st.selectbox("Erweiterte Importart", IMPORT_TYPES)
+        deps = C.depot_options()
+        if kind.startswith("CSV") and not deps:
+            st.warning("Bitte zuerst unter **Broker & Depots** ein Depot anlegen.")
+            return
+        if kind.startswith("CSV"):
+            _csv_import(y, deps)
+        elif kind.startswith("PDF – Abr"):
+            _pdf_import(y, deps)
+        elif kind.startswith("PDF – Jahres"):
+            _doc_only_import(y)
+        elif kind.startswith("OeKB – Fondsdaten"):
+            _oekb_csv(y)
+        elif kind.startswith("OeKB – Fondsmeldung"):
+            _oekb_pdf(y)
+        else:
+            _folder_import(y, deps)
     st.divider()
     st.subheader("Fehler- und Importprotokoll")
     runs = c.repo.import_runs(20)
@@ -231,6 +226,16 @@ def pdf_review_form(doc: dict, extraction: dict, depot_id: int | None, key: str)
     st.write(f"Erkannter Broker: **{broker}** · Dokumenttyp: **{extraction.get('doc_type')}**"
              + (f" · {extraction['status_text']}" if extraction.get("status_text") else ""))
     from .guide import show_check_report
+    from ..importers.pdf_importer import FIELD_LABELS
+    with st.expander("Alle erkannten Angaben und ihre Quellen"):
+        C.df([{"Angabe": FIELD_LABELS.get(name, name), "Wert": str(field.get("value", "")),
+               "Konfidenz": f"{field.get('confidence', 0):.0%}", "Quelle": field.get("source", "")}
+              for name, field in f.items()])
+        if extraction.get("text_excerpt"):
+            st.caption("Textauszug aus dem Dokument (maximal 4.000 Zeichen)")
+            st.text(extraction["text_excerpt"])
+    if v("fx_source"):
+        st.caption(f"Umrechnung: {v('fx_source')}")
     if extraction.get("checks"):
         show_check_report(extraction["checks"])
     else:
@@ -272,7 +277,7 @@ def pdf_review_form(doc: dict, extraction: dict, depot_id: int | None, key: str)
         fees = cols[1].number_input("Gebühren" + conf("fees"), value=float(v("fees", 0) or 0), format="%.2f")
         st.markdown("#### 3. Währung und Steuern")
         cols = st.columns(2)
-        curs = C.ctx().settings.currencies
+        curs = list(dict.fromkeys(C.ctx().settings.currencies + ([v("currency")] if v("currency") else [])))
         cur = cols[0].selectbox("Währung", curs, index=curs.index(v("currency", "EUR")) if v("currency", "EUR") in curs
                                 else 0)
         fx = cols[1].number_input("Devisenkurs (Währung je EUR)", value=float(v("fx_rate", 0) or 0), format="%.6f")
@@ -288,7 +293,9 @@ def pdf_review_form(doc: dict, extraction: dict, depot_id: int | None, key: str)
             tx = TransactionIn(depot_id=deps[depot_label], tx_type=TxType(t), trade_date=trade_date,
                                isin=isin or None, security_name=name or None, quantity=qty or None,
                                price=price or None, amount=amount or None, fees=fees, currency=cur,
-                               fx_rate=fx or None, withholding_tax=wht, withholding_country=country or None,
+                               fx_rate=fx or None, fx_source=v("fx_source") if fx == v("fx_rate") else "manuell erfasst/geändert",
+                               value_date=date.fromisoformat(v("value_date")) if isinstance(v("value_date"), str) else v("value_date"),
+                               withholding_tax=wht, withholding_country=country or None,
                                kest_at_eur=kest, source_type="pdf", source_ref=doc["original_filename"],
                                document_id=doc["id"],
                                review_status=ReviewStatus.CHECKED if checked and extraction.get("complete")
@@ -357,7 +364,7 @@ def _pdf_import(y: int, deps: dict) -> None:
         st.session_state["pdf_import_ids"] = list(dict.fromkeys(ids))
         st.session_state["pdf_import_errors"] = errors
         st.session_state["pdf_import_results"] = (
-            process_documents(repo, ids, default_depot) if auto and ids else []
+            C.process_documents(repo, ids, default_depot) if auto and ids else []
         )
         if auto and ids:
             C.invalidate_results()
@@ -373,7 +380,7 @@ def _pdf_import(y: int, deps: dict) -> None:
         if not doc or repo.transactions_for_document(did):
             continue
         try:
-            exd = extraction_for(repo, doc)
+            exd = extraction_for(repo, doc, **C.document_analysis_options())
         except (PdfError, OSError, ValueError) as exc:
             st.error(f"PDF „{doc['original_filename']}“ konnte nicht analysiert werden: {exc}")
             continue
@@ -500,7 +507,7 @@ def _oekb_pdf(y: int) -> None:
 # --------------------------------------------------------------------------- #
 def _folder_import(y: int, deps: dict) -> None:
     """Explicit, opt-in server-side folder import using the validated upload pipeline."""
-    from ..processing import expand_upload, process_documents, store_uploads
+    from ..processing import expand_upload, store_uploads
 
     st.caption("Dieser Import liest Dateien vom Server/Proxmox-LXC, nicht vom Windows-PC. "
                "Für lokale Ordner verwenden Sie oben die Upload-Art »Kompletten Ordner«.")
@@ -560,7 +567,7 @@ def _folder_import(y: int, deps: dict) -> None:
         st.session_state["server_folder_report"] = {
             "new": new_count, "duplicates": duplicates, "skipped": skipped}
         if auto and new_ids:
-            C.after_processing(process_documents(repo, new_ids, deps.get(dflt)))
+            C.after_processing(C.process_documents(repo, new_ids, deps.get(dflt)))
         else:
             st.rerun()
 

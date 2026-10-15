@@ -26,7 +26,7 @@ import:
 
 pdf:
   engine: auto              # auto (pdfplumber, Fallback PyMuPDF) | pdfplumber | pymupdf
-  ocr_enabled: false        # keine OCR; gescannte PDFs manuell erfassen
+  ocr_enabled: false        # optionale lokale Tesseract-OCR (Deutsch/Englisch), Ergebnisse immer prüfen
 
 privacy:
   allow_external_services: false   # es gibt keine Funktion, die Daten an externe Dienste sendet

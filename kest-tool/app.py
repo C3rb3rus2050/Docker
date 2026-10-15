@@ -65,11 +65,9 @@ with st.sidebar:
     st.markdown('<div class="kest-admin-brand">KESt<span>Manager</span></div>',
                 unsafe_allow_html=True)
     st.page_link(P["import"], label="Dokumente hochladen", icon="📥")
-    st.markdown(f'<div class="kest-sidebar-caption">Version {__version__} · lokal</div>',
+    st.markdown(f'<div class="kest-sidebar-caption">Version {__version__} · Private Verwaltung</div>',
                 unsafe_allow_html=True)
     st.caption(C.DISCLAIMER)
-st.markdown('<div class="kest-admin-context">Lokale Steuerverwaltung · Keine automatische Übermittlung an FinanzOnline</div>',
-            unsafe_allow_html=True)
 try:
     nav.run()
 except ScriptControlException:

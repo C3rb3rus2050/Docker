@@ -14,7 +14,7 @@ from datetime import date
 
 from pydantic import ValidationError
 
-from .importers.pdf_importer import PdfError, extract_pdf
+from .importers.pdf_importer import PARSER_VERSION, PdfError, extract_pdf
 from .models import ReviewStatus, TransactionIn, TxType
 from .repository import Repository
 
@@ -95,15 +95,21 @@ def resolve_depot(repo: Repository, doc: dict, broker_key: str | None, default_d
     return default_depot
 
 
-def extraction_for(repo: Repository, doc: dict) -> dict:
+def extraction_for(repo: Repository, doc: dict, **analysis_options) -> dict:
     if doc.get("extraction_json"):
         try:
             cached = json.loads(doc["extraction_json"])
-            if isinstance(cached, dict) and "fields" in cached:
-                return cached
+            if isinstance(cached, dict) and "fields" in cached and cached.get("parser_version") == PARSER_VERSION:
+                fields = cached["fields"]
+                needs_fx = (fields.get("currency", {}).get("value") not in (None, "EUR")
+                            and not fields.get("fx_rate", {}).get("value")
+                            and analysis_options.get("fx_service") is not None)
+                needs_ocr = cached.get("missing") and analysis_options.get("ocr_enabled")
+                if not needs_fx and not needs_ocr:
+                    return cached
         except (json.JSONDecodeError, TypeError):
             log.warning("Invalid extraction cache for document #%s; reading again", doc["id"])
-    ex = extract_pdf(repo.document_path(doc).read_bytes()).to_dict()
+    ex = extract_pdf(repo.document_path(doc).read_bytes(), **analysis_options).to_dict()
     repo.update_document(doc["id"], extraction_json=json.dumps(ex, ensure_ascii=False, default=str))
     return ex
 
@@ -119,9 +125,10 @@ def transaction_from_extraction(ex: dict, depot_id: int, doc: dict) -> Transacti
     return TransactionIn(
         depot_id=depot_id, tx_type=TxType(ex["tx_type"]),
         trade_date=date.fromisoformat(d) if isinstance(d, str) else d,
+        value_date=date.fromisoformat(v("value_date")) if isinstance(v("value_date"), str) else v("value_date"),
         isin=v("isin"), security_name=v("security_name"), quantity=v("quantity"), price=v("price"),
         amount=v("amount"), fees=v("fees", 0.0) or 0.0, currency=v("currency", "EUR") or "EUR",
-        fx_rate=v("fx_rate"), withholding_tax=v("withholding_tax", 0.0) or 0.0,
+        fx_rate=v("fx_rate"), fx_source=v("fx_source"), withholding_tax=v("withholding_tax", 0.0) or 0.0,
         withholding_country=v("withholding_country"), kest_at_eur=v("kest_at_eur", 0.0) or 0.0,
         source_type="pdf", source_ref=doc["original_filename"], document_id=doc["id"],
         notes="automatisch aus PDF übernommen", review_status=ReviewStatus.UNCHECKED,
@@ -129,7 +136,7 @@ def transaction_from_extraction(ex: dict, depot_id: int, doc: dict) -> Transacti
 
 
 def process_documents(repo: Repository, doc_ids: list[int] | None = None, default_depot: int | None = None,
-                      reextract: bool = False) -> list[ProcessResult]:
+                      reextract: bool = False, **analysis_options) -> list[ProcessResult]:
     """Verarbeitet PDF-Dokumente ohne zugeordnete Buchung.
 
     Gespeicherte Extraktionen werden standardmäßig wiederverwendet. Mit ``reextract=True`` werden sie
@@ -150,11 +157,11 @@ def process_documents(repo: Repository, doc_ids: list[int] | None = None, defaul
                 continue
             try:
                 if reextract:
-                    refreshed = extract_pdf(repo.document_path(doc).read_bytes()).to_dict()
+                    refreshed = extract_pdf(repo.document_path(doc).read_bytes(), **analysis_options).to_dict()
                     repo.update_document(doc["id"], extraction_json=json.dumps(refreshed, ensure_ascii=False, default=str))
                     ex = refreshed
                 else:
-                    ex = extraction_for(repo, doc)
+                    ex = extraction_for(repo, doc, **analysis_options)
             except (PdfError, OSError) as exc:
                 repo.update_document(doc["id"], status="fehlgeschlagen")
                 results.append(ProcessResult(doc["id"], name, "fehler", f"Datei nicht lesbar: {exc}",
@@ -372,7 +379,7 @@ def store_uploads(repo: Repository, files: list[tuple[str, bytes]], fallback_yea
                     continue
                 doc, _, new = store_pdf(repo, data, name, fallback_year, method, engine=engine)
                 res.duplicates += int(not new)
-                if new:
+                if new or doc['status'] in ('pruefen', 'teilweise'):
                     res.pdf_ids.append(doc["id"])
             elif low.endswith((".csv", ".txt", ".xlsx")):
                 head = data[:4000].decode("utf-8", errors="ignore").lower()
@@ -381,7 +388,7 @@ def store_uploads(repo: Repository, files: list[tuple[str, bytes]], fallback_yea
                                              "Transaktionsexport (CSV)", source="OeKB" if is_oekb else "Unclassified",
                                              tax_year=fallback_year, import_method=method, status="pruefen")
                 res.duplicates += int(not new)
-                if new:
+                if new or doc['status'] in ('pruefen', 'teilweise', 'neu'):
                     res.csv_docs.append((doc, is_oekb))
             else:
                 res.skipped.append((name, "Dateityp wird nicht unterstützt (erlaubt: PDF, ZIP, CSV, XLSX)"))
@@ -390,3 +397,91 @@ def store_uploads(repo: Repository, files: list[tuple[str, bytes]], fallback_yea
         except OSError as exc:
             res.skipped.append((name, f"Speichern fehlgeschlagen: {exc}"))
     return res
+
+
+def process_tables(repo: Repository, documents: list, **analysis_options) -> list[ProcessResult]:
+    """Automatically route saved tables; only unambiguous rows become bookings."""
+    from .importers.automatic import automatic_tables, automatic_mapping, table_broker
+    from .importers.csv_importer import ImportOptions, build_preview, commit_preview, auto_mapping, _norm
+    from .importers.oekb_importer import _auto_map, FUND_FIELDS, preview_fund_table, commit_fund_previews
+
+    results = []
+    for doc, _ in documents:
+        try:
+            data = repo.document_path(doc).read_bytes()
+            tables = automatic_tables(data, doc['original_filename'])
+            broker = table_broker(data, doc['original_filename'])
+            if broker:
+                _ensure_broker_depot(repo, broker)
+                repo.update_document(doc['id'], source=broker)
+            depot_id = resolve_depot(repo, doc, broker, None)
+            if not broker and len(repo.depots(active_only=True)) == 1:
+                depot_id = repo.depots(active_only=True)[0]['id']
+            imported = duplicates = pending = 0
+            reasons = []
+            years = set()
+            for table in tables:
+                fund_map = _auto_map(list(table.columns))
+                if all(fund_map.get(k) for k, (_, required, _) in FUND_FIELDS.items() if required):
+                    previews = preview_fund_table(table, fund_map, document_id=doc['id'])
+                    safe = [p for p in previews if not p.errors and not p.warnings and p.report]
+                    report = commit_fund_previews(repo, safe, doc['id'])
+                    imported += report['neu']
+                    duplicates += report['identisch']
+                    pending += len(previews) - len(safe) + report['konflikt']
+                    reasons.extend(e for p in previews for e in p.errors + p.warnings)
+                    repo.update_document(doc['id'], doc_type='OeKB-Fondsmeldung', source='OeKB')
+                    continue
+                if not depot_id:
+                    raise ValueError('Broker/Depot aus dieser Tabelle nicht eindeutig erkennbar')
+                mapping = automatic_mapping(list(table.columns))
+                rows = build_preview(table, mapping, ImportOptions(), depot_id, repo)
+                gross = _norm(mapping.get('amount') or '') in ('brutto', 'bruttobetrag', 'gross amount', 'kurswert')
+                # Generic cash amounts may already include taxes/fees. Keep them for review.
+                for row in rows:
+                    if row.tx and row.tx.currency != 'EUR' and not row.tx.fx_rate and analysis_options.get('fx_service'):
+                        service = analysis_options['fx_service']
+                        rates = service.rates(allow_download=analysis_options.get('allow_download', False),
+                                              needed_until=row.tx.trade_date)
+                        found = rates.lookup(row.tx.currency, row.tx.trade_date) if rates else None
+                        if found:
+                            rate, rate_day = found
+                            row.tx = row.tx.model_copy(update={'fx_rate': rate,
+                                'fx_source': f'EZB {rate_day.isoformat()}; {service.url}'})
+                            row.warnings = [w for w in row.warnings if not w.startswith('Fremdwährung ')]
+                    tax_col = auto_mapping(list(table.columns)).get('kest_at_eur')
+                    if tax_col and not mapping.get('kest_at_eur'):
+                        row.warnings.append('Kapitalertragsteuer ohne eindeutige österreichische Zuordnung')
+                    if not gross:
+                        row.warnings.append('Betrag ist nicht ausdrücklich als Brutto/Kurswert gekennzeichnet')
+                    if not mapping.get('currency'):
+                        row.warnings.append('Währung fehlt in der Tabelle')
+                decisions = {r.row_no: ('uebernehmen' if not r.errors and not r.warnings and r.duplicate == 'neu'
+                                        else 'ignorieren') for r in rows}
+                for row in rows:
+                    if decisions[row.row_no] == 'uebernehmen':
+                        row.tx = row.tx.model_copy(update={'review_status': ReviewStatus.UNCHECKED})
+                result = commit_preview(repo, rows, decisions, import_type='Automatischer Tabellenimport',
+                                        depot_id=depot_id, document_id=doc['id'])
+                imported += result['rows_imported']
+                duplicates += sum(r.duplicate in ('dublette', 'dublette_in_datei') for r in rows)
+                pending += sum(decisions[r.row_no] == 'ignorieren' and r.duplicate not in ('dublette', 'dublette_in_datei')
+                               for r in rows)
+                reasons.extend(e for r in rows if r.duplicate not in ('dublette', 'dublette_in_datei')
+                               for e in r.errors + r.warnings)
+                years.update(r.tx.trade_date.year for r in rows if r.tx)
+            if not any(len(t) for t in tables):
+                raise ValueError('Keine Datenzeilen gefunden')
+            message = f'{imported} übernommen, {duplicates} Dubletten, {pending} zur Prüfung.'
+            if reasons:
+                message += ' ' + '; '.join(dict.fromkeys(reasons))
+            repo.update_document(doc['id'], status='teilweise' if pending and imported else
+                                 ('pruefen' if pending else 'verarbeitet'), notes=message,
+                                 **({'tax_year': years.pop()} if len(years) == 1 else {}))
+            results.append(ProcessResult(doc['id'], doc['original_filename'], 'pruefen' if pending else 'angelegt',
+                                         message, action='Original und Importprotokoll unter Dokumente prüfen.' if pending else ''))
+        except (ValueError, OSError) as exc:
+            repo.update_document(doc['id'], status='pruefen', notes=str(exc))
+            results.append(ProcessResult(doc['id'], doc['original_filename'], 'pruefen', str(exc),
+                                         action='Original unter Dokumente prüfen; Datei bleibt vollständig erhalten.'))
+    return results

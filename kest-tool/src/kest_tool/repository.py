@@ -335,7 +335,7 @@ class Repository:
             "depot_id": tx.depot_id, "security_id": security_id, "isin": tx.isin, "security_name": tx.security_name,
             "tx_type": tx.tx_type.value, "trade_date": _iso(tx.trade_date), "value_date": _iso(tx.value_date),
             "quantity": tx.quantity, "price": tx.price, "currency": tx.currency, "amount": tx.amount,
-            "fees": tx.fees, "fx_rate": tx.fx_rate, "fx_source": "Beleg/Import" if tx.fx_rate else None,
+            "fees": tx.fees, "fx_rate": tx.fx_rate, "fx_source": (tx.fx_source or "Beleg/Import") if tx.fx_rate else None,
             "amount_eur": amount_eur, "fees_eur": fees_eur,
             "withholding_tax": tx.withholding_tax, "withholding_tax_eur": wht_eur,
             "withholding_country": tx.withholding_country, "kest_at_eur": tx.kest_at_eur, "ratio": tx.ratio,

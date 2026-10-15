@@ -25,3 +25,75 @@ Der erweiterte **Serverordner-Import** kann Dateien aus dem Docker-Container/Pro
 ## Betrieb und Datenschutz
 
 Vor einem Versionswechsel sollte ein **Backup** des Ordners `data/kest` erstellt werden. Die Anwendung verwendet lokale Dateien und eine SQLite-Datenbank. Verwenden Sie dieselbe Datenbank nicht gleichzeitig aus zwei unabhängigen Installationen. Erkennungsheuristiken sind **keine steuerliche Verifikation**: Originalbelege, Fondsstatus, Broker-Steuerabzug und Rechenergebnisse weiterhin kontrollieren. Der Broker-PDF-Parser ist hauptsächlich mit synthetischen Musterdokumenten getestet; Layoutänderungen der Broker benötigen reale Testfälle ohne private Daten.
+
+
+## Erweiterte Erkennung und Währungsumrechnung
+
+Der Parser erkennt zusätzliche deutsche und englische Feldnamen, umgebrochene
+Label-/Wertzeilen, Valuta, Wertpapiernamen, Quellenstaat und Zahlen mit deutschen
+oder englischen Tausender-/Dezimaltrennzeichen. Bei fehlenden Pflichtfeldern wird
+zusätzlich die alternative PDF-Texterkennung versucht. Widersprüchliche Angaben
+bleiben zur Prüfung offen. PDFs über 30 Seiten werden nicht teilweise verarbeitet.
+
+Fehlende Stückzahlen, Stückkurse und bestimmte Bruttobeträge können aus belegten
+Werten berechnet werden. Erforderliche, berechnete Werte sind Vorschläge mit
+verminderter Konfidenz; sie lösen keine ungeprüfte automatische Buchung aus.
+Originalbeträge, Währungen, Quellen und ein Textauszug stehen im Prüfformular
+unter **Alle erkannten Angaben und ihre Quellen**.
+
+Belegkurse mit Währungspaar bzw. Gleichung haben Vorrang. Auch inverse Notierungen
+werden auf **Fremdwährung je EUR** normalisiert. Gebühren und Quellensteuern in
+EUR werden bei Fremdwährungsbuchungen in die Buchungswährung umgerechnet; die
+Originalbeträge bleiben im Extraktionsbericht erhalten. Unterschiedliche oder
+widersprüchliche Kurse werden nicht stillschweigend übernommen.
+
+Wenn kein eindeutiger Belegkurs vorliegt, können historische EZB-Referenzkurse
+bereits während der Verarbeitung ergänzt werden. Maßgeblich ist das sicher erkannte
+Buchungsdatum; an Wochenenden/Feiertagen der letzte verfügbare Kurs davor (maximal
+sieben Tage). Es werden niemals zukünftige Kurse verwendet. Quelle:
+https://www.ecb.europa.eu/stats/policy_and_exchange_rates/euro_reference_exchange_rates/html/index.en.html
+
+**Einstellungen → Devisenkurse** steuert den automatischen Internetabruf. Bei
+abgeschaltetem Abruf kann ein vorhandener lokaler EZB-Cache weiterhin genutzt
+werden. Heruntergeladen wird nur die öffentliche historische Kursdatei; PDF-Inhalte,
+Namen und Depotdaten werden nicht übertragen. Quelle und Kursdatum werden mit der
+Buchung gespeichert. EZB-Werte bleiben vorläufig und ersetzen keinen belegten
+Bankkurs beim Abgleich des tatsächlichen Endbetrags. Nicht unterstützte Währungen
+oder fehlende Kurstage bleiben offen. Bei Netzfehlern bleiben erkannte Daten erhalten.
+
+## Gescannte PDFs / lokale OCR
+
+Unter **Einstellungen → Dokumentenerkennung** lässt sich lokale OCR einschalten.
+Das Docker-Image enthält Tesseract mit Deutsch und Englisch. Unter Windows müssen
+Tesseract und die Sprachdaten zusätzlich installiert sein. Es gibt keinen Cloud-Upload.
+OCR wird nur bei fehlendem Text bzw. fehlenden Pflichtfeldern versucht, maximal
+acht Seiten je Dokument bei 200 dpi. OCR-Ergebnisse müssen immer mit dem Original
+verglichen werden und werden nicht automatisch gebucht.
+
+Nach einem Update: **Dokumente → Alle erneut automatisch prüfen**. Offene Originale
+werden mit der neuen Erkennung und den aktuellen EZB-/OCR-Einstellungen erneut
+gelesen. Bereits verknüpfte Buchungen werden dabei weder verändert noch dupliziert.
+
+## Öffentliche Layoutreferenzen
+
+Zusätzlich zu den eigenen Mustern wurden 76 öffentlich bereitgestellte
+PDF-Textauszüge aus dem Testbestand von Portfolio Performance lokal verglichen.
+Es handelt sich um Textauszüge aus Abrechnungen, nicht um die Original-PDFs des
+Nutzers. Die geprüfte Stichprobe enthält Trade-Republic-, Baader- und
+Scalable-Capital-Abrechnungen, darunter Trade-Republic-Belege aus 2022.
+
+Referenzstand: `f84ff1a432ec9ba61c17aa2ae4191c8b068643a7`.
+Beispiele:
+
+- [Trade Republic Kauf 2022](https://github.com/portfolio-performance/portfolio/blob/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Kauf06.txt)
+- [Trade Republic englischer Sparplan](https://github.com/portfolio-performance/portfolio/blob/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Sparplan06.txt)
+- [Trade Republic mehrzeilige Position](https://github.com/portfolio-performance/portfolio/blob/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Dividende31.txt)
+- [Scalable Ertragstabelle](https://github.com/portfolio-performance/portfolio/blob/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/scalablecapital/Dividende01.txt)
+- [Baader Ausführungstabelle](https://github.com/portfolio-performance/portfolio/blob/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/baaderbank/Kauf01.txt)
+
+Daraus wurden eigene synthetische Regressionstests für Stück/Pcs.-Varianten,
+mehrzeilige Positionen, englische Kauf- und Sparplantexte, drei Nachkommastellen
+im Stückkurs sowie Brutto-/Netto-/Valuta-Spalten entwickelt. Die heruntergeladenen
+Fremdbelege werden nicht mitgeliefert. Vollständige Pflichtfelder sind keine
+Bestätigung der steuerlichen Richtigkeit oder der unveränderten Extraktion eines
+anderen PDF-Layouts. Bereits vorhandene Buchungen werden nicht überschrieben.

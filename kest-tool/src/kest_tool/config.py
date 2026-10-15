@@ -3,7 +3,7 @@
 Reihenfolge (spätere Quellen überschreiben frühere):
 
 1. ``config.yaml`` im Projektordner (mitgelieferte Standardwerte, versioniert)
-2. ``config.local.yaml`` im Projektordner (Benutzereinstellungen, nicht versioniert)
+2. Mit ``KEST_TOOL_HOME``: ``<Ablage>/config/config.yaml``; sonst ``config.local.yaml`` im Projektordner
 3. Umgebungsvariable ``KEST_TOOL_HOME`` (Ablageordner, z. B. für Tests)
 
 Eine Kopie der wirksamen Konfiguration wird zusätzlich unter ``<Ablage>/config/config.yaml``
@@ -150,6 +150,7 @@ class Settings:
         _check_no_secrets(changes)
         current = _read_yaml(self.local_file)
         merged = _deep_merge(current, changes)
+        self.local_file.parent.mkdir(parents=True, exist_ok=True)
         self.local_file.write_text(yaml.safe_dump(merged, allow_unicode=True, sort_keys=False), encoding="utf-8")
         self.data = _deep_merge(self.data, changes)
 
@@ -163,19 +164,32 @@ class Settings:
 
 def load_settings(default_file: Path | None = None, local_file: Path | None = None) -> Settings:
     default_file = default_file or DEFAULT_CONFIG_FILE
-    local_file = local_file or LOCAL_CONFIG_FILE
+    managed_home = os.environ.get("KEST_TOOL_HOME")
+    explicit_local = local_file is not None
+    local_file = local_file or (expand_path(managed_home) / "config" / "config.yaml"
+                                if managed_home else LOCAL_CONFIG_FILE)
     data = _deep_merge(DEFAULTS, _read_yaml(default_file))
+    # One-time compatibility with earlier installations; subsequent writes live in the data volume.
+    if managed_home and not explicit_local and not local_file.exists():
+        data = _deep_merge(data, _read_yaml(LOCAL_CONFIG_FILE))
     data = _deep_merge(data, _read_yaml(local_file))
     return Settings(data=data, local_file=local_file)
 
 
 ENV_FILE = PROJECT_ROOT / ".env"
+
+
+def env_file() -> Path:
+    home = os.environ.get("KEST_TOOL_HOME")
+    return expand_path(home) / "secrets" / ".env" if home else ENV_FILE
+
+
 _ENV_NAME = re.compile(r"^[A-Z][A-Z0-9_]{1,63}$")
 
 
 def load_env_file(path: Path | None = None) -> None:
     """Lädt KEY=VALUE-Zeilen aus .env in die Umgebung (bestehende Variablen haben Vorrang)."""
-    path = path or ENV_FILE
+    path = path or env_file()
     if not path.exists():
         return
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -194,7 +208,7 @@ def save_env_var(name: str, value: str, path: Path | None = None) -> None:
         raise ConfigError("Ungültiger Variablenname")
     if any(c in value for c in "\r\n"):
         raise ConfigError("Ungültiger Wert")
-    path = path or ENV_FILE
+    path = path or env_file()
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     lines = [l for l in lines if not l.strip().startswith(f"{name}=")]
     if value:
@@ -202,4 +216,7 @@ def save_env_var(name: str, value: str, path: Path | None = None) -> None:
         os.environ[name] = value
     else:
         os.environ.pop(name, None)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch(mode=0o600, exist_ok=True)
+    path.chmod(0o600)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")

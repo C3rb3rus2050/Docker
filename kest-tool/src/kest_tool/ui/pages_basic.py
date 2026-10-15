@@ -26,7 +26,6 @@ def dashboard() -> None:
     st.caption(C.DISCLAIMER)
     first_run = quickstart()
     s = c.repo.stats(y)
-    upload_box(y, "dash", expanded=first_run or not s["transactions"])
     if s["depots"]:
         cols = st.columns(5)
         cols[0].metric("Broker", s["brokers"])
@@ -34,6 +33,19 @@ def dashboard() -> None:
         cols[2].metric(f"Dokumente {y}", s["documents"], help=f"insgesamt {s['documents_total']}")
         cols[3].metric(f"Buchungen {y}", s["transactions"])
         cols[4].metric("Offene Konflikte", s["open_conflicts"])
+    st.subheader("Ihr nächster Schritt")
+    actions = st.columns(3)
+    for column, number, title, text, target, label in (
+        (actions[0], "01", "Dokumente importieren", "Abrechnungen sammeln und Buchungen übernehmen.", "import", "Zum Import"),
+        (actions[1], "02", "Daten prüfen", "Offene Belege und Zuordnungen vervollständigen.", "dokumente", "Dokumente prüfen"),
+        (actions[2], "03", "Ergebnisse exportieren", "Auswertungen und die E 1kv-Arbeitshilfe erstellen.", "exporte", "Zu den Exporten"),
+    ):
+        with column, st.container(border=True, key=f"next_action_{target}"):
+            st.caption(f"SCHRITT {number}")
+            st.markdown(f"**{title}**")
+            st.caption(text)
+            C.link(target, label)
+    upload_box(y, "dash", expanded=first_run or not s["transactions"])
     if st.button("Neu berechnen", help="Ergebnis nach Änderungen neu berechnen"):
         C.tax_result(y, force=True)
     C.auto_fill_fx(y)
@@ -167,11 +179,15 @@ def settings_page() -> None:
     if is_probably_cloud_synced(c.store.base):
         st.warning("Der Ablageordner liegt vermutlich in einem Cloud-Sync-Ordner (z. B. OneDrive). Finanzdokumente "
                    "würden dann in die Cloud übertragen. Empfehlung: lokalen Ordner wählen.")
+    import os
+    managed_home = bool(os.environ.get("KEST_TOOL_HOME"))
+    if managed_home:
+        st.info("Der Ablageordner wird durch die Installation festgelegt. Einstellungen bleiben hier dauerhaft gespeichert.")
     with st.form("basedir"):
         new = st.text_input("Neuer Ablageordner", value=str(c.store.base),
                             help="Umgebungsvariablen wie %USERPROFILE% sind erlaubt. Bestehende Daten werden nicht "
-                                 "verschoben – dazu Backup erstellen und im neuen Ordner wiederherstellen.")
-        if st.form_submit_button("Speichern"):
+                                 "verschoben – dazu Backup erstellen und im neuen Ordner wiederherstellen.", disabled=managed_home)
+        if st.form_submit_button("Speichern", disabled=managed_home):
             try:
                 from ..config import expand_path
                 p = expand_path(new)
@@ -205,6 +221,15 @@ def settings_page() -> None:
             C.reset_context()
             st.success("Gespeichert")
             st.rerun()
+    st.subheader("Dokumentenerkennung")
+    ocr = st.checkbox("Gescannte PDFs mit lokaler OCR lesen (Deutsch und Englisch)",
+                      value=bool(c.settings.get("pdf.ocr_enabled", False)),
+                      help="Docker enthält Tesseract. Unter Windows sind Tesseract und Sprachdaten zusätzlich erforderlich. OCR-Ergebnisse müssen geprüft werden.")
+    if ocr != bool(c.settings.get("pdf.ocr_enabled", False)):
+        c.settings.save_local({"pdf": {"ocr_enabled": ocr}})
+        C.reset_context()
+        st.rerun()
+    st.caption("Nach Updates unter Dokumente → Alle erneut automatisch prüfen die offenen Originale neu auslesen. Bestehende Buchungen bleiben erhalten.")
     st.subheader("Devisenkurse (EZB-Referenzkurse)")
     from ..fx import ECB_URL, FxError, FxService
     fxs = FxService(c.store.base)
@@ -296,7 +321,7 @@ def settings_page() -> None:
     st.write("Es werden keine Dokumente oder Finanzdaten an externe KI-, OCR- oder Cloud-Dienste übertragen. Internetzugriffe "
              "(beide abschaltbar, siehe oben): Download der öffentlichen EZB-Kursdatei und – nur mit API-Schlüssel – "
              "Wertpapierkurse von EODHD (übertragen werden nur ISIN/Kürzel und Zeitraum). Keine Broker-Zugangsdaten werden gespeichert. Streamlit-Telemetrie ist in "
-             "`.streamlit/config.toml` abgeschaltet, die Oberfläche lauscht nur auf 127.0.0.1.")
+             "`.streamlit/config.toml` abgeschaltet, der Zugriff wird durch die lokale Installation bzw. die Docker-Portfreigabe begrenzt.")
     st.subheader("Backup und Wiederherstellung")
     col1, col2 = st.columns(2)
     with col1:
@@ -316,8 +341,10 @@ def settings_page() -> None:
         move = st.checkbox("Bestehende Daten vorher in einen Sicherungsordner verschieben (erforderlich, wenn der "
                            "Ablageordner nicht leer ist)")
         if up and st.button("Wiederherstellen"):
-            tmp = c.store.base.parent / f".restore_{up.name}"
-            tmp.write_bytes(up.getvalue())
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as upload:
+                upload.write(up.getvalue())
+                tmp = Path(upload.name)
             try:
                 manifest = verify_backup(tmp)
                 base = c.store.base
