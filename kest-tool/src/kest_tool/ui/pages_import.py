@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import date
 from pathlib import Path
 
@@ -38,7 +39,7 @@ from . import common as C
 NONE = "— nicht zugeordnet —"
 IMPORT_TYPES = ["CSV/Excel – Transaktionen", "PDF – Abrechnungen (Kauf/Verkauf/Dividende/…)",
                 "PDF – Jahressteuerbescheinigung/sonstige Belege", "OeKB – Fondsdaten (CSV/Excel)",
-                "OeKB – Fondsmeldung (PDF)", "Ordner einlesen (manuell heruntergeladene Dokumente)"]
+                "OeKB – Fondsmeldung (PDF)", "Serverordner einlesen (optional)"]
 
 
 def _check_upload(name: str, data: bytes) -> str | None:
@@ -65,19 +66,20 @@ def _source_for_depot(depot_id: int | None) -> str:
 def render() -> None:
     c = C.ctx()
     y = C.year_selector()
-    st.title("Import (erweitert)")
+    st.title("Dokumente importieren")
     from .guide import upload_box
     upload_box(y, "import_page", expanded=True)
-    st.info("PDFs und ZIP-Archive können direkt oben per Drag & Drop importiert werden. Die erweiterten Importarten unten benötigen Sie für "
-            "Sie für CSV/Excel-Exporte (Spaltenzuordnung), OeKB-Daten und Ordner auf der Festplatte.")
+    st.info("Dateien, ZIP-Archive oder ganze Ordner vom eigenen Computer können Sie oben hochladen. "
+            "Die erweiterten Importarten unten dienen der CSV/Excel-Spaltenzuordnung, "
+            "den OeKB-Fondsdaten und optionalen Serverordnern.")
     C.link("dashboard", "Zur Übersicht")
     st.caption("Originaldateien werden unverändert in der Ablage gespeichert. Erneut importierte Dateien werden über "
                "SHA-256 erkannt. Vor jedem Import wird eine Vorschau angezeigt.")
     if "last_process_results" in st.session_state:
         C.show_process_results(st.session_state.pop("last_process_results"))
-    kind = st.radio("Importtyp", IMPORT_TYPES, horizontal=False)
+    kind = st.selectbox("Erweiterte Importart", IMPORT_TYPES)
     deps = C.depot_options()
-    if kind.startswith(("CSV", "PDF – Abr")) and not deps:
+    if kind.startswith("CSV") and not deps:
         st.warning("Bitte zuerst unter **Broker & Depots** ein Depot anlegen.")
         return
     if kind.startswith("CSV"):
@@ -497,41 +499,68 @@ def _oekb_pdf(y: int) -> None:
 
 # --------------------------------------------------------------------------- #
 def _folder_import(y: int, deps: dict) -> None:
+    """Explicit, opt-in server-side folder import using the validated upload pipeline."""
+    from ..processing import expand_upload, process_documents, store_uploads
+
+    st.caption("Dieser Import liest Dateien vom Server/Proxmox-LXC, nicht vom Windows-PC. "
+               "Für lokale Ordner verwenden Sie oben die Upload-Art »Kompletten Ordner«.")
+    if os.getenv("KEST_ALLOW_SERVER_FOLDER_IMPORT") != "1":
+        st.info("Serverordner-Import ist aus Sicherheitsgründen deaktiviert. "
+                "Administratoren können ihn mit KEST_ALLOW_SERVER_FOLDER_IMPORT=1 aktivieren.")
+        return
     repo = C.ctx().repo
-    st.caption("Liest PDF- und CSV-Dateien aus einem frei gewählten lokalen Ordner ein. Die Originale bleiben unverändert.")
-    folder = st.text_input("Ordnerpfad", placeholder="Pfad zu den Dokumenten", key="folder_path")
+    folder = st.text_input("Serverordner", placeholder="/data/importe", key="folder_path")
     recursive = st.checkbox("Unterordner einbeziehen", value=True)
-    auto = st.checkbox("Vollständig erkannte Abrechnungen danach automatisch als Buchung übernehmen", value=True)
-    dflt = st.selectbox("Standarddepot, falls das Depot nicht eindeutig ist", ["—"] + list(deps), key="folder_depot")
+    auto = st.checkbox("Eindeutige Abrechnungen automatisch buchen", value=True)
+    dflt = st.selectbox("Standarddepot, falls nicht eindeutig", ["automatisch"] + list(deps),
+                        key="folder_depot")
+    report = st.session_state.pop("server_folder_report", None)
+    if report:
+        st.success(f"{report['new']} neue Datei(en), {report['duplicates']} Dublette(n), "
+                   f"{len(report['skipped'])} übersprungen.")
+        if report["skipped"]:
+            with st.expander("Übersprungene Dateien und Gründe"):
+                for name, reason in report["skipped"][:200]:
+                    st.write(f"**{name}:** {reason}")
     if not folder:
         return
-    p = Path(folder).expanduser()
+    p = Path(folder).expanduser().resolve()
     if not p.is_dir():
-        st.error("Ordner nicht gefunden")
+        st.error("Serverordner nicht gefunden.")
         return
-    files = [f for f in (p.rglob("*") if recursive else p.glob("*"))
-             if f.is_file() and f.suffix.lower() in (".pdf", ".csv")]
-    st.write(f"{len(files)} Dateien gefunden.")
-    if files and st.button("Einlesen", type="primary"):
-        new_n = dup_n = err_n = 0
-        new_ids = []
+    files = sorted((f for f in (p.rglob("*") if recursive else p.glob("*"))
+                    if f.is_file() and not f.is_symlink()
+                    and f.suffix.lower() in (".pdf", ".csv", ".xlsx", ".txt", ".zip")))
+    st.caption(f"{len(files)} unterstützte Datei(en) gefunden.")
+    if len(files) > 2000:
+        st.error("Mehr als 2.000 Dateien gefunden. Bitte kleinere Ordner auswählen.")
+        return
+    if files and st.button("Serverordner jetzt importieren", type="primary", key="server_folder_go"):
+        max_bytes = int(C.ctx().settings.get("import.max_upload_mb", 50)) * 1024 * 1024
+        new_ids, new_count, duplicates, skipped = [], 0, 0, []
         progress = st.progress(0.0)
-        for i, f in enumerate(files, 1):
+        for index, file in enumerate(files, 1):
             try:
-                data = f.read_bytes()
-                if f.suffix.lower() == ".pdf":
-                    doc, _, new = _store_pdf(data, f.name, y, deps.get(dflt), "ordner-import")
-                    new_ids.append(doc["id"])
-                else:
-                    _, new = repo.add_document(data, f.name, doc_type="Transaktionsexport (CSV)", tax_year=y,
-                                               import_method="ordner-import", status="pruefen")
-                new_n += int(new)
-                dup_n += int(not new)
-            except Exception as exc:  # noqa: BLE001
-                err_n += 1
-                st.warning(f"{f.name}: {exc}")
-            progress.progress(i / len(files))
-        st.success(f"{new_n} neu abgelegt, {dup_n} bereits vorhanden, {err_n} Fehler.")
+                if file.stat().st_size > max_bytes:
+                    skipped.append((file.name, "Datei ist größer als das Upload-Limit"))
+                    continue
+                items = expand_upload(file.name, file.read_bytes())
+                if not items:
+                    skipped.append((file.name, "Keine unterstützten Dateien enthalten"))
+                    continue
+                result = store_uploads(repo, items, y, method="ordner-import")
+                new_ids.extend(result.pdf_ids)
+                new_count += len(result.pdf_ids) + len(result.csv_docs)
+                duplicates += result.duplicates
+                skipped.extend(result.skipped)
+            except (OSError, ValueError) as exc:
+                skipped.append((file.name, str(exc)))
+            finally:
+                progress.progress(index / len(files))
+        st.session_state["server_folder_report"] = {
+            "new": new_count, "duplicates": duplicates, "skipped": skipped}
         if auto and new_ids:
-            from ..processing import process_documents
             C.after_processing(process_documents(repo, new_ids, deps.get(dflt)))
+        else:
+            st.rerun()
+
