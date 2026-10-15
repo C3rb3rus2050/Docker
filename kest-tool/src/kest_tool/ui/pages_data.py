@@ -461,7 +461,7 @@ def _document_detail(repo, doc: dict, y: int, review_first: bool, prefix: str = 
         if st.button("PDF-Analyse aktualisieren", key=f"{prefix}refresh_{did}",
                      help="Liest das Original erneut aus. Bestehende Buchungen bleiben unverändert."):
             try:
-                updated = extract_pdf(path.read_bytes()).to_dict()
+                updated = extract_pdf(path.read_bytes(), **C.document_analysis_options()).to_dict()
                 repo.update_document(did, extraction_json=json.dumps(updated, ensure_ascii=False, default=str))
                 doc = repo.document(did)
                 st.success("PDF wurde erneut analysiert. Der Prüfbericht wurde aktualisiert.")
@@ -620,9 +620,8 @@ def documents() -> None:
                 dflt = cols[0].selectbox("Depot, falls nicht eindeutig", ["automatisch"] + list(deps),
                                          key="doc_dflt_depot")
                 if cols[1].button("Alle erneut automatisch prüfen", help="Nach Ergänzungen (z. B. neues Depot) "
-                                  "noch einmal versuchen"):
-                    from ..processing import process_documents
-                    C.after_processing(process_documents(repo, pdf_ids, deps.get(dflt)))
+                                  "Originale mit der aktuellen Erkennung und den konfigurierten EZB-/OCR-Optionen erneut auslesen"):
+                    C.after_processing(C.process_documents(repo, pdf_ids, deps.get(dflt), reextract=True))
             _bulk_document_editor(repo, open_docs, "open_docs")
             did = st.selectbox("Dokument zur Einzelprüfung öffnen", [d["id"] for d in open_docs],
                                key="open_doc_sel",

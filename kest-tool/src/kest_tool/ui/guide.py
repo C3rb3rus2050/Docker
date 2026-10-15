@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import streamlit as st
 
-from ..processing import expand_upload, process_documents, store_uploads
+from ..processing import expand_upload, store_uploads
 from . import common as C
 
 RESULT_ICON = {"ok": "✅", "info": "ℹ️", "warn": "⚠️", "error": "❌"}
@@ -96,7 +96,7 @@ def upload_box(y: int, key: str, expanded: bool = True) -> None:
                 st.stop()
             with st.spinner(f"{len(items)} Datei(en) werden abgelegt und geprüft …"):
                 res = store_uploads(c.repo, items, y, c.settings.get("pdf.engine", "auto"))
-                results = process_documents(c.repo, res.pdf_ids, deps.get(dflt)) if res.pdf_ids else []
+                results = C.process_documents(c.repo, res.pdf_ids, deps.get(dflt)) if res.pdf_ids else []
             st.session_state["upload_notes"] = {
                 "skipped": problems + res.skipped,
                 "csv": [(d["original_filename"], oekb) for d, oekb in res.csv_docs],

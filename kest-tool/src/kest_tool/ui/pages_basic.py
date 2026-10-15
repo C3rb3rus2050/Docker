@@ -221,6 +221,15 @@ def settings_page() -> None:
             C.reset_context()
             st.success("Gespeichert")
             st.rerun()
+    st.subheader("Dokumentenerkennung")
+    ocr = st.checkbox("Gescannte PDFs mit lokaler OCR lesen (Deutsch und Englisch)",
+                      value=bool(c.settings.get("pdf.ocr_enabled", False)),
+                      help="Docker enthält Tesseract. Unter Windows sind Tesseract und Sprachdaten zusätzlich erforderlich. OCR-Ergebnisse müssen geprüft werden.")
+    if ocr != bool(c.settings.get("pdf.ocr_enabled", False)):
+        c.settings.save_local({"pdf": {"ocr_enabled": ocr}})
+        C.reset_context()
+        st.rerun()
+    st.caption("Nach Updates unter Dokumente → Alle erneut automatisch prüfen die offenen Originale neu auslesen. Bestehende Buchungen bleiben erhalten.")
     st.subheader("Devisenkurse (EZB-Referenzkurse)")
     from ..fx import ECB_URL, FxError, FxService
     fxs = FxService(c.store.base)

@@ -169,7 +169,7 @@ def status_badge(status: str) -> str:
 
 def status_panel(y: int, key: str) -> None:
     """Datenstand und nächste Schritte – erklärt, warum (noch) nichts berechnet wird."""
-    from ..processing import data_status, process_documents
+    from ..processing import data_status
 
     c = ctx()
     stt = data_status(c.repo, y)
@@ -415,3 +415,17 @@ def form_error(exc: Exception) -> None:
         field = FIELD_DE.get(loc[-1], loc[-1]) if loc else ""
         lines.append(f"- **{field}:** {msg}" if field else f"- {msg}")
     st.error("Bitte korrigieren:\n" + "\n".join(lines))
+
+
+def document_analysis_options() -> dict:
+    """Keep network policy in the UI; the parser itself is offline unless explicitly configured."""
+    from ..fx import FxService
+    c = ctx()
+    return {"fx_service": FxService(c.store.base),
+            "allow_download": bool(c.settings.get("fx.auto_fetch", True)),
+            "ocr_enabled": bool(c.settings.get("pdf.ocr_enabled", False))}
+
+
+def process_documents(repo, doc_ids=None, default_depot=None, reextract=False):
+    from ..processing import process_documents as process
+    return process(repo, doc_ids, default_depot, reextract=reextract, **document_analysis_options())

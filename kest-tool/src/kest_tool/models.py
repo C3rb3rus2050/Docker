@@ -146,6 +146,7 @@ class TransactionIn(BaseModel):
     amount: Optional[float] = None
     fees: float = 0.0
     fx_rate: Optional[float] = Field(default=None, gt=0)
+    fx_source: Optional[str] = None
     withholding_tax: float = 0.0
     withholding_country: Optional[str] = None
     kest_at_eur: float = 0.0

@@ -14,7 +14,7 @@ from datetime import date
 
 from pydantic import ValidationError
 
-from .importers.pdf_importer import PdfError, extract_pdf
+from .importers.pdf_importer import PARSER_VERSION, PdfError, extract_pdf
 from .models import ReviewStatus, TransactionIn, TxType
 from .repository import Repository
 
@@ -95,15 +95,21 @@ def resolve_depot(repo: Repository, doc: dict, broker_key: str | None, default_d
     return default_depot
 
 
-def extraction_for(repo: Repository, doc: dict) -> dict:
+def extraction_for(repo: Repository, doc: dict, **analysis_options) -> dict:
     if doc.get("extraction_json"):
         try:
             cached = json.loads(doc["extraction_json"])
-            if isinstance(cached, dict) and "fields" in cached:
-                return cached
+            if isinstance(cached, dict) and "fields" in cached and cached.get("parser_version") == PARSER_VERSION:
+                fields = cached["fields"]
+                needs_fx = (fields.get("currency", {}).get("value") not in (None, "EUR")
+                            and not fields.get("fx_rate", {}).get("value")
+                            and analysis_options.get("fx_service") is not None)
+                needs_ocr = cached.get("missing") and analysis_options.get("ocr_enabled")
+                if not needs_fx and not needs_ocr:
+                    return cached
         except (json.JSONDecodeError, TypeError):
             log.warning("Invalid extraction cache for document #%s; reading again", doc["id"])
-    ex = extract_pdf(repo.document_path(doc).read_bytes()).to_dict()
+    ex = extract_pdf(repo.document_path(doc).read_bytes(), **analysis_options).to_dict()
     repo.update_document(doc["id"], extraction_json=json.dumps(ex, ensure_ascii=False, default=str))
     return ex
 
@@ -119,9 +125,10 @@ def transaction_from_extraction(ex: dict, depot_id: int, doc: dict) -> Transacti
     return TransactionIn(
         depot_id=depot_id, tx_type=TxType(ex["tx_type"]),
         trade_date=date.fromisoformat(d) if isinstance(d, str) else d,
+        value_date=date.fromisoformat(v("value_date")) if isinstance(v("value_date"), str) else v("value_date"),
         isin=v("isin"), security_name=v("security_name"), quantity=v("quantity"), price=v("price"),
         amount=v("amount"), fees=v("fees", 0.0) or 0.0, currency=v("currency", "EUR") or "EUR",
-        fx_rate=v("fx_rate"), withholding_tax=v("withholding_tax", 0.0) or 0.0,
+        fx_rate=v("fx_rate"), fx_source=v("fx_source"), withholding_tax=v("withholding_tax", 0.0) or 0.0,
         withholding_country=v("withholding_country"), kest_at_eur=v("kest_at_eur", 0.0) or 0.0,
         source_type="pdf", source_ref=doc["original_filename"], document_id=doc["id"],
         notes="automatisch aus PDF übernommen", review_status=ReviewStatus.UNCHECKED,
@@ -129,7 +136,7 @@ def transaction_from_extraction(ex: dict, depot_id: int, doc: dict) -> Transacti
 
 
 def process_documents(repo: Repository, doc_ids: list[int] | None = None, default_depot: int | None = None,
-                      reextract: bool = False) -> list[ProcessResult]:
+                      reextract: bool = False, **analysis_options) -> list[ProcessResult]:
     """Verarbeitet PDF-Dokumente ohne zugeordnete Buchung.
 
     Gespeicherte Extraktionen werden standardmäßig wiederverwendet. Mit ``reextract=True`` werden sie
@@ -150,11 +157,11 @@ def process_documents(repo: Repository, doc_ids: list[int] | None = None, defaul
                 continue
             try:
                 if reextract:
-                    refreshed = extract_pdf(repo.document_path(doc).read_bytes()).to_dict()
+                    refreshed = extract_pdf(repo.document_path(doc).read_bytes(), **analysis_options).to_dict()
                     repo.update_document(doc["id"], extraction_json=json.dumps(refreshed, ensure_ascii=False, default=str))
                     ex = refreshed
                 else:
-                    ex = extraction_for(repo, doc)
+                    ex = extraction_for(repo, doc, **analysis_options)
             except (PdfError, OSError) as exc:
                 repo.update_document(doc["id"], status="fehlgeschlagen")
                 results.append(ProcessResult(doc["id"], name, "fehler", f"Datei nicht lesbar: {exc}",
