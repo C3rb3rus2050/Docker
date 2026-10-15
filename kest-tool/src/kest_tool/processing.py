@@ -135,7 +135,7 @@ def process_documents(repo: Repository, doc_ids: list[int] | None = None, defaul
     Gespeicherte Extraktionen werden standardmäßig wiederverwendet. Mit ``reextract=True`` werden sie
     explizit aktualisiert, ohne den bisherigen Prüfbericht vor erfolgreicher Extraktion zu löschen.
     """
-    docs = [repo.document(i) for i in doc_ids] if doc_ids else repo.documents()
+    docs = [repo.document(i) for i in doc_ids] if doc_ids is not None else repo.documents()
     results: list[ProcessResult] = []
     run_id = None
     for doc in docs:
@@ -257,9 +257,7 @@ def data_status(repo: Repository, year: int) -> dict:
                           "GROUP BY y ORDER BY y")
     docs_open = repo.db.query(
         "SELECT d.* FROM documents d WHERE d.status IN ('neu','pruefen','teilweise','fehlgeschlagen') "
-        "AND NOT EXISTS (SELECT 1 FROM transactions t WHERE t.document_id=d.id AND t.deleted=0) "
-        "AND NOT EXISTS (SELECT 1 FROM document_links l JOIN transactions lt ON lt.id=l.transaction_id "
-        "WHERE l.document_id=d.id AND lt.deleted=0)")
+        "ORDER BY d.tax_year DESC, d.id")
     return {
         "depots": len(repo.depots(active_only=True)),
         "tx_by_year": {int(r["y"]): r["n"] for r in years},
