@@ -22,11 +22,13 @@ BrokerDocumentCollector/
 # KESt-Tool: lokale Einstellungen, Ablage und Geheimnisse – NIEMALS committen
 config.local.yaml
 .env
-KESt-Tool/
-KESt-Tool-Demo/
+/KESt-Tool-Demo/
 *.xlsx
 
 
 # Runtime data and sensitive browser sessions
 data/
 secrets/
+
+# Local development and preview assets
+/work/

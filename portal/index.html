@@ -1,17 +1,31 @@
 <!doctype html>
-<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Finanzzentrale</title><style>
-body{font:16px system-ui,sans-serif;margin:0;background:#f5f7fa;color:#17202d}
-main{max-width:850px;margin:10vh auto;padding:24px}
-h1{font-size:2rem}p{line-height:1.6}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
-a{display:block;padding:26px;background:white;border:1px solid #d9e0e8;border-radius:14px;text-decoration:none;color:#143a69}
-a:hover{border-color:#2372d8}strong{display:block;font-size:1.25rem;margin-bottom:12px}
-small{color:#566477}aside{margin-top:24px;color:#684a13;background:#fff3d7;padding:16px;border-radius:10px}
-</style></head><body><main><h1>Finanzzentrale</h1>
-<p>Österreichisches KESt-Steuertool für manuell heruntergeladene Broker-Dokumente.</p>
-<div class="grid">
-<a href="/steuer/"><strong>KESt-Tool</strong><small>Import, Steuerberechnung, OeKB und Exporte</small></a>
-
+<html lang="de">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>KESt Manager · Private Steuerverwaltung</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font:16px/1.6 system-ui,sans-serif;background:#f3f6fa;color:#172b42}
+header{padding:22px max(24px,calc((100vw - 1040px)/2));background:#12243a;color:#fff;font-weight:700}header span{color:#93bbff;font-weight:400}
+main{max-width:1040px;margin:64px auto;padding:0 24px}.eyebrow{font-size:.75rem;letter-spacing:.14em;font-weight:700;color:#2259ba}
+h1{font-size:clamp(2rem,5vw,3.5rem);line-height:1.12;letter-spacing:-.045em;max-width:740px;margin:20px 0}p{color:#53667c;max-width:640px}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin:40px 0}.step{padding:26px;border:1px solid #dce4ee;background:#fff;border-radius:12px}.step small{color:#2259ba;font-weight:700}.step h2{font-size:1.1rem;margin:12px 0 6px}.step p{font-size:.9rem;margin:0}
+a{display:inline-block;padding:13px 22px;background:#2259ba;color:white;border-radius:8px;text-decoration:none;font-weight:600}a:hover{background:#19458f}a:focus-visible{outline:3px solid #6998eb;outline-offset:4px}
+footer{margin:48px 0;font-size:.8rem;color:#53667c;border-top:1px solid #dce4ee;padding-top:20px}
+@media(max-width:650px){main{margin:36px auto}.steps{grid-template-columns:1fr;gap:12px;margin:28px 0}.step{padding:20px}}
+</style>
+</head>
+<body>
+<header>KESt <span>Manager</span></header>
+<main>
+<div class="eyebrow">PRIVATE STEUERVERWALTUNG · ÖSTERREICH</div>
+<h1>Von der Abrechnung zur klaren Steuerübersicht.</h1>
+<p>Broker-Dokumente importieren, Buchungen prüfen und Ihre Kapitalerträge für die Steuererklärung aufbereiten. Alles an einem Ort.</p>
+<div class="steps">
+<section class="step"><small>01 · IMPORTIEREN</small><h2>Dokumente sammeln</h2><p>PDFs, ZIP-Archive und Tabellen Ihrer Broker einlesen.</p></section>
+<section class="step"><small>02 · PRÜFEN</small><h2>Daten vervollständigen</h2><p>Belege kontrollieren, Wertpapiere zuordnen und offene Punkte klären.</p></section>
+<section class="step"><small>03 · AUSWERTEN</small><h2>Ergebnisse mitnehmen</h2><p>Steuerberechnung, OeKB-Daten und Exporte für Ihre Unterlagen.</p></section>
 </div>
-
-</main></body></html>
+<a href="/steuer/">KESt Manager öffnen →</a>
+<footer>Arbeitshilfe zur Vorbereitung der Steuererklärung. Keine automatische Übermittlung an FinanzOnline.</footer>
+</main>
+</body></html>

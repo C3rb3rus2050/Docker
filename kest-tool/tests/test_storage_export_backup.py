@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import zipfile
 from datetime import date
+from pathlib import Path
 
 import pytest
 from openpyxl import load_workbook
@@ -249,3 +250,62 @@ def test_config_base_dir_and_local_override(tmp_path, monkeypatch):
     ctx = create_context(s2)
     assert (tmp_path / "Ablage" / "config" / "config.yaml").exists()
     ctx.close()
+
+
+def test_managed_settings_survive_context_recreation(tmp_path, monkeypatch):
+    home = tmp_path / "persistent"
+    monkeypatch.setenv("KEST_TOOL_HOME", str(home))
+    first = load_settings()
+    first.save_local({"default_tax_year": 2023, "fx": {"auto_fetch": False}})
+    context = create_context()
+    assert context.settings.default_tax_year == 2023
+    context.close()
+    assert load_settings().get("fx.auto_fetch") is False
+    assert load_settings().local_file == home / "config" / "config.yaml"
+
+
+def test_restore_keeps_mount_root_backups_and_secrets(tmp_path, monkeypatch):
+    from kest_tool.config import save_env_var, env_file
+    from kest_tool.context import shutdown_logging
+    import kest_tool.backup as backup_module
+
+    home = tmp_path / "mounted"
+    monkeypatch.setenv("KEST_TOOL_HOME", str(home))
+    monkeypatch.delenv("EODHD_API_KEY", raising=False)
+    settings = load_settings()
+    settings.save_local({"default_tax_year": 2023})
+    context = create_context()
+    save_env_var("EODHD_API_KEY", "test-only-key")
+    archive = create_backup(context.db, context.store)
+    assert not any("secrets" in name for name in verify_backup(archive)["files"])
+    settings.save_local({"default_tax_year": 2025})
+    context.close()
+    shutdown_logging()
+    original_move = backup_module.shutil.move
+    def guarded_move(src, dst):
+        assert Path(src).resolve() != home.resolve()
+        return original_move(src, dst)
+    monkeypatch.setattr(backup_module.shutil, "move", guarded_move)
+    info = restore_backup(archive, home, move_existing=True)
+    assert archive.exists()
+    assert env_file().read_text().strip() == "EODHD_API_KEY=test-only-key"
+    assert load_settings().default_tax_year == 2023
+    assert (Path(info["moved_existing_to"]) / "config" / "config.yaml").exists()
+
+def test_restore_rolls_back_if_installing_data_fails(ctx, tmp_path, monkeypatch):
+    import kest_tool.backup as backup_module
+
+    archive = create_backup(ctx.db, ctx.store)
+    target = tmp_path / "existing"
+    (target / "database").mkdir(parents=True)
+    marker = target / "database" / "old.txt"
+    marker.write_text("keep me")
+    original_move = backup_module.shutil.move
+    def failing_move(src, dst):
+        if Path(src).parent.name.startswith(".restore-") and Path(src).name == "database":
+            raise OSError("simulated disk error")
+        return original_move(src, dst)
+    monkeypatch.setattr(backup_module.shutil, "move", failing_move)
+    with pytest.raises(OSError, match="simulated disk error"):
+        restore_backup(archive, target, move_existing=True)
+    assert marker.read_text() == "keep me"

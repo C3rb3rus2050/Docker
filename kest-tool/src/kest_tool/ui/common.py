@@ -47,7 +47,7 @@ def ctx() -> AppContext:
 
 def reset_context() -> None:
     _context.clear()
-    st.session_state.pop("tax_result", None)
+    invalidate_results()
 
 
 def year_selector(location=st.sidebar) -> int:

@@ -98,30 +98,54 @@ def restore_backup(zip_path: Path, target_base: Path, *, move_existing: bool = F
     """Stellt ein Backup in ``target_base`` wieder her.
 
     Ist der Zielordner nicht leer, wird nur mit ``move_existing=True`` fortgefahren; der bestehende Ordner wird
-    dann vollständig nach ``<Ziel>_vor_Wiederherstellung_<Zeit>`` verschoben (nichts wird gelöscht).
+    dann unter ``<Ziel>/backups/vor_Wiederherstellung_*`` gesichert. Der Zielordner selbst bleibt bestehen;
+    vorhandene Backups und API-Schlüssel bleiben erhalten.
     Die Anwendung muss danach neu gestartet bzw. der Kontext neu erzeugt werden.
     """
     manifest = verify_backup(zip_path)
     target_base = Path(target_base)
-    moved = None
-    if target_base.exists() and any(target_base.iterdir()):
-        if not move_existing:
-            raise BackupError(f"Zielordner {target_base} ist nicht leer. Bestehende Daten zuerst sichern lassen "
-                              "(Option „bestehende Daten verschieben“).")
-        moved = target_base.with_name(f"{target_base.name}_vor_Wiederherstellung_"
-                                      f"{datetime.now():%Y%m%d_%H%M%S}")
-        shutil.move(str(target_base), str(moved))
+    if target_base.exists() and any(target_base.iterdir()) and not move_existing:
+        raise BackupError(f"Zielordner {target_base} ist nicht leer. Bestehende Daten zuerst sichern lassen.")
+    allowed = set(BACKUP_DIRS) | {"database"}
+    for name in manifest["files"]:
+        rel = _safe_member(name)
+        if len(rel.parts) < 2 or rel.parts[0] not in allowed:
+            raise BackupError(f"Unzulässiger Datenbereich im Backup: {name}")
     target_base.mkdir(parents=True, exist_ok=True)
-    resolved = target_base.resolve()
-    with zipfile.ZipFile(zip_path) as zf:
-        for name in manifest["files"]:
-            rel = _safe_member(name)
-            dest = (target_base / Path(*rel.parts)).resolve()
-            dest.relative_to(resolved)  # Zip-Slip-Schutz
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            with zf.open(name) as src, open(dest, "wb") as out:
-                shutil.copyfileobj(src, out)
-            if _sha(dest) != manifest["files"][name]:
-                raise BackupError(f"Prüfsumme nach Wiederherstellung falsch: {name}")
+    moved = None
+    # Stage and verify everything before touching live data. Never rename the mount point.
+    with tempfile.TemporaryDirectory(prefix=".restore-", dir=target_base) as staging:
+        stage = Path(staging)
+        with zipfile.ZipFile(zip_path) as zf:
+            for name, checksum in manifest["files"].items():
+                rel = _safe_member(name)
+                dest = stage.joinpath(*rel.parts).resolve()
+                dest.relative_to(stage.resolve())
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(name) as src, open(dest, "wb") as out:
+                    shutil.copyfileobj(src, out)
+                if _sha(dest) != checksum:
+                    raise BackupError(f"Prüfsumme nach Wiederherstellung falsch: {name}")
+        existing = [sub for sub in sorted(allowed) if (target_base / sub).exists()]
+        if existing:
+            recovery = target_base / "backups"
+            recovery.mkdir(exist_ok=True)
+            moved = Path(tempfile.mkdtemp(prefix="vor_Wiederherstellung_", dir=recovery))
+        saved, installed = [], []
+        try:
+            for sub in existing:
+                shutil.move(str(target_base / sub), str(moved / sub))
+                saved.append(sub)
+            for sub in sorted(allowed):
+                if (stage / sub).exists():
+                    shutil.move(str(stage / sub), str(target_base / sub))
+                    installed.append(sub)
+        except OSError:
+            # Keep the old data usable if installing the prepared restore fails.
+            for sub in installed:
+                shutil.move(str(target_base / sub), str(stage / sub))
+            for sub in saved:
+                shutil.move(str(moved / sub), str(target_base / sub))
+            raise
     return {"files": len(manifest["files"]), "created_at": manifest["created_at"],
             "moved_existing_to": str(moved) if moved else None}

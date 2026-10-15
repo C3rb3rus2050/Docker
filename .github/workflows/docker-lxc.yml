@@ -18,9 +18,20 @@ jobs:
           PYTHONPATH: kest-tool/src
   docker-build:
     runs-on: ubuntu-latest
-    env:
-      PORTAL_PASSWORD_HASH: "$2a$14$examplehashonlyforcomposeconfig000000000000000000000000000"
     steps:
       - uses: actions/checkout@v4
       - run: docker compose config -q
       - run: docker compose build
+      - name: Start the deployment
+        run: |
+          mkdir -p data/kest
+          sudo chown -R 10001:10001 data/kest
+          docker compose up -d --wait --wait-timeout 90
+          curl --fail --retry 10 --retry-connrefused --retry-delay 2 http://127.0.0.1:8080/
+          curl --fail http://127.0.0.1:8080/steuer/_stcore/health
+      - name: Container logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop containers
+        if: always()
+        run: docker compose down

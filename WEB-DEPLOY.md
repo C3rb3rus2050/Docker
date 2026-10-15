@@ -12,6 +12,7 @@ Die Anwendung verarbeitet vertrauliche Finanz- und Steuerdaten. Ohne Anmeldung d
 git clone https://github.com/C3rb3rus2050/Docker.git
 cd Docker
 mkdir -p data/kest
+sudo chown -R 10001:10001 data/kest
 docker compose config -q
 docker compose up -d --build
 docker compose ps
@@ -36,3 +37,21 @@ Wenn die Anwendung direkt im LAN erreichbar sein soll, muss die Portbindung `127
 ## Import und Datensicherung
 
 Broker-PDFs und CSV-/Excel-Dateien werden manuell unter `/steuer/` importiert. Vor Updates den persistenten Ordner `data/kest` sichern. Docker Compose löscht vorhandene Daten nicht automatisch.
+
+## Dauerhafte Einstellungen und Updates
+
+Der KESt-Container läuft als Benutzer mit UID/GID `10001:10001`.
+Bei bestehenden Installationen vor dem ersten Update die Container stoppen und
+`sudo chown -R 10001:10001 data/kest` ausführen. Danach `docker compose up -d --build`.
+
+Einstellungen werden in `data/kest/config/config.yaml` gespeichert und bei jedem
+Start geladen. Optionale API-Schlüssel liegen in `data/kest/secrets/.env` mit
+restriktiven Dateirechten. Diese Schlüssel sind bewusst **nicht Teil des ZIP-Backups**;
+sie müssen auf einem neuen System erneut eingegeben werden. Alte Einstellungen und
+Schlüssel aus der beschreibbaren Schicht eines bisherigen Containers vor dessen
+Entfernen sichern bzw. im neuen Container erneut eingeben.
+
+Die Wiederherstellung lässt den eingebundenen Datenordner bestehen. Vorherige Daten
+liegen anschließend unter `data/kest/backups/vor_Wiederherstellung_*`.
+Vorhandene Backup-Dateien und API-Schlüssel bleiben erhalten. Während der
+Wiederherstellung darf keine andere Sitzung Änderungen vornehmen.
