@@ -229,6 +229,8 @@ def process_documents(repo: Repository, doc_ids: list[int] | None = None, defaul
         except Exception as exc:  # continue with remaining documents even after an unexpected failure
             doc_id = doc.get("id") if doc else None
             log.exception("PDF processing failed for document ID %s", doc_id)
+            from .diagnostics import record_error
+            error_id = record_error("pdf_processing", exc)
             if doc_id is not None:
                 try:
                     if not repo.transactions_for_document(doc_id):
@@ -236,7 +238,7 @@ def process_documents(repo: Repository, doc_ids: list[int] | None = None, defaul
                 except Exception:
                     log.exception("Failed to mark document ID %s as failed", doc_id)
             results.append(ProcessResult(doc_id or 0, (doc or {}).get("original_filename", "Unbekannt"),
-                                         "fehler", f"Verarbeitung fehlgeschlagen ({type(exc).__name__})",
+                                         "fehler", f"Verarbeitung fehlgeschlagen ({type(exc).__name__}, ID {error_id})",
                                          action="Dokument unter Dokumente prüfen; bei Bedarf den "
                                                 "Diagnosebericht unter Einstellungen exportieren."))
     if run_id is not None:
