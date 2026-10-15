@@ -32,7 +32,7 @@ class ProcessResult:
 
 
 BROKER_NAMES = {"TradeRepublic": "Trade Republic", "ScalableCapital": "Scalable Capital"}
-INFO_ONLY = {"Informationsdokument", "Vorabpauschale (DE)"}
+INFO_ONLY = {"Informationsdokument", "Vorabpauschale (DE)", "Kontoauszug", "Depotauszug", "Kosteninformation", "Zahlungsbeleg"}
 
 
 def _problems(ex: dict) -> tuple[str, str]:
@@ -150,7 +150,8 @@ def process_documents(repo: Repository, doc_ids: list[int] | None = None, defaul
             if not doc or doc.get("file_type") != "pdf":
                 continue
             name = doc["original_filename"]
-            if repo.transactions_for_document(doc["id"]):
+            linked = repo.transactions_for_document(doc['id'])
+            if linked and not reextract:
                 results.append(ProcessResult(doc["id"], name, "uebersprungen", "hat bereits Buchungen"))
                 continue
             if doc["status"] == "ignoriert":
@@ -167,6 +168,37 @@ def process_documents(repo: Repository, doc_ids: list[int] | None = None, defaul
                 results.append(ProcessResult(doc["id"], name, "fehler", f"Datei nicht lesbar: {exc}",
                                              action="Datei im Original öffnen; ist sie beschädigt oder ein Scan ohne Text, "
                                                     "die Werte manuell unter „Transaktionen“ erfassen."))
+                continue
+            if linked:
+                originals = [t for t in linked if t.get('document_id') == doc['id'] and t.get('source_type') == 'pdf']
+                differences = []
+                if len(originals) == 1:
+                    original = originals[0]
+                    if not ex.get('creates_transaction', True):
+                        differences.append(f"Dokumentart jetzt {ex.get('doc_type')}; keine bestätigte Einzelbuchung")
+                    elif ex.get('tx_type') and ex['tx_type'] != original['tx_type']:
+                        differences.append(f"Buchungsart: bisher {original['tx_type']}, neu {ex['tx_type']}")
+                    for field, label in (('trade_date', 'Datum'), ('isin', 'ISIN'), ('currency', 'Währung'),
+                                         ('quantity', 'Stückzahl'), ('amount', 'Bruttobetrag')):
+                        candidate = ex.get('fields', {}).get(field, {})
+                        value = candidate.get('value')
+                        if value is None or candidate.get('confidence', 0) < .8:
+                            continue
+                        old = original.get(field)
+                        changed = abs(float(value) - float(old)) > (.02 if field == 'amount' else 1e-6) \
+                            if field in ('quantity', 'amount') and old is not None else str(value) != str(old)
+                        if changed:
+                            differences.append(f'{label}: bisher {old}, neu {value}')
+                    if differences:
+                        reason = 'Neue Dokumenterkennung weicht von der bestehenden Buchung ab: ' + '; '.join(differences)
+                        repo.update_transaction(original['id'], {'review_status': 'pruefen'}, reason)
+                        repo.update_document(doc['id'], status='pruefen', notes=reason, doc_type=ex.get('doc_type') or doc['doc_type'])
+                        repo.document_event(doc['id'], 'Abweichende Neuanalyse', {'buchung': original['id'], 'abweichungen': differences})
+                        results.append(ProcessResult(doc['id'], name, 'pruefen', reason, original['id'],
+                            'Original und bestehende Buchung vergleichen. Finanzielle Werte wurden nicht überschrieben.'))
+                        continue
+                results.append(ProcessResult(doc['id'], name, 'uebersprungen',
+                    'Prüfbericht aktualisiert; bestehende Buchungen bleiben erhalten.'))
                 continue
             if not ex.get("creates_transaction", True):
                 if ex.get('doc_type') == 'OeKB-Fondsmeldung':

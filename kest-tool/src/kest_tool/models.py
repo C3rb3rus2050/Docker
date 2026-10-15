@@ -100,6 +100,10 @@ DOC_TYPES = [
     "Kaufabrechnung", "Verkaufsabrechnung", "Dividendenabrechnung", "Ertragsabrechnung",
     "Ausschüttungsabrechnung", "Jahressteuerbescheinigung", "OeKB-Fondsmeldung", "Transaktionsexport (CSV)",
     "Transaktionsexport (Excel)", "Kontoauszug", "Depotauszug", "Sonstiges", "Unbekannt",
+    "Zinsabrechnung", "Kosteninformation", "Zahlungsbeleg", "Storno", "Steuerkorrektur",
+    "Depotübertrag", "Kapitalmaßnahme", "Sammelabrechnung", "Kryptoabrechnung",
+    "Vorabpauschale (DE)", "Informationsdokument",
+    "Gebührenabrechnung", "Fremdsprachige Abrechnung",
 ]
 DOC_STATUS = ["neu", "verarbeitet", "teilweise", "pruefen", "fehlgeschlagen", "ignoriert"]
 BROKER_KEYS = ["TradeRepublic", "ScalableCapital", "Other"]

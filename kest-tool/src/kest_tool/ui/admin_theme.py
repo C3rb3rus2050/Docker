@@ -8,9 +8,9 @@ import streamlit as st
 
 SECTIONS = {
     "dashboard": ("Übersicht", "Dashboard", "Alle wichtigen Kennzahlen und Aufgaben auf einen Blick"),
-    "import": ("Dokumente & Buchungen", "Import", "PDF-, ZIP- und Tabellendateien sicher einlesen"),
-    "dokumente": ("Dokumente & Buchungen", "Dokumente", "Belege prüfen, klassifizieren und verwalten"),
-    "transaktionen": ("Dokumente & Buchungen", "Transaktionen", "Buchungen kontrollieren und bearbeiten"),
+    "import": ("1 · Dateien & Prüfung", "Dateien hinzufügen", "PDF-, ZIP- und Tabellendateien sicher einlesen"),
+    "dokumente": ("1 · Dateien & Prüfung", "Belege & Prüfung", "Belege prüfen, klassifizieren und verwalten"),
+    "transaktionen": ("1 · Dateien & Prüfung", "Buchungen", "Buchungen kontrollieren und bearbeiten"),
     "wertpapiere": ("Stammdaten", "Wertpapiere", "Wertpapier-Stammdaten und Zuordnungen verwalten"),
     "fonds": ("Stammdaten", "Fonds & OeKB", "Fondsdaten und steuerliche Meldungen verwalten"),
     "depots": ("Stammdaten", "Broker & Depots", "Brokerkonten und Depots organisieren"),
