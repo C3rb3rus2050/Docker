@@ -4,9 +4,6 @@ services:
     restart: unless-stopped
     depends_on:
       - kest-tool
-    environment:
-      PORTAL_PASSWORD_HASH: ${PORTAL_PASSWORD_HASH:?Generate a Caddy bcrypt hash; see WEB-DEPLOY.md}
-      PORTAL_USERNAME: ${PORTAL_USERNAME:-admin}
     volumes:
       - ./portal/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./portal/index.html:/srv/index.html:ro
