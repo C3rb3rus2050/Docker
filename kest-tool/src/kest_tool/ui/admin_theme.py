@@ -27,7 +27,7 @@ def render_page_header(key: str) -> None:
         '<div class="kest-page-heading-row">'
         f'<nav aria-label="Seitenpfad" class="kest-breadcrumb">KESt Manager <span>/</span> {escape(section)} '
         f'<span>/</span> {escape(title)}</nav>'
-        '<span class="kest-page-indicator">Private Steuerverwaltung</span></div>'
+        '<span class="kest-page-indicator"><span class="kest-user-avatar">AT</span> Private Steuerverwaltung</span></div>'
         f'<p class="kest-page-subtitle">{escape(description)}</p></div>',
         unsafe_allow_html=True,
     )

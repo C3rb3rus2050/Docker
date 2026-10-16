@@ -676,13 +676,14 @@ def documents() -> None:
                                               'Unclassified': 'Nicht erkannt', 'Other': 'Sonstige'}.get(v, v))
         types = sorted({d['doc_type'] for d in all_docs})
         dtype = controls[3].selectbox('Dokumentart', ['alle'] + types, key='documents_type')
+        layout = st.segmented_control('Darstellung', ['Direkt bearbeiten', 'Metadaten-Tabelle'],
+                                      default='Direkt bearbeiten', required=True, key='documents_layout')
     docs = repo.documents(None if fy == 'alle' else int(fy), None if source == 'alle' else source,
                            None if dtype == 'alle' else dtype, query.strip() or None)
     if view == 'Zu prüfen':
         docs = [d for d in docs if d['status'] in ('neu', 'pruefen', 'teilweise', 'fehlgeschlagen')]
     elif view == 'Erledigt':
         docs = [d for d in docs if d['status'] in ('verarbeitet', 'ignoriert')]
-    st.caption(f'{len(docs)} Belege in dieser Ansicht. Original und Werte direkt nebeneinander bearbeiten.')
     pending = [d for d in docs if d['status'] in ('neu', 'pruefen', 'teilweise', 'fehlgeschlagen')]
     pdf_ids = [d['id'] for d in docs if d['file_type'] == 'pdf']
     if (pdf_ids or pending) and st.button('Erkennung für diese Ansicht aktualisieren', key='documents_recheck',
@@ -694,8 +695,6 @@ def documents() -> None:
             results.extend(process_tables(repo, [(d, d['doc_type'] == 'OeKB-Fondsmeldung') for d in pending
                         if d['file_type'] in ('csv', 'txt', 'xlsx')], **C.document_analysis_options()))
         C.after_processing(results)
-    layout = st.segmented_control('Darstellung', ['Direkt bearbeiten', 'Metadaten-Tabelle'],
-                                  default='Direkt bearbeiten', required=True, key='documents_layout')
     if layout == 'Direkt bearbeiten':
         from .document_review import document_cards
         document_cards(repo, docs, key='documents_direct')

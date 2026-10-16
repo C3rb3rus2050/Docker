@@ -23,28 +23,38 @@ def dashboard() -> None:
     c = C.ctx()
     y = C.year_selector()
     st.title(f"Übersicht – Steuerjahr {y}")
-    st.caption(C.DISCLAIMER)
+    st.markdown('<div class="kest-welcome">Dein Arbeitsplatz für Belege, Buchungen und die Steuererklärung.</div>', unsafe_allow_html=True)
     first_run = quickstart()
     s = c.repo.stats(y)
+    open_docs = [d for d in c.repo.documents() if d['status'] in {'neu', 'pruefen', 'teilweise', 'fehlgeschlagen'}]
     if s["depots"]:
-        cols = st.columns(5)
-        cols[0].metric("Broker", s["brokers"])
-        cols[1].metric("Depots", s["depots"])
-        cols[2].metric(f"Dokumente {y}", s["documents"], help=f"insgesamt {s['documents_total']}")
-        cols[3].metric(f"Buchungen {y}", s["transactions"])
-        cols[4].metric("Offene Konflikte", s["open_conflicts"])
-    st.subheader("Ihr nächster Schritt")
+        cols = st.columns(4)
+        cols[0].metric("Belege zu prüfen", len(open_docs), help="Offene Belege aus allen Jahren, wie auf der Prüfseite.")
+        cols[1].metric(f"Buchungen {y}", s["transactions"])
+        cols[2].metric("Aktive Depots", s["depots"])
+        cols[3].metric("Offene Konflikte", s["open_conflicts"])
+    st.subheader("Schnellzugriff")
     actions = st.columns(3)
     for column, number, title, text, target, label in (
-        (actions[0], "01", "Dokumente importieren", "Abrechnungen sammeln und Buchungen übernehmen.", "import", "Zum Import"),
-        (actions[1], "02", "Daten prüfen", "Offene Belege und Zuordnungen vervollständigen.", "dokumente", "Dokumente prüfen"),
-        (actions[2], "03", "Ergebnisse exportieren", "Auswertungen und die E 1kv-Arbeitshilfe erstellen.", "exporte", "Zu den Exporten"),
+        (actions[0], "01", "Dateien hinzufügen", "PDFs, ZIP-Archive und Tabellen gemeinsam hochladen.", "import", "Dateien hinzufügen"),
+        (actions[1], "02", "Belege prüfen", f"{len(open_docs)} offene Belege. Direkt neben dem Original bearbeiten.", "dokumente", "Jetzt prüfen"),
+        (actions[2], "03", "Steuer auswerten", "Berechnung kontrollieren und danach Berichte exportieren.", "steuer", "Zur Auswertung"),
     ):
         with column, st.container(border=True, key=f"next_action_{target}"):
-            st.caption(f"SCHRITT {number}")
-            st.markdown(f"**{title}**")
-            st.caption(text)
+            st.markdown(f'<div class="kest-step-icon">{number}</div>'
+                        f'<div class="kest-work-card-title">{title}</div>'
+                        f'<div class="kest-work-card-copy">{text}</div>', unsafe_allow_html=True)
             C.link(target, label)
+    if open_docs:
+        with st.container(border=True, key='work_card_tasks'):
+            st.subheader('Deine nächsten Aufgaben')
+            st.caption('Neueste offene Belege aus allen Jahren. Alle Werte bearbeitest du auf der Prüfseite direkt am Original.')
+            from html import escape
+            for doc in sorted(open_docs, key=lambda d: d['id'], reverse=True)[:3]:
+                st.markdown(f'<div class="kest-task-row"><span class="kest-task-dot"></span>'
+                            f'<span>{escape(doc["original_filename"])}</span>'
+                            '<small>Zu prüfen</small></div>', unsafe_allow_html=True)
+            C.link('dokumente', f'Alle {len(open_docs)} offenen Belege prüfen')
     upload_box(y, "dash", expanded=first_run or not s["transactions"])
     if st.button("Neu berechnen", help="Ergebnis nach Änderungen neu berechnen"):
         C.tax_result(y, force=True)
@@ -54,7 +64,8 @@ def dashboard() -> None:
     res = C.tax_result(y)
     if res:
         sm = res.summary
-        st.subheader("Erträge und realisierte Ergebnisse (inkl. vorläufiger Positionen)")
+        st.subheader("Deine Jahresübersicht")
+        st.caption('Erträge und realisierte Ergebnisse einschließlich vorläufiger Positionen.')
         m = st.columns(4)
         m[0].metric("Dividenden", C.eur(sm["Dividenden"]))
         m[1].metric("Fondserträge", C.eur(sm["Fondsausschüttungen (steuerpflichtig)"] +

@@ -54,17 +54,41 @@ P = {
 }
 C.PAGES.update(P)
 
-nav = st.navigation({
+groups = {
     "START": [P["dashboard"]],
     "1 · DATEIEN & PRÜFUNG": [P["import"], P["dokumente"], P["transaktionen"]],
     "2 · STAMMDATEN": [P["wertpapiere"], P["fonds"], P["depots"]],
     "3 · AUSWERTUNG": [P["steuer"], P["exporte"]],
     "SYSTEM": [P["einstellungen"]],
-})
+}
+nav = st.navigation(groups, position="hidden")
 with st.sidebar:
-    st.markdown('<div class="kest-admin-brand">KESt<span>Manager</span></div>',
+    st.markdown('<div class="kest-admin-brand"><span class="kest-brand-mark">K</span>'
+                '<div>KESt<span class="kest-brand-name">Manager</span>'
+                '<small>DEINE STEUERZENTRALE</small></div></div>',
                 unsafe_allow_html=True)
-    st.page_link(P["import"], label="Dokumente hochladen", icon="📥")
+    C.YEAR_LOCATION = st.container(key='navigation_year')
+    search = st.text_input('Menü durchsuchen', placeholder='Menü durchsuchen …',
+                           label_visibility='collapsed', key='navigation_search')
+    icons = {"dashboard": "dashboard", "import": "upload_file", "dokumente": "fact_check",
+             "transaktionen": "receipt_long", "wertpapiere": "monitoring", "fonds": "folder_open",
+             "depots": "account_balance", "steuer": "calculate", "exporte": "download", "einstellungen": "settings"}
+    menu_groups = {'ARBEITSPLATZ': ['dashboard', 'import', 'dokumente', 'transaktionen'],
+                   'VERWALTUNG': ['depots', 'wertpapiere', 'fonds'],
+                   'AUSWERTUNG': ['steuer', 'exporte'], 'SYSTEM': ['einstellungen']}
+    found = False
+    for group, keys in menu_groups.items():
+        visible = [key for key in keys if search.casefold().strip() in P[key].title.casefold()]
+        if visible:
+            st.markdown(f'<div class="kest-nav-group">{group}</div>', unsafe_allow_html=True)
+            for key in visible:
+                active = '_active' if nav.url_path == P[key].url_path else ''
+                with st.container(key=f'nav_{key}{active}'):
+                    st.page_link(P[key], label=P[key].title, icon=f':material/{icons[key]}:')
+                found = True
+    if not found:
+        st.caption('Kein Menüpunkt gefunden. Suchfeld leeren, um alle Seiten zu sehen.')
+    st.divider()
     st.markdown(f'<div class="kest-sidebar-caption">Version {__version__} · Private Verwaltung</div>',
                 unsafe_allow_html=True)
     st.caption(C.DISCLAIMER)

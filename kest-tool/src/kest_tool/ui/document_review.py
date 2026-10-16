@@ -33,7 +33,7 @@ def _card(repo, doc: dict, key: str, message: str | None) -> None:
     from .pages_import import pdf_review_form
     from .record_tables import record_grid
     did = doc['id']
-    with st.container(border=True):
+    with st.container(border=True, key=f'document_card_{key}'):
         st.markdown(f"### {doc['original_filename']}")
         if message and doc['status'] in OPEN:
             st.caption(message)

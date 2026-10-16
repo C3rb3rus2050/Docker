@@ -17,9 +17,10 @@ from ..tax.rules import YearNotSupported, load_rules
 log = logging.getLogger("kest_tool.ui")
 
 PAGES: dict = {}   # url_path -> st.Page (wird in app.py gesetzt)
+YEAR_LOCATION = None  # filled by the shell so the year stays above the menu
 
 
-def link(page: str, label: str, icon: str = "➡️") -> None:
+def link(page: str, label: str, icon: str = ":material/arrow_forward:") -> None:
     """Link auf eine andere Seite der Anwendung (falls registriert)."""
     target = PAGES.get(page)
     if target is not None:
@@ -51,6 +52,8 @@ def reset_context() -> None:
 
 
 def year_selector(location=st.sidebar) -> int:
+    if location is st.sidebar and YEAR_LOCATION is not None:
+        location = YEAR_LOCATION
     c = ctx()
     years = c.settings.tax_years
     default = st.session_state.get("tax_year")
@@ -163,7 +166,7 @@ def status_panel(y: int, key: str) -> None:
     c = ctx()
     stt = data_status(c.repo, y)
     res = tax_result(y)
-    with st.container(border=True):
+    with st.container(border=True, key=f'work_card_status_{key}'):
         st.subheader(f"Status {y}")
         rows = []
         rows.append(("✅" if stt["depots"] else "❌", "Depots angelegt",

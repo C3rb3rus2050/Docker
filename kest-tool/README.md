@@ -1,5 +1,9 @@
 # KESt-Tool – Österreichische Kapitalertragsteuer für Wertpapierdepots
 
+Ab Version 1.4: einheitliche Oberfläche im OrangeHRM-Stil mit heller Seitenleiste,
+Menüsuche, orangefarbener Kopfzeile und Schnellzugriff auf offene Aufgaben.
+Belege bleiben direkt neben dem Original bearbeitbar. Die Gestaltung wird lokal geladen, ohne externe Schriftarten.
+
 Lokale Python-Webanwendung (Streamlit, SQLite) für Windows 11. Sie konsolidiert die steuerlich relevanten Daten
 mehrerer Depots (Trade Republic, Scalable Capital, weitere Broker), berechnet sie nachvollziehbar nach
 österreichischen Regeln und bereitet sie als **Arbeitshilfe** für die Einkommensteuererklärung (Beilage E 1kv) auf.
