@@ -12,7 +12,7 @@ import streamlit as st
 from ..models import FundReportIn, TransactionIn
 from . import common as C
 
-TX_FIELDS = {'trade_date': 'Datum', 'tx_type': 'Art', 'security_name': 'Wertpapier', 'isin': 'ISIN',
+TX_FIELDS = {'execution_order': 'Reihenfolge am Tag', 'trade_date': 'Datum', 'tx_type': 'Art', 'security_name': 'Wertpapier', 'isin': 'ISIN',
              'quantity': 'Stück', 'price': 'Kurs', 'amount': 'Brutto', 'currency': 'Währung', 'fees': 'Gebühren',
              'withholding_tax': 'Quellensteuer', 'withholding_country': 'Quellenstaat',
              'kest_at_eur': 'Österr. KESt EUR', 'fx_rate': 'Kurs je EUR', 'review_status': 'Prüfstatus', 'notes': 'Notiz'}
@@ -179,6 +179,7 @@ def record_grid(repo, rows: list[dict], kind: str, key: str) -> list[int]:
                                                               format_func=lambda v: REVIEW_LABELS.get(v, v))
     if kind == 'transaction':
         from ..models import TxType
+        config['execution_order'] = st.column_config.NumberColumn('Reihenfolge am Tag', min_value=1, step=1, help='Bei taggleichen Bestandsänderungen die tatsächliche Ausführungsreihenfolge je Depot und ISIN eintragen.')
         config['tx_type'] = st.column_config.SelectboxColumn('Art', options=[t.value for t in TxType], required=True)
     st.caption('Zellen direkt bearbeiten. Änderungen werden erst beim Speichern übernommen. '
                'Über „Auswahl“ Belege öffnen; gespeichert werden alle geänderten Zeilen.')

@@ -30,7 +30,9 @@ def _fmt(v):
     if isinstance(v, float):
         return f"{v:.6f}".rstrip("0").rstrip(".").replace(".", ",")
     if isinstance(v, (list, tuple)):
-        return "; ".join(map(str, v))
+        v = "; ".join(map(str, v))
+    if isinstance(v, str) and v.lstrip().startswith(("=", "+", "-", "@")):
+        return "\'" + v
     return v
 
 

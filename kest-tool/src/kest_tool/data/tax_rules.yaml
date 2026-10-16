@@ -1,270 +1,602 @@
-# Steuerregeln des KESt-Tools – versioniert nach Steuerjahr
-#
-# Verifikationsstatus je Regel und Jahr:
-#   offiziell_auszug   – durch Auszug aus einer offiziellen Quelle (BMF-Formular, BMF-Findok, RIS, VfGH) bestätigt.
-#                        Hinweis: Der Volltext offizieller Seiten war in der Entwicklungsumgebung nicht abrufbar
-#                        (Netzwerkrichtlinie); bestätigt wurde über die von der Websuche gelieferten Textauszüge.
-#   sekundaer          – nur über Sekundärquellen (Fachkommentar, Kammer, Fachportale) belegt.
-#                        Ergebnisse werden berechnet, aber als „vorläufig – prüfen“ markiert.
-#   nicht_verifiziert  – keine belastbare Grundlage. Es wird KEIN Betrag berechnet; die Position wird als
-#                        „manuell steuerlich zu prüfen“ ausgewiesen.
-#
-# Für Steuerjahre, die hier nicht hinterlegt sind, verweigert die Anwendung jede Berechnung.
-# Werte dürfen nur nach eigener Prüfung der Rechtsgrundlage geändert werden (Quelle + Datum eintragen!).
-
+# Versionierte Steuerregeln; Quellenprüfung und verbleibende Grenzen siehe docs/VERIFIKATION-2026-10-16.md.
 meta:
-  last_review: "2026-10-13"
-  reviewer: "Entwicklung KESt-Tool (automatisierte Recherche)"
-  access_note: >-
-    formulare.bmf.gv.at, www.bmf.gv.at, findok.bmf.gv.at, ris.bka.gv.at und oekb.at waren aus der
-    Entwicklungsumgebung nicht direkt abrufbar. Verifikation erfolgte über Suchmaschinen-Auszüge.
-
+  last_review: '2026-10-16'
+  reviewer: Entwicklung KESt-Tool (automatisierte Recherche)
+  access_note: Am 16.10.2026 wurden E 1kv 2025 (Version 27.06.2025), BMF-XML 2025, RIS § 186 InvFG sowie DBA DE/CH/NL/CA
+    im Volltext geprüft. Frühere Quellen bleiben als Auszüge gekennzeichnet. Ein amtliches E 1kv 2026 konnte nicht
+    abgerufen werden; keine Freigabe durch Fortschreibung.
 sources:
   E1KV_2024:
-    title: "BMF Formular E 1kv 2024 (Version vom 02.10.2024)"
-    url: "https://formulare.bmf.gv.at/service/formulare/inter-Steuern/pdfs/2024/E1kv.pdf"
+    title: BMF Formular E 1kv 2024 (Version vom 02.10.2024)
+    url: https://formulare.bmf.gv.at/service/formulare/inter-Steuern/pdfs/2024/E1kv.pdf
     kind: offiziell
   E1KV_2023:
-    title: "BMF Formular E 1kv 2023 (Version vom 11.03.2024)"
-    url: "https://formulare.bmf.gv.at/service/formulare/inter-Steuern/pdfs/2023/E1kv.pdf"
+    title: BMF Formular E 1kv 2023 (Version vom 11.03.2024)
+    url: https://formulare.bmf.gv.at/service/formulare/inter-Steuern/pdfs/2023/E1kv.pdf
     kind: offiziell
   E1KV_2022:
-    title: "BMF Formular E 1kv 2022 (Version vom 12.04.2023)"
-    url: "https://formulare.bmf.gv.at/service/formulare/inter-Steuern/pdfs/2022/E1kv.pdf"
+    title: BMF Formular E 1kv 2022 (Version vom 12.04.2023)
+    url: https://formulare.bmf.gv.at/service/formulare/inter-Steuern/pdfs/2022/E1kv.pdf
     kind: offiziell
   ESTG_27:
-    title: "§ 27 EStG 1988 (RIS, Bundesrecht konsolidiert)"
-    url: "https://www.ris.bka.gv.at/eli/bgbl/1988/400/P27/NOR40130674"
+    title: § 27 EStG 1988 (RIS, Bundesrecht konsolidiert)
+    url: https://www.ris.bka.gv.at/eli/bgbl/1988/400/P27/NOR40130674
     kind: offiziell
   ESTG_27A:
-    title: "§ 27a EStG 1988 (RIS)"
-    url: "https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR40137806/NOR40137806.pdf"
+    title: § 27a EStG 1988 (RIS)
+    url: https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR40137806/NOR40137806.pdf
     kind: offiziell
   VFGH_2017_G336:
-    title: "VfGH 14.06.2017, G 336/2016 (Anschaffungsnebenkosten, § 27a Abs 4 Z 2 EStG) – Zusammenfassung"
-    url: "https://gesetzefinden.at/judikatur/vfgh/jfr_20170614_16g00336_01"
+    title: VfGH 14.06.2017, G 336/2016 (Anschaffungsnebenkosten, § 27a Abs 4 Z 2 EStG) – Zusammenfassung
+    url: https://gesetzefinden.at/judikatur/vfgh/jfr_20170614_16g00336_01
     kind: sekundaer_zu_offiziell
   VFGH_2021_VERLUST:
-    title: "VfGH 02.03.2021, E 1722/2020 (Verlustausgleich § 27 Abs 8 EStG) – Zusammenfassung"
-    url: "https://gesetzefinden.at/judikatur/vfgh/jfr_20210302_20e01722_01"
+    title: VfGH 02.03.2021, E 1722/2020 (Verlustausgleich § 27 Abs 8 EStG) – Zusammenfassung
+    url: https://gesetzefinden.at/judikatur/vfgh/jfr_20210302_20e01722_01
     kind: sekundaer_zu_offiziell
   LINDE_ESTR_27_8:
-    title: "Linde Kommentar zu § 27 Abs 8 EStG (Verlustausgleich, kein Verlustvortrag)"
-    url: "https://linda.lindeverlag.at/Dokument/76536_20___4/"
+    title: Linde Kommentar zu § 27 Abs 8 EStG (Verlustausgleich, kein Verlustvortrag)
+    url: https://linda.lindeverlag.at/Dokument/76536_20___4/
     kind: sekundaer
   INVFG_186:
-    title: "§ 186 InvFG 2011 (RIS) – Fassungen bis 31.12.2023 / 1.1.–19.7.2024 (BGBl I 111/2023) / ab 20.7.2024 (BGBl I 113/2024)"
-    url: "https://www.ris.bka.gv.at/eli/bgbl/i/2011/77/P186/NOR40254753"
+    title: § 186 InvFG 2011 (RIS) – Fassungen bis 31.12.2023 / 1.1.–19.7.2024 (BGBl I 111/2023) / ab 20.7.2024 (BGBl
+      I 113/2024)
+    url: https://www.ris.bka.gv.at/eli/bgbl/i/2011/77/P186/NOR40254753
     kind: offiziell
   LINDE_INVFG_186:
-    title: "Linde Kommentar zu § 186 InvFG (Pauschalermittlung Nichtmeldefonds 90 % / mind. 10 %)"
-    url: "https://linda.lindeverlag.at/Dokument/76540_3___1___1___2___/"
+    title: Linde Kommentar zu § 186 InvFG (Pauschalermittlung Nichtmeldefonds 90 % / mind. 10 %)
+    url: https://linda.lindeverlag.at/Dokument/76540_3___1___1___2___/
     kind: sekundaer
   FINDOK_145784:
-    title: "BMF-Findok 145784 – Schätzung ausschüttungsgleicher Erträge Nichtmeldefonds (10 % Rücknahmepreis)"
-    url: "https://findok.bmf.gv.at/findok/iwg/145/145784/145784.1.pdf"
+    title: BMF-Findok 145784 – Schätzung ausschüttungsgleicher Erträge Nichtmeldefonds (10 % Rücknahmepreis)
+    url: https://findok.bmf.gv.at/findok/iwg/145/145784/145784.1.pdf
     kind: offiziell
   FINDOK_DBA_USA:
-    title: "BMF-Findok 83782 – Anrechnung US-Quellensteuer nach DBA-USA (15 %)"
-    url: "https://findok.bmf.gv.at/findok/iwg/83/83782/83782.1.pdf"
+    title: BMF-Findok 83782 – Anrechnung US-Quellensteuer nach DBA-USA (15 %)
+    url: https://findok.bmf.gv.at/findok/iwg/83/83782/83782.1.pdf
     kind: offiziell
   BROKERTEST_AGE:
-    title: "broker-test.at – Ausschüttungsgleiche Erträge (KZ 936/937)"
-    url: "https://www.broker-test.at/steuern/ausschuettungsgleiche-ertraege/"
+    title: broker-test.at – Ausschüttungsgleiche Erträge (KZ 936/937)
+    url: https://www.broker-test.at/steuern/ausschuettungsgleiche-ertraege/
     kind: sekundaer
   ESTG_4_12:
-    title: "§ 4 Abs 12 EStG – Einlagenrückzahlung (Emittenteninformationen, broker-test.at)"
-    url: "https://www.broker-test.at/news/kest-freie-dividende-behandlung-einer-ausschuettung-als-einlagenrueckzahlung-beim-privatinvestorkest-freie-dividende/"
+    title: § 4 Abs 12 EStG – Einlagenrückzahlung (Emittenteninformationen, broker-test.at)
+    url: https://www.broker-test.at/news/kest-freie-dividende-behandlung-einer-ausschuettung-als-einlagenrueckzahlung-beim-privatinvestorkest-freie-dividende/
     kind: sekundaer
   WKO_KAPITAL_2026:
-    title: "WKO – Besteuerung von Kapitalvermögen (Stand 01.05.2026)"
-    url: "https://www.wko.at/steuern/besteuerung-kapitalvermoegen"
+    title: WKO – Besteuerung von Kapitalvermögen (Stand 01.05.2026)
+    url: https://www.wko.at/steuern/besteuerung-kapitalvermoegen
     kind: sekundaer
   WP_AK_VO:
-    title: "Wertpapier-Anschaffungskosten-VO / § 27a Abs 4 Z 3 EStG (gleitender Durchschnittspreis), Kommentarauszug"
-    url: "https://linda.lindeverlag.at/Dokument/76536_29___5___1___1___3/"
+    title: Wertpapier-Anschaffungskosten-VO / § 27a Abs 4 Z 3 EStG (gleitender Durchschnittspreis), Kommentarauszug
+    url: https://linda.lindeverlag.at/Dokument/76536_29___5___1___1___3/
     kind: sekundaer
   OEKB_DATEN:
-    title: "OeKB – Fondsdaten-Portal / Fondsdaten Plus / Nutzungsbedingungen"
-    url: "https://www.oekb.at/kapitalmarkt-services/unser-datenangebot/fonds/oekb-fondsdaten-portal.html"
+    title: OeKB – Fondsdaten-Portal / Fondsdaten Plus / Nutzungsbedingungen
+    url: https://www.oekb.at/kapitalmarkt-services/unser-datenangebot/fonds/oekb-fondsdaten-portal.html
     kind: offiziell
-
+  E1KV_2025:
+    title: BMF E 1kv 2025, Version 27.06.2025, Seiten 1–4; geprüft 16.10.2026
+    url: https://formulare.bmf.gv.at/service/formulare/inter-Steuern/pdfs/2025/E1kv.pdf?open=download
+    kind: offiziell
+  BMF_XML_2025:
+    title: BMF XML-Struktur Jahreserklärungen 2025, Abschnitt EINKUENFTE_KAPITALVERMOEGEN
+    url: https://www.bmf.gv.at/dam/jcr%3Afd281668-2d12-4066-9942-c5685f6cc247/BMF_XML_Jahreserklaerungen_2025.xml
+    kind: offiziell
+  INVFG_186_2024:
+    title: RIS § 186 InvFG, BGBl I 113/2024, Abs 2 Z 3 und Abs 3; geprüft 16.10.2026
+    url: https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR40263477/NOR40263477.html
+    kind: offiziell
+  DBA_DE:
+    title: DBA Deutschland Art 10 Abs 2 lit b (Privatpersonen), RIS
+    url: https://www.ris.bka.gv.at/NormDokument.wxe?Abfrage=Bundesnormen&Anlage=&Artikel=10&FassungVom=2024-01-20&Gesetzesnummer=20002157&Paragraf=&Uebergangsrecht=
+    kind: offiziell
+  DBA_CH:
+    title: DBA Schweiz Art 10 Abs 2 und Art 23, RIS
+    url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10004202
+    kind: offiziell
+  DBA_NL:
+    title: DBA Niederlande Art 10 Abs 2, RIS (Privatpersonen)
+    url: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=Bundesnormen&Gesetzesnummer=10004091
+    kind: offiziell
+  DBA_CA:
+    title: DBA Kanada Art 10 Abs 2 lit b, synthetisierte Fassung mit MLI, RIS
+    url: https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR40220703/III_93_2018_DBA_Kanada_synthesised_deutsch_final.pdf
+    kind: offiziell
+  ESTG_27A_CURRENT:
+    title: RIS § 27a EStG ab 20.07.2024, Abs 1–4, geprüft 16.10.2026
+    url: https://www.ris.bka.gv.at/eli/bgbl/1988/400/P27a/NOR40263362
+    kind: offiziell
 rules:
   RATE_27_5:
-    title: "Besonderer Steuersatz 27,5 % für Kapitaleinkünfte (Dividenden, Fondserträge, realisierte Wertsteigerungen)"
-    legal_basis: "§ 27a Abs 1 Z 2 EStG 1988"
+    title: Besonderer Steuersatz 27,5 % für Kapitaleinkünfte (Dividenden, Fondserträge, realisierte Wertsteigerungen)
+    legal_basis: § 27a Abs 1 Z 2 EStG 1988
     rate: 0.275
-    sources: [E1KV_2024, E1KV_2023, E1KV_2022, WKO_KAPITAL_2026]
-    status: {2022: offiziell_auszug, 2023: offiziell_auszug, 2024: offiziell_auszug, 2025: sekundaer, 2026: sekundaer}
-    logic: "Positive Einkünfte der 27,5-%-Gruppe nach Verlustausgleich × 27,5 %."
-    limitations: "Option zur Regelbesteuerung (§ 27a Abs 5) wird nicht berechnet."
-    tests: [test_tax_engine.py::test_simple_sale_with_known_cost, test_tax_engine.py::test_years_are_separate]
+    sources:
+    - E1KV_2024
+    - E1KV_2023
+    - E1KV_2022
+    - WKO_KAPITAL_2026
+    - E1KV_2025
+    status:
+      2022: offiziell_auszug
+      2023: offiziell_auszug
+      2024: offiziell_auszug
+      2025: offiziell_auszug
+      2026: sekundaer
+    logic: Positive Einkünfte der 27,5-%-Gruppe nach Verlustausgleich × 27,5 %.
+    limitations: Option zur Regelbesteuerung (§ 27a Abs 5) wird nicht berechnet.
+    tests:
+    - test_tax_engine.py::test_simple_sale_with_known_cost
+    - test_tax_engine.py::test_years_are_separate
   RATE_25:
-    title: "Besonderer Steuersatz 25 % für Zinsen aus Geldeinlagen/nicht verbrieften Forderungen bei Kreditinstituten"
-    legal_basis: "§ 27a Abs 1 Z 1 EStG 1988"
+    title: Besonderer Steuersatz 25 % für Zinsen aus Geldeinlagen/nicht verbrieften Forderungen bei Kreditinstituten
+    legal_basis: § 27a Abs 1 Z 1 EStG 1988
     rate: 0.25
-    sources: [E1KV_2024, WKO_KAPITAL_2026]
-    status: {2022: sekundaer, 2023: sekundaer, 2024: sekundaer, 2025: sekundaer, 2026: sekundaer}
-    logic: "Zinsen ohne ISIN werden als Geldeinlagenzinsen (25 %) vorgeschlagen; Einstufung immer prüfpflichtig."
-    limitations: "Ob Zinsen eines Brokers Zinsen aus Geldeinlagen bei einem Kreditinstitut sind, wird nicht geprüft."
-    tests: [test_tax_engine.py::test_bank_interest_not_offset_with_losses]
+    sources:
+    - E1KV_2024
+    - WKO_KAPITAL_2026
+    - E1KV_2025
+    status:
+      2022: sekundaer
+      2023: sekundaer
+      2024: sekundaer
+      2025: offiziell_auszug
+      2026: sekundaer
+    logic: Zinsen ohne ISIN werden als Geldeinlagenzinsen (25 %) vorgeschlagen; Einstufung immer prüfpflichtig.
+    limitations: Ob Zinsen eines Brokers Zinsen aus Geldeinlagen bei einem Kreditinstitut sind, wird nicht geprüft.
+    tests:
+    - test_tax_engine.py::test_bank_interest_not_offset_with_losses
   COST_BASIS_AVERAGE:
-    title: "Gleitender Durchschnittspreis je Depot und Wertpapier"
-    legal_basis: "§ 27a Abs 4 Z 3 EStG 1988"
-    sources: [WP_AK_VO]
-    status: {2022: sekundaer, 2023: sekundaer, 2024: sekundaer, 2025: sekundaer, 2026: sekundaer}
-    logic: "Anschaffungskosten je Depot+ISIN als Summe/Bestand; Verkauf mindert anteilig."
-    limitations: "Depotüberträge, Altbestände (vor 1.4.2012) und pauschale Anschaffungskosten (§ 93 Abs 4) nicht automatisch."
-    tests: [test_tax_engine.py::test_moving_average_cost_basis]
+    title: Gleitender Durchschnittspreis je Depot und Wertpapier
+    legal_basis: § 27a Abs 4 Z 3 EStG 1988
+    sources:
+    - WP_AK_VO
+    status:
+      2022: sekundaer
+      2023: sekundaer
+      2024: sekundaer
+      2025: sekundaer
+      2026: sekundaer
+    logic: Anschaffungskosten je Depot+ISIN als Summe/Bestand; Verkauf mindert anteilig.
+    limitations: Depotüberträge, Altbestände (vor 1.4.2012) und pauschale Anschaffungskosten (§ 93 Abs 4) nicht
+      automatisch.
+    tests:
+    - test_tax_engine.py::test_moving_average_cost_basis
   NO_INCIDENTAL_COSTS:
-    title: "Anschaffungsnebenkosten/Spesen nicht abzugsfähig (Privatvermögen, Sondersteuersatz)"
-    legal_basis: "§ 27a Abs 4 Z 2 EStG; § 20 Abs 2 EStG (Abzugsverbot Werbungskosten)"
-    sources: [E1KV_2024, VFGH_2017_G336]
-    status: {2022: offiziell_auszug, 2023: offiziell_auszug, 2024: offiziell_auszug, 2025: sekundaer, 2026: sekundaer}
-    logic: "Kaufgebühren erhöhen die Anschaffungskosten NICHT; Verkaufsgebühren mindern den Erlös NICHT. Gebühren werden ausgewiesen."
-    limitations: "Betriebsvermögen und Kryptowährungen nicht abgedeckt."
-    tests: [test_tax_engine.py::test_fees_not_deductible]
+    title: Anschaffungsnebenkosten/Spesen nicht abzugsfähig (Privatvermögen, Sondersteuersatz)
+    legal_basis: § 27a Abs 4 Z 2 EStG; § 20 Abs 2 EStG (Abzugsverbot Werbungskosten)
+    sources:
+    - E1KV_2024
+    - VFGH_2017_G336
+    status:
+      2022: offiziell_auszug
+      2023: offiziell_auszug
+      2024: offiziell_auszug
+      2025: sekundaer
+      2026: sekundaer
+    logic: Kaufgebühren erhöhen die Anschaffungskosten NICHT; Verkaufsgebühren mindern den Erlös NICHT. Gebühren
+      werden ausgewiesen.
+    limitations: Betriebsvermögen und Kryptowährungen nicht abgedeckt.
+    tests:
+    - test_tax_engine.py::test_fees_not_deductible
   CAPITAL_REPAYMENT:
-    title: "Einlagen-/Kapitalrückzahlung mindert Anschaffungskosten; Überschuss = Veräußerungsvorgang"
-    legal_basis: "§ 4 Abs 12 EStG 1988"
-    sources: [ESTG_4_12]
-    status: {2022: sekundaer, 2023: sekundaer, 2024: sekundaer, 2025: sekundaer, 2026: sekundaer}
-    logic: "Nur wenn die Buchung ausdrücklich als Kapitalrückzahlung bestätigt ist (Beleg). Sonst ungeklärter Betrag."
-    limitations: "Ob eine ausländische Ausschüttung steuerlich eine Einlagenrückzahlung ist, prüft das Tool nicht."
-    tests: [test_tax_engine.py::test_capital_repayment_reduces_cost_basis, test_tax_engine.py::test_unverified_capital_repayment_is_unclear]
+    title: Einlagen-/Kapitalrückzahlung mindert Anschaffungskosten; Überschuss = Veräußerungsvorgang
+    legal_basis: § 4 Abs 12 EStG 1988
+    sources:
+    - ESTG_4_12
+    status:
+      2022: sekundaer
+      2023: sekundaer
+      2024: sekundaer
+      2025: sekundaer
+      2026: sekundaer
+    logic: Nur wenn die Buchung ausdrücklich als Kapitalrückzahlung bestätigt ist (Beleg). Sonst ungeklärter Betrag.
+    limitations: Ob eine ausländische Ausschüttung steuerlich eine Einlagenrückzahlung ist, prüft das Tool nicht.
+    tests:
+    - test_tax_engine.py::test_capital_repayment_reduces_cost_basis
+    - test_tax_engine.py::test_unverified_capital_repayment_is_unclear
   LOSS_OFFSET:
-    title: "Verlustausgleich innerhalb der Kapitaleinkünfte mit Sondersteuersatz; kein Ausgleich mit 25-%-Bankzinsen/Stiftungszuwendungen; kein Verlustvortrag"
-    legal_basis: "§ 27 Abs 8 EStG 1988"
-    sources: [LINDE_ESTR_27_8, VFGH_2021_VERLUST, E1KV_2024]
-    status: {2022: sekundaer, 2023: sekundaer, 2024: sekundaer, 2025: sekundaer, 2026: sekundaer}
-    logic: "Verluste aus realisierten Wertänderungen werden mit positiven 27,5-%-Einkünften desselben Jahres verrechnet; Rest verfällt."
-    limitations: "Derivate, Kryptowährungen, Tarifeinkünfte und Stiftungszuwendungen werden nicht verarbeitet."
-    tests: [test_tax_engine.py::test_restricted_loss_offset]
+    title: Verlustausgleich innerhalb der Kapitaleinkünfte mit Sondersteuersatz; kein Ausgleich mit 25-%-Bankzinsen/Stiftungszuwendungen;
+      kein Verlustvortrag
+    legal_basis: § 27 Abs 8 EStG 1988
+    sources:
+    - LINDE_ESTR_27_8
+    - VFGH_2021_VERLUST
+    - E1KV_2024
+    status:
+      2022: sekundaer
+      2023: sekundaer
+      2024: sekundaer
+      2025: sekundaer
+      2026: sekundaer
+    logic: Verluste aus realisierten Wertänderungen werden mit positiven 27,5-%-Einkünften desselben Jahres verrechnet;
+      Rest verfällt.
+    limitations: Derivate, Kryptowährungen, Tarifeinkünfte und Stiftungszuwendungen werden nicht verarbeitet.
+    tests:
+    - test_tax_engine.py::test_restricted_loss_offset
   LOSS_OFFSET_ORDER:
-    title: "Reihenfolge der Verlustverrechnung (Darstellung)"
-    legal_basis: "keine verifizierte gesetzliche Reihenfolge"
+    title: Reihenfolge der Verlustverrechnung (Darstellung)
+    legal_basis: keine verifizierte gesetzliche Reihenfolge
     sources: []
-    status: {2022: nicht_verifiziert, 2023: nicht_verifiziert, 2024: nicht_verifiziert, 2025: nicht_verifiziert, 2026: nicht_verifiziert}
-    logic: "Annahme: Verrechnung zuerst mit Einkünften ohne ausländische Quellensteuer. Nur Darstellung; maßgeblich ist die Veranlagung."
-    limitations: "Auswirkung auf die anrechenbare Quellensteuer ist ein Schätzwert."
-    tests: [test_tax_engine.py::test_restricted_loss_offset]
+    status:
+      2022: nicht_verifiziert
+      2023: nicht_verifiziert
+      2024: nicht_verifiziert
+      2025: nicht_verifiziert
+      2026: nicht_verifiziert
+    logic: 'Annahme: Verrechnung zuerst mit Einkünften ohne ausländische Quellensteuer. Nur Darstellung; maßgeblich
+      ist die Veranlagung.'
+    limitations: Auswirkung auf die anrechenbare Quellensteuer ist ein Schätzwert.
+    tests:
+    - test_tax_engine.py::test_restricted_loss_offset
   FOREIGN_TAX_CREDIT:
-    title: "Anrechnung ausländischer Quellensteuer: höchstens DBA-Satz, höchstens österreichische Steuer auf diese Einkünfte; erstattbare Steuer nicht anrechenbar"
-    legal_basis: "E 1kv Erläuterung (Fußnote zu KZ 940/984/998/900/901); jeweiliges DBA"
-    sources: [E1KV_2024, FINDOK_DBA_USA]
-    status: {2022: offiziell_auszug, 2023: offiziell_auszug, 2024: offiziell_auszug, 2025: sekundaer, 2026: sekundaer}
-    logic: "anrechenbar = min(einbehalten, Brutto × DBA-Satz, Brutto × 27,5 %); Rest = nicht anrechenbar (ggf. im Quellenstaat rückforderbar)."
-    limitations: "Nur Länder mit hinterlegtem, als verifiziert markiertem DBA-Satz. Sonst ungeklärter Betrag."
-    tests: [test_tax_engine.py::test_dividend_with_withholding_tax]
+    title: 'Anrechnung ausländischer Quellensteuer: höchstens DBA-Satz, höchstens österreichische Steuer auf diese
+      Einkünfte; erstattbare Steuer nicht anrechenbar'
+    legal_basis: E 1kv Erläuterung (Fußnote zu KZ 940/984/998/900/901); jeweiliges DBA
+    sources:
+    - E1KV_2024
+    - FINDOK_DBA_USA
+    - E1KV_2025
+    status:
+      2022: offiziell_auszug
+      2023: offiziell_auszug
+      2024: offiziell_auszug
+      2025: offiziell_auszug
+      2026: sekundaer
+    logic: anrechenbar = min(einbehalten, Brutto × DBA-Satz, Brutto × 27,5 %); Rest = nicht anrechenbar (ggf. im
+      Quellenstaat rückforderbar).
+    limitations: Nur Länder mit hinterlegtem, als verifiziert markiertem DBA-Satz. Sonst ungeklärter Betrag.
+    tests:
+    - test_tax_engine.py::test_dividend_with_withholding_tax
   DOMESTIC_KEST:
-    title: "Bereits einbehaltene österreichische KESt (inländische Kapitaleinkünfte) – Anrechnung/Endbesteuerung"
-    legal_basis: "§ 97 EStG; E 1kv KZ 899"
-    sources: [E1KV_2024]
-    status: {2022: offiziell_auszug, 2023: offiziell_auszug, 2024: offiziell_auszug, 2025: sekundaer, 2026: sekundaer}
-    logic: "Depots mit KESt-Abzug durch den Broker → Einkünfte gelten als „inländisch“; einbehaltene KESt wird separat ausgewiesen (KZ 899) und nicht doppelt besteuert."
-    limitations: "Ob der Broker tatsächlich österreichische KESt abführt, muss je Depot und Jahr bestätigt werden."
-    tests: [test_tax_engine.py::test_domestic_kest_not_double_counted]
+    title: Bereits einbehaltene österreichische KESt (inländische Kapitaleinkünfte) – Anrechnung/Endbesteuerung
+    legal_basis: § 97 EStG; E 1kv KZ 899
+    sources:
+    - E1KV_2024
+    - E1KV_2025
+    status:
+      2022: offiziell_auszug
+      2023: offiziell_auszug
+      2024: offiziell_auszug
+      2025: offiziell_auszug
+      2026: sekundaer
+    logic: Depots mit KESt-Abzug durch den Broker → Einkünfte gelten als „inländisch“; einbehaltene KESt wird separat
+      ausgewiesen (KZ 899) und nicht doppelt besteuert.
+    limitations: Ob der Broker tatsächlich österreichische KESt abführt, muss je Depot und Jahr bestätigt werden.
+    tests:
+    - test_tax_engine.py::test_domestic_kest_not_double_counted
   MELDEFONDS_AGE:
-    title: "Meldefonds: ausschüttungsgleiche Erträge laut OeKB-Meldung; Zufluss zum Meldezeitpunkt; AK-Korrektur"
-    legal_basis: "§ 186 Abs 2 Z 1 und Abs 3 InvFG 2011"
-    sources: [INVFG_186, BROKERTEST_AGE]
-    status: {2022: sekundaer, 2023: sekundaer, 2024: sekundaer, 2025: sekundaer, 2026: sekundaer}
-    logic: "AgE = AgE je Anteil × Bestand zum Meldedatum; anrechenbare Steuer je Anteil × Bestand; AK + Korrekturbetrag × Bestand."
-    limitations: "Nur mit importierter/erfasster Meldung. Fehlende Meldung → manuelle Prüfung (ggf. Nichtmeldefonds)."
-    tests: [test_tax_engine.py::test_meldefonds_age, test_tax_engine.py::test_fund_income_not_double_counted]
+    title: 'Meldefonds: ausschüttungsgleiche Erträge laut OeKB-Meldung; Zufluss zum Meldezeitpunkt; AK-Korrektur'
+    legal_basis: § 186 Abs 2 Z 1 und Abs 3 InvFG 2011
+    sources:
+    - INVFG_186
+    - BROKERTEST_AGE
+    status:
+      2022: sekundaer
+      2023: sekundaer
+      2024: sekundaer
+      2025: sekundaer
+      2026: sekundaer
+    logic: AgE = AgE je Anteil × Bestand zum Meldedatum; anrechenbare Steuer je Anteil × Bestand; AK + Korrekturbetrag
+      × Bestand.
+    limitations: Nur mit importierter/erfasster Meldung. Fehlende Meldung → manuelle Prüfung (ggf. Nichtmeldefonds).
+    tests:
+    - test_tax_engine.py::test_meldefonds_age
+    - test_tax_engine.py::test_fund_income_not_double_counted
   NICHTMELDEFONDS_PAUSCHAL:
-    title: "Nichtmeldefonds: pauschale AgE = 90 % des Unterschieds erster/letzter Rücknahmepreis, mindestens 10 % des letzten Rücknahmepreises; Zufluss 31.12."
-    legal_basis: "§ 186 Abs 2 Z 3 InvFG 2011"
-    sources: [INVFG_186, LINDE_INVFG_186, FINDOK_145784]
-    # Ab 2024 wurde § 186 InvFG geändert (BGBl I 111/2023, BGBl I 113/2024). Der Inhalt der geltenden Fassung
-    # für Abs 2 Z 3 konnte nicht verifiziert werden → keine Berechnung für 2024+.
-    status: {2022: sekundaer, 2023: sekundaer, 2024: nicht_verifiziert, 2025: nicht_verifiziert, 2026: nicht_verifiziert}
+    title: 'Nichtmeldefonds: pauschale AgE = 90 % des Unterschieds erster/letzter Rücknahmepreis, mindestens 10
+      % des letzten Rücknahmepreises; Zufluss 31.12.'
+    legal_basis: § 186 Abs 2 Z 3 InvFG 2011
+    sources:
+    - INVFG_186
+    - LINDE_INVFG_186
+    - FINDOK_145784
+    - INVFG_186_2024
+    status:
+      2022: sekundaer
+      2023: sekundaer
+      2024: offiziell_auszug
+      2025: offiziell_auszug
+      2026: offiziell_auszug
     factor_difference: 0.9
     factor_minimum: 0.1
-    logic: "je Anteil max(0,9 × (letzter − erster Rücknahmepreis), 0,1 × letzter Rücknahmepreis) × Bestand 31.12.; AK-Erhöhung."
-    limitations: "Selbstnachweis, Sonderregel bei fehlendem Rücknahmepreis und unterjährige Veräußerung nicht implementiert."
-    tests: [test_tax_engine.py::test_nichtmeldefonds_pauschal_2023, test_tax_engine.py::test_nichtmeldefonds_unverified_year_not_computed]
+    logic: je Anteil max(0,9 × (letzter − erster Rücknahmepreis), 0,1 × letzter Rücknahmepreis) × Bestand 31.12.;
+      AK-Erhöhung.
+    limitations: Selbstnachweis, Sonderregel bei fehlendem Rücknahmepreis und unterjährige Veräußerung nicht implementiert.
+    tests:
+    - test_tax_engine.py::test_nichtmeldefonds_pauschal_2023
+    - test_tax_engine.py::test_nichtmeldefonds_current_rule_computed
   NICHTMELDEFONDS_DISTRIBUTIONS:
-    title: "Nichtmeldefonds: tatsächliche Ausschüttungen zusätzlich steuerpflichtig (kein Abzug von der Pauschale)"
-    legal_basis: "§ 186 Abs 2 Z 3 InvFG 2011"
-    sources: [LINDE_INVFG_186]
-    status: {2022: sekundaer, 2023: sekundaer, 2024: nicht_verifiziert, 2025: nicht_verifiziert, 2026: nicht_verifiziert}
-    logic: "Ausschüttungen eines Nichtmeldefonds = steuerpflichtige Fondsausschüttung."
-    limitations: ""
-    tests: [test_tax_engine.py::test_meldefonds_vs_nichtmeldefonds]
+    title: 'Nichtmeldefonds: tatsächliche Ausschüttungen zusätzlich steuerpflichtig (kein Abzug von der Pauschale)'
+    legal_basis: § 186 Abs 2 Z 3 InvFG 2011
+    sources:
+    - LINDE_INVFG_186
+    - INVFG_186_2024
+    status:
+      2022: sekundaer
+      2023: sekundaer
+      2024: offiziell_auszug
+      2025: offiziell_auszug
+      2026: offiziell_auszug
+    logic: Ausschüttungen eines Nichtmeldefonds = steuerpflichtige Fondsausschüttung.
+    limitations: ''
+    tests:
+    - test_tax_engine.py::test_meldefonds_vs_nichtmeldefonds
   REIT_BDC:
-    title: "REITs/BDCs: keine automatische Ableitung aus Wertpapierart"
-    legal_basis: "Grundsatz: Einstufung nach Rechtsform/Beleg, nicht nach Bezeichnung"
+    title: 'REITs/BDCs: keine automatische Ableitung aus Wertpapierart'
+    legal_basis: 'Grundsatz: Einstufung nach Rechtsform/Beleg, nicht nach Bezeichnung'
     sources: []
-    status: {2022: nicht_verifiziert, 2023: nicht_verifiziert, 2024: nicht_verifiziert, 2025: nicht_verifiziert, 2026: nicht_verifiziert}
-    logic: "Ertragsbestandteile werden nur nach bestätigter Klassifizierung je Buchung berücksichtigt, sonst ungeklärt."
-    limitations: "Behandlung als ausländischer Immobilienfonds (ImmoInvFG) nicht implementiert."
-    tests: [test_tax_engine.py::test_reit_without_classification_is_unclear]
+    status:
+      2022: nicht_verifiziert
+      2023: nicht_verifiziert
+      2024: nicht_verifiziert
+      2025: nicht_verifiziert
+      2026: nicht_verifiziert
+    logic: Ertragsbestandteile werden nur nach bestätigter Klassifizierung je Buchung berücksichtigt, sonst ungeklärt.
+    limitations: Behandlung als ausländischer Immobilienfonds (ImmoInvFG) nicht implementiert.
+    tests:
+    - test_tax_engine.py::test_reit_without_classification_is_unclear
   FX_CONVERSION:
-    title: "Umrechnung Fremdwährung in EUR"
-    legal_basis: "nicht verifiziert"
+    title: Umrechnung Fremdwährung in EUR
+    legal_basis: nicht verifiziert
     sources: []
-    status: {2022: nicht_verifiziert, 2023: nicht_verifiziert, 2024: nicht_verifiziert, 2025: nicht_verifiziert, 2026: nicht_verifiziert}
-    logic: "Vorrang: Kurs aus Beleg bzw. Benutzereingabe. Fehlt er, wird auf Wunsch der EZB-Referenzkurs des Buchungstags (sonst letzter Bankarbeitstag davor, max. 7 Tage) ergänzt und als Quelle vermerkt. Ohne Kurs kein EUR-Betrag. Positionen in Fremdwährung sind vorläufig."
-    limitations: "Nicht geprüft, ob der EZB-Referenzkurs oder ein anderer Kurs (z. B. Devisenmittelkurs der Bank) steuerlich maßgeblich ist."
-    tests: [test_tax_engine.py::test_missing_data_detected, test_fx.py::test_fill_missing_fx_and_compute]
-
-# Doppelbesteuerungsabkommen – Quellensteuer-Höchstsätze für Dividenden natürlicher Personen
-# verified: true nur mit offizieller Quelle. Nicht verifizierte Länder → anrechenbarer Betrag „ungeklärt“.
+    status:
+      2022: nicht_verifiziert
+      2023: nicht_verifiziert
+      2024: nicht_verifiziert
+      2025: nicht_verifiziert
+      2026: nicht_verifiziert
+    logic: 'Vorrang: Kurs aus Beleg bzw. Benutzereingabe. Fehlt er, wird auf Wunsch der EZB-Referenzkurs des Buchungstags
+      (sonst letzter Bankarbeitstag davor, max. 7 Tage) ergänzt und als Quelle vermerkt. Ohne Kurs kein EUR-Betrag.
+      Positionen in Fremdwährung sind vorläufig.'
+    limitations: Nicht geprüft, ob der EZB-Referenzkurs oder ein anderer Kurs (z. B. Devisenmittelkurs der Bank)
+      steuerlich maßgeblich ist.
+    tests:
+    - test_tax_engine.py::test_missing_data_detected
+    - test_fx.py::test_fill_missing_fx_and_compute
+  SECURITIZED_DERIVATIVE:
+    title: Verkauf öffentlich begebener verbriefter Derivate aus belegtem Long-Bestand
+    legal_basis: § 27 Abs 4, § 27a Abs 1, Abs 2 Z 2/7, Abs 3 Z 3 und Abs 4 EStG
+    sources:
+    - ESTG_27A_CURRENT
+    - E1KV_2025
+    status:
+      2022: nicht_verifiziert
+      2023: nicht_verifiziert
+      2024: nicht_verifiziert
+      2025: offiziell_auszug
+      2026: offiziell_auszug
+    logic: Erlös minus belegte Anschaffungskosten; 27,5-%-Gruppe; eigene Derivate-Kennzahlen. Explizite geprüfte
+      Klassifizierung erforderlich.
+    limitations: Nur Long-Kauf/Verkauf/Rückzahlung (als Verkauf erfassen); keine Shorts, Stillhalter, physischen
+      Ausübungen, unverbrieften Derivate oder Privatplatzierungen. 2026-Kennzahlen bleiben unverifiziert.
+    tests:
+    - test_review_regressions.py::test_securitized_derivative_has_own_e1kv_fields
 dba_dividend_rates:
-  US: {rate: 0.15, verified: true, source: FINDOK_DBA_USA, note: "DBA-USA: Begrenzung auf 15 % für natürliche Personen (BMF-Findok)"}
-  DE: {rate: 0.15, verified: false, source: null, note: "Sekundärquellen nennen 15 % – DBA Österreich–Deutschland prüfen"}
-  CH: {rate: 0.15, verified: false, source: null, note: "Sekundärquellen nennen 15 % (35 % Einbehalt, Rest rückforderbar) – DBA prüfen"}
-  NL: {rate: 0.15, verified: false, source: null, note: "Sekundärquellen nennen 15 % – DBA prüfen"}
-  FR: {rate: null, verified: false, source: null, note: "Widersprüchliche Sekundärquellen (12,8 % / 15 %) – DBA prüfen"}
-  IE: {rate: null, verified: false, source: null, note: "Nicht geprüft"}
-  GB: {rate: null, verified: false, source: null, note: "Nicht geprüft"}
-  CA: {rate: null, verified: false, source: null, note: "Nicht geprüft"}
-
-# E 1kv-Kennzahlen je Steuerjahr. Status wie oben. Für 2025/2026 lag kein überprüfbarer Formularauszug vor.
+  US:
+    rate: 0.15
+    verified: true
+    source: FINDOK_DBA_USA
+    note: 'DBA-USA: Begrenzung auf 15 % für natürliche Personen (BMF-Findok)'
+  DE:
+    rate: 0.15
+    verified: true
+    source: DBA_DE
+    note: 'Art 10: 15 % Höchstsatz für gewöhnliche Dividenden natürlicher Personen, Nutzungsberechtigung und DBA-Ansässigkeit
+      vorausgesetzt; keine Sondergesellschaften.'
+  CH:
+    rate: 0.15
+    verified: true
+    source: DBA_CH
+    note: 'Art 10: 15 % Höchstsatz für gewöhnliche Dividenden natürlicher Personen, Nutzungsberechtigung und DBA-Ansässigkeit
+      vorausgesetzt; keine Sondergesellschaften.'
+  NL:
+    rate: 0.15
+    verified: true
+    source: DBA_NL
+    note: 'Art 10: 15 % Höchstsatz für gewöhnliche Dividenden natürlicher Personen, Nutzungsberechtigung und DBA-Ansässigkeit
+      vorausgesetzt; keine Sondergesellschaften.'
+  FR:
+    rate: null
+    verified: false
+    source: null
+    note: Widersprüchliche Sekundärquellen (12,8 % / 15 %) – DBA prüfen
+  IE:
+    rate: null
+    verified: false
+    source: null
+    note: Nicht geprüft
+  GB:
+    rate: null
+    verified: false
+    source: null
+    note: Nicht geprüft
+  CA:
+    rate: 0.15
+    verified: true
+    source: DBA_CA
+    note: 'Art 10: 15 % Höchstsatz für gewöhnliche Dividenden natürlicher Personen, Nutzungsberechtigung und DBA-Ansässigkeit
+      vorausgesetzt; keine Sondergesellschaften.'
 e1kv:
-  2024: &e1kv_2024
-    form: "E 1kv 2024 (Version 02.10.2024)"
+  2024:
+    form: E 1kv 2024 (Version 02.10.2024)
     source: E1KV_2024
-    fields:
-      dividends_inland:     {kz: "862", label: "Einkünfte aus der Überlassung von Kapital (inländisch, 27,5 %)", status: offiziell_auszug}
-      dividends_ausland:    {kz: "863", label: "Einkünfte aus der Überlassung von Kapital (ausländisch, 27,5 %)", status: offiziell_auszug}
-      fund_dist_inland:     {kz: "897", label: "Ausschüttungen Investmentfonds (inländisches Depot, 27,5 %)", status: offiziell_auszug}
-      fund_dist_ausland:    {kz: "898", label: "Ausschüttungen Investmentfonds (ausländisches Depot, 27,5 %)", status: offiziell_auszug}
-      age_inland:           {kz: "936", label: "Ausschüttungsgleiche Erträge (inländisches Depot, 27,5 %)", status: offiziell_auszug}
-      age_ausland:          {kz: "937", label: "Ausschüttungsgleiche Erträge (ausländisches Depot, 27,5 %)", status: offiziell_auszug}
-      gains_inland:         {kz: "981", label: "Einkünfte aus realisierten Wertsteigerungen (inländisch, 27,5 %)", status: offiziell_auszug}
-      gains_ausland:        {kz: "994", label: "Einkünfte aus realisierten Wertsteigerungen (ausländisch, 27,5 %)", status: offiziell_auszug}
-      losses_inland:        {kz: "891", label: "Verluste aus realisierten Wertsteigerungen (inländisch)", status: offiziell_auszug}
-      losses_ausland:       {kz: "892", label: "Verluste aus realisierten Wertsteigerungen (ausländisch)", status: offiziell_auszug}
-      interest25_ausland:   {kz: "861", label: "Zinsen aus Geldeinlagen bei Kreditinstituten (ausländisch, 25 %)", status: sekundaer}
-      interest25_inland:    {kz: "860", label: "Zinsen aus Geldeinlagen bei Kreditinstituten (inländisch, 25 %)", status: sekundaer}
-      kest_inland:          {kz: "899", label: "Einbehaltene KESt auf inländische Kapitaleinkünfte", status: offiziell_auszug}
-      foreign_tax_27_5:     {kz: "998", label: "Anrechenbare ausländische (Quellen)Steuer auf Einkünfte mit 27,5 %", status: sekundaer}
-    notes:
-      - "Die Fußnote zu den Quellensteuer-Kennzahlen nennt KZ 940, 984, 998, 900 und 901; die exakte Zuordnung je Einkunftsart ist im Formular zu prüfen."
-      - "Werbungskosten sind auch bei Regelbesteuerungsoption nicht abzugsfähig (Formularhinweis)."
-      - "Durch die Erfassung von Substanzverlusten in 891/892 bzw. 895/896 wird die Verlustausgleichsoption ausgeübt (Formularhinweis)."
-      - "Derivate (982/995, 895/896) und Kryptowährungen (171–174) werden vom Tool nicht berechnet."
+    fields: &id001
+      dividends_inland:
+        kz: '862'
+        label: Einkünfte aus der Überlassung von Kapital (inländisch, 27,5 %)
+        status: offiziell_auszug
+      dividends_ausland:
+        kz: '863'
+        label: Einkünfte aus der Überlassung von Kapital (ausländisch, 27,5 %)
+        status: offiziell_auszug
+      fund_dist_inland:
+        kz: '897'
+        label: Ausschüttungen Investmentfonds (inländisches Depot, 27,5 %)
+        status: offiziell_auszug
+      fund_dist_ausland:
+        kz: '898'
+        label: Ausschüttungen Investmentfonds (ausländisches Depot, 27,5 %)
+        status: offiziell_auszug
+      age_inland:
+        kz: '936'
+        label: Ausschüttungsgleiche Erträge (inländisches Depot, 27,5 %)
+        status: offiziell_auszug
+      age_ausland:
+        kz: '937'
+        label: Ausschüttungsgleiche Erträge (ausländisches Depot, 27,5 %)
+        status: offiziell_auszug
+      gains_inland:
+        kz: '981'
+        label: Einkünfte aus realisierten Wertsteigerungen (inländisch, 27,5 %)
+        status: offiziell_auszug
+      gains_ausland:
+        kz: '994'
+        label: Einkünfte aus realisierten Wertsteigerungen (ausländisch, 27,5 %)
+        status: offiziell_auszug
+      losses_inland:
+        kz: '891'
+        label: Verluste aus realisierten Wertsteigerungen (inländisch)
+        status: offiziell_auszug
+      losses_ausland:
+        kz: '892'
+        label: Verluste aus realisierten Wertsteigerungen (ausländisch)
+        status: offiziell_auszug
+      interest25_ausland:
+        kz: '861'
+        label: Zinsen aus Geldeinlagen bei Kreditinstituten (ausländisch, 25 %)
+        status: sekundaer
+      interest25_inland:
+        kz: '860'
+        label: Zinsen aus Geldeinlagen bei Kreditinstituten (inländisch, 25 %)
+        status: sekundaer
+      kest_inland:
+        kz: '899'
+        label: Einbehaltene KESt auf inländische Kapitaleinkünfte
+        status: offiziell_auszug
+      foreign_tax_27_5:
+        kz: '998'
+        label: Anrechenbare ausländische (Quellen)Steuer auf Einkünfte mit 27,5 %
+        status: sekundaer
+      foreign_tax_27_5_inland:
+        kz: '984'
+        label: Anrechenbare ausländische Steuer auf Einkünfte mit KESt-Abzug (27,5 %)
+        status: nicht_verifiziert
+    notes: &id002
+    - Die Fußnote zu den Quellensteuer-Kennzahlen nennt KZ 940, 984, 998, 900 und 901; die exakte Zuordnung je Einkunftsart
+      ist im Formular zu prüfen.
+    - Werbungskosten sind auch bei Regelbesteuerungsoption nicht abzugsfähig (Formularhinweis).
+    - Durch die Erfassung von Substanzverlusten in 891/892 bzw. 895/896 wird die Verlustausgleichsoption ausgeübt
+      (Formularhinweis).
+    - Derivate (982/995, 895/896) und Kryptowährungen (171–174) werden vom Tool nicht berechnet.
   2023:
-    <<: *e1kv_2024
-    form: "E 1kv 2023 (Version 11.03.2024) – Kennzahlenstruktur laut Auszug wie 2024"
+    form: E 1kv 2023 (Version 11.03.2024) – Kennzahlenstruktur laut Auszug wie 2024
     source: E1KV_2023
+    fields: *id001
+    notes: *id002
   2022:
-    <<: *e1kv_2024
-    form: "E 1kv 2022 (Version 12.04.2023) – Kennzahlenstruktur laut Auszug wie 2024"
+    form: E 1kv 2022 (Version 12.04.2023) – Kennzahlenstruktur laut Auszug wie 2024
     source: E1KV_2022
+    fields: *id001
+    notes: *id002
   2025:
-    form: "E 1kv 2025 – NICHT verifiziert"
-    source: null
-    unverified_reference_year: 2024
-    fields: {}
+    form: E 1kv 2025 (Version 27.06.2025), Originalformular und XML geprüft 16.10.2026
+    source: E1KV_2025
+    fields:
+      dividends_inland:
+        kz: '862'
+        label: Einkünfte aus der Überlassung von Kapital (inländisch, 27,5 %)
+        status: offiziell_auszug
+      dividends_ausland:
+        kz: '863'
+        label: Einkünfte aus der Überlassung von Kapital (ausländisch, 27,5 %)
+        status: offiziell_auszug
+      fund_dist_inland:
+        kz: '897'
+        label: Ausschüttungen Investmentfonds (inländisches Depot, 27,5 %)
+        status: offiziell_auszug
+      fund_dist_ausland:
+        kz: '898'
+        label: Ausschüttungen Investmentfonds (ausländisches Depot, 27,5 %)
+        status: offiziell_auszug
+      age_inland:
+        kz: '936'
+        label: Ausschüttungsgleiche Erträge (inländisches Depot, 27,5 %)
+        status: offiziell_auszug
+      age_ausland:
+        kz: '937'
+        label: Ausschüttungsgleiche Erträge (ausländisches Depot, 27,5 %)
+        status: offiziell_auszug
+      gains_inland:
+        kz: '981'
+        label: Einkünfte aus realisierten Wertsteigerungen (inländisch, 27,5 %)
+        status: offiziell_auszug
+      gains_ausland:
+        kz: '994'
+        label: Einkünfte aus realisierten Wertsteigerungen (ausländisch, 27,5 %)
+        status: offiziell_auszug
+      losses_inland:
+        kz: '891'
+        label: Verluste aus realisierten Wertsteigerungen (inländisch)
+        status: offiziell_auszug
+      losses_ausland:
+        kz: '892'
+        label: Verluste aus realisierten Wertsteigerungen (ausländisch)
+        status: offiziell_auszug
+      interest25_ausland:
+        kz: '861'
+        label: Zinsen aus Geldeinlagen bei Kreditinstituten (ausländisch, 25 %)
+        status: offiziell_auszug
+      interest25_inland:
+        kz: '860'
+        label: Zinsen aus Geldeinlagen bei Kreditinstituten (inländisch, 25 %)
+        status: offiziell_auszug
+      kest_inland:
+        kz: '899'
+        label: Einbehaltene KESt auf inländische Kapitaleinkünfte
+        status: offiziell_auszug
+      foreign_tax_27_5:
+        kz: '998'
+        label: Anrechenbare ausländische Steuer auf Einkünfte ohne KESt-Abzug (27,5 %)
+        status: offiziell_auszug
+      foreign_tax_27_5_inland:
+        kz: '984'
+        label: Anrechenbare ausländische Steuer auf Einkünfte mit KESt-Abzug (27,5 %)
+        status: offiziell_auszug
+      foreign_tax_25_inland:
+        kz: '900'
+        label: Anrechenbare ausländische Steuer auf Einkünfte mit KESt-Abzug (25 %)
+        status: offiziell_auszug
+      foreign_tax_25_ausland:
+        kz: '901'
+        label: Anrechenbare ausländische Steuer auf Einkünfte ohne KESt-Abzug (25 %)
+        status: offiziell_auszug
+      derivative_gains_inland:
+        kz: '982'
+        label: Verbriefte Derivate Überschüsse (inland, 27,5 %)
+        status: offiziell_auszug
+      derivative_losses_inland:
+        kz: '895'
+        label: Verbriefte Derivate Verluste (inland, 27,5 %)
+        status: offiziell_auszug
+      derivative_gains_ausland:
+        kz: '995'
+        label: Verbriefte Derivate Überschüsse (ausland, 27,5 %)
+        status: offiziell_auszug
+      derivative_losses_ausland:
+        kz: '896'
+        label: Verbriefte Derivate Verluste (ausland, 27,5 %)
+        status: offiziell_auszug
     notes:
-      - "Für 2025 lag kein prüfbarer Auszug des offiziellen Formulars vor. Die Kennzahlen 2024 werden nur als Hinweis angezeigt."
+    - Kennzahlen und Spaltenzuordnung anhand des BMF-Originalformulars geprüft.
+    - Verifizierte Kennzahlen bestätigen nicht automatisch die Vollständigkeit der Berechnungsdaten.
+    - KZ 189 (inländische Dividenden innerhalb von Fonds) benötigt zusätzliche OeKB-Daten und ist manuell abzugleichen.
   2026:
-    form: "E 1kv 2026 – NICHT verifiziert"
+    form: E 1kv 2026 – NICHT verifiziert
     source: null
-    unverified_reference_year: 2024
+    unverified_reference_year: 2025
     fields: {}
     notes:
-      - "Für 2026 lag kein prüfbarer Auszug des offiziellen Formulars vor. Die Kennzahlen 2024 werden nur als Hinweis angezeigt."
+    - Stand 16.10.2026 kein abrufbares amtliches Formular für 2026. Kennzahlen 2025 sind ausschließlich Planungshinweise,
+      keine bestätigten Kennzahlen 2026.

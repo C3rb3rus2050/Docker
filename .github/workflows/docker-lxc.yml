@@ -5,7 +5,10 @@ on:
     branches: [main, feature/lxc-docker-compose, feature/web-only-portal, improve/layout-and-persistence]
 jobs:
   python-tests:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -16,6 +19,8 @@ jobs:
       - run: python -m pytest -q kest-tool/tests
         env:
           PYTHONPATH: kest-tool/src
+      - name: Check pinned public broker text extracts
+        run: python kest-tool/scripts/validate_broker_corpus.py kest-tool/tests/public_layout_manifest.json --public
   docker-build:
     runs-on: ubuntu-latest
     steps:

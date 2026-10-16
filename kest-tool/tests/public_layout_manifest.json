@@ -1,0 +1,67 @@
+[
+  {
+    "url": "https://raw.githubusercontent.com/portfolio-performance/portfolio/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Kauf06.txt",
+    "sha256": "93b1f209ee1c76165af601d6c3c98a64b23ca49ad46ff23e84928fd358fa97ad",
+    "expected": {
+      "tx_type": "Kauf",
+      "trade_date": "2022-02-15",
+      "value_date": "2022-02-17",
+      "quantity": 7,
+      "amount": 975.8,
+      "fees": 1,
+      "currency": "EUR",
+      "complete": true
+    }
+  },
+  {
+    "url": "https://raw.githubusercontent.com/portfolio-performance/portfolio/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Sparplan06.txt",
+    "sha256": "18e2f7560390104588df5e35794a0e687ca4cc9061865303c3526135f34cd1e4",
+    "expected": {
+      "tx_type": "Kauf",
+      "trade_date": "2023-05-16",
+      "quantity": 0.3367,
+      "amount": 100,
+      "currency": "EUR",
+      "complete": true
+    }
+  },
+  {
+    "url": "https://raw.githubusercontent.com/portfolio-performance/portfolio/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Dividende31.txt",
+    "sha256": "c9d669ff0c74bbd6c224f9c8cef55c631799081d03f493bdec5b07e51a156579",
+    "expected": {
+      "tx_type": "Dividende",
+      "trade_date": "2026-06-04",
+      "quantity": 7,
+      "amount": 1.05,
+      "currency": "GBP",
+      "complete": false
+    }
+  },
+  {
+    "url": "https://raw.githubusercontent.com/portfolio-performance/portfolio/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/scalablecapital/Dividende01.txt",
+    "sha256": "5b7c593851d5f2b48627a2fcfa974956875c3a75e4bf6f45088329b3f3e594e1",
+    "expected": {
+      "tx_type": "Dividende",
+      "trade_date": "2025-01-15",
+      "quantity": 0.663129,
+      "amount": 0.08,
+      "withholding_tax": 0.01,
+      "currency": "EUR",
+      "complete": false
+    }
+  },
+  {
+    "url": "https://raw.githubusercontent.com/portfolio-performance/portfolio/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/baaderbank/Kauf01.txt",
+    "sha256": "197815979f2417b734511d6e64356ad8be2c395aa6bc0e0e968ce293947aca10",
+    "expected": {
+      "tx_type": "Kauf",
+      "trade_date": "2017-03-20",
+      "value_date": "2017-03-22",
+      "quantity": 2,
+      "amount": 208.74,
+      "fees": 0.21,
+      "currency": "EUR",
+      "complete": true
+    }
+  }
+]

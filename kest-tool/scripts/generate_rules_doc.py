@@ -15,7 +15,7 @@ def main() -> None:
     r = load_rules()
     out = ["# Steuerregeln des KESt-Tools", "",
            "> Automatisch erzeugt aus `src/kest_tool/data/tax_rules.yaml` – nicht von Hand bearbeiten.", "",
-           f"Letzte Überprüfung: **{r.last_review}**  ", f"Hinweis: {r.data['meta']['access_note']}", "",
+           f"Letzte Überprüfung: **{r.last_review}**", f"Hinweis: {r.data['meta']['access_note']}", "",
            "## Verifikationsstatus", "",
            "| Status | Bedeutung | Wirkung in der Berechnung |", "|---|---|---|",
            f"| {STATUS_LABELS['offiziell_auszug']} | durch Auszug einer offiziellen Quelle bestätigt | berechnet |",

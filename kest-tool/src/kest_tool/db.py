@@ -14,10 +14,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Spalten, die in späteren Versionen ergänzt wurden (für bestehende Datenbanken)
 MIGRATIONS: list[tuple[str, str, str]] = [
+    ("transactions", "execution_order", "INTEGER"),
     ("transactions", "fx_source", "TEXT"),
     ("securities", "price_symbol", "TEXT"),
     ("securities", "price_currency", "TEXT"),

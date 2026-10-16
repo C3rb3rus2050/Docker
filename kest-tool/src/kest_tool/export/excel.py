@@ -149,6 +149,8 @@ class SheetWriter:
                     cell.value = v
                     if isinstance(v, str) and (v == MISSING or v == UNCHECKED):
                         cell.fill = ERR_FILL if v == MISSING else WARN_FILL
+                if isinstance(cell.value, str):
+                    cell.data_type = "s"
             if status_col:
                 idx = [c.header for c in cols].index(status_col) + 1
                 fill = _status_fill(ws.cell(row=r, column=idx).value)

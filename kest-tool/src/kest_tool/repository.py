@@ -24,7 +24,7 @@ from .storage import DocumentStore, sha256_bytes
 
 TX_COLUMNS = [
     "depot_id", "security_id", "isin", "security_name", "tx_type", "trade_date", "value_date", "quantity",
-    "price", "currency", "amount", "fees", "fx_rate", "fx_source", "amount_eur", "fees_eur", "withholding_tax",
+    "execution_order", "price", "currency", "amount", "fees", "fx_rate", "fx_source", "amount_eur", "fees_eur", "withholding_tax",
     "withholding_tax_eur", "withholding_country", "kest_at_eur", "ratio", "income_category",
     "income_category_verified", "document_id", "import_run_id", "source_type", "source_ref", "fingerprint",
     "review_status", "corrects_id", "notes",
@@ -334,7 +334,7 @@ class Repository:
         row = {
             "depot_id": tx.depot_id, "security_id": security_id, "isin": tx.isin, "security_name": tx.security_name,
             "tx_type": tx.tx_type.value, "trade_date": _iso(tx.trade_date), "value_date": _iso(tx.value_date),
-            "quantity": tx.quantity, "price": tx.price, "currency": tx.currency, "amount": tx.amount,
+            "execution_order": tx.execution_order, "quantity": tx.quantity, "price": tx.price, "currency": tx.currency, "amount": tx.amount,
             "fees": tx.fees, "fx_rate": tx.fx_rate, "fx_source": (tx.fx_source or "Beleg/Import") if tx.fx_rate else None,
             "amount_eur": amount_eur, "fees_eur": fees_eur,
             "withholding_tax": tx.withholding_tax, "withholding_tax_eur": wht_eur,
@@ -367,6 +367,9 @@ class Repository:
             raise ValueError("Buchung nicht gefunden")
         if "fx_rate" in changes and "fx_source" not in changes and changes["fx_rate"] != old.get("fx_rate"):
             changes["fx_source"] = "manuell erfasst/geändert"
+        merged = {**old, **changes}
+        validated = TransactionIn(**merged).model_dump(mode="json")
+        changes = {k: validated.get(k, v) for k, v in changes.items()}
         merged = {**old, **changes}
         # EUR-Werte neu berechnen
         cur = merged.get("currency") or "EUR"

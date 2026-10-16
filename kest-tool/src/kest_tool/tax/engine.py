@@ -176,6 +176,8 @@ class Holding:
     cost: float = 0.0
     cost_known: bool = True
     history_gap: bool = False
+    cost_notes: set[str] = field(default_factory=set)
+    legacy: bool = False
 
 
 @dataclass
@@ -283,6 +285,24 @@ class CostBasisTracker:
         self.lines: list[CalcLine] = []
         self.qty_at: dict[tuple[int, str, str], float] = {}  # (depot, isin, Stichtag) -> Bestand
         self.held_in_year: set[tuple[int, str]] = set()
+        self.ambiguous_days: set[tuple[int, str, str]] = set()
+        changes = {TxType.BUY.value, TxType.SELL.value, TxType.TRANSFER_IN.value,
+                   TxType.TRANSFER_OUT.value, TxType.SPLIT.value, TxType.CAPITAL_REPAYMENT.value,
+                   TxType.CORPORATE_ACTION.value}
+        groups = defaultdict(list)
+        for tx in ctx.tx_all:
+            if tx.get("isin") and tx["tx_type"] in changes:
+                groups[(tx["depot_id"], tx["isin"], tx["trade_date"])].append(tx)
+        for key, txs in groups.items():
+            if len({t["tx_type"] for t in txs}) < 2:
+                continue
+            orders = [t.get("execution_order") for t in txs]
+            if any(o is None for o in orders) or len(set(orders)) != len(orders):
+                self.ambiguous_days.add(key)
+                ctx.issue("Fehler", "Fehlende Daten",
+                          f"Taggleiche Bestandsänderungen {key[1]} am {key[2]}: tatsächliche Reihenfolge fehlt. "
+                          "Unter Buchungen für alle Bestandsänderungen dieses Tages eine eindeutige Reihenfolge eintragen.",
+                          f"Depot #{key[0]}")
 
     def _events(self):
         ev = []
@@ -295,12 +315,16 @@ class CostBasisTracker:
                 ev.append((rep["report_date"], 0, "fund_ak", rep))
             if rep["report_date"] <= self.ctx.year_end:
                 ev.append((rep["report_date"], 0, "snapshot", rep))
-        # Nichtmeldefonds: AK-Erhöhung zum 31.12. früherer Jahre (nur wenn Regel verifiziert und Kurse vorhanden)
+        # Nichtmeldefonds: AK-Erhöhung auch in der Bestandsübersicht des laufenden Jahres.
         for (isin, y), p in self.ctx.nmf.items():
-            if int(y) < self.ctx.year:
+            if int(y) <= self.ctx.year:
                 ev.append((date(int(y), 12, 31).isoformat(), 2, "nmf_ak", p))
+        first_year = min((int(t["trade_date"][:4]) for t in self.ctx.tx_all), default=self.ctx.year)
+        for year in range(max(2022, first_year), self.ctx.year):
+            ev.append((date(year, 12, 31).isoformat(), 3, "fund_history", year))
         ev.append((self.ctx.year_end, 3, "year_end", None))
-        return sorted(ev, key=lambda e: (e[0], e[1]))
+        return sorted(ev, key=lambda e: (e[0], e[1],
+                      (e[3].get("execution_order") or 0) if e[2] == "tx" else 0))
 
     def run(self) -> None:
         year_start = date(self.ctx.year, 1, 1).isoformat()
@@ -315,6 +339,8 @@ class CostBasisTracker:
                 self._fund_ak(obj)
             elif kind == "nmf_ak":
                 self._nmf_ak(obj)
+            elif kind == "fund_history":
+                self._check_fund_history(obj)
             elif kind == "year_end":
                 for (dep, isin), h in self.holdings.items():
                     self.qty_at[(dep, isin, self.ctx.year_end)] = h.qty
@@ -328,8 +354,9 @@ class CostBasisTracker:
         h = self.holdings[key]
         t = tx["tx_type"]
         q = tx.get("quantity") or 0.0
-        if h.qty > EPS:
-            pass
+        if (tx["depot_id"], tx["isin"], tx["trade_date"]) in self.ambiguous_days:
+            h.cost_known = False
+            h.cost_notes.add("Tatsächliche Reihenfolge taggleicher Bestandsänderungen fehlt")
         if t in (TxType.BUY.value, TxType.TRANSFER_IN.value):
             if tx.get("amount_eur") is None:
                 h.cost_known = False
@@ -343,6 +370,12 @@ class CostBasisTracker:
                 self.ctx.issue("Warnung", "Offene steuerliche Frage",
                                f"Depoteingang {tx['isin']}: übernommene Anschaffungskosten prüfen", self.ctx.tx_source(tx))
             h.qty += q
+            sec = self.ctx.securities.get(tx["isin"], {})
+            equity_or_fund = sec.get("tax_class") in (TaxClass.KAPITALGESELLSCHAFT.value, TaxClass.INVESTMENTFONDS.value)
+            cutoff = "2011-01-01" if equity_or_fund and sec.get("tax_class_verified") else "2012-04-01"
+            if tx["trade_date"] < cutoff:
+                h.legacy = True
+                h.cost_notes.add("Historischer Erwerb: Alt-/Übergangsbestand je Wertpapierart prüfen; keine automatische Besteuerung")
         elif t == TxType.SELL.value:
             self._sell(tx, h, in_year)
         elif t == TxType.TRANSFER_OUT.value:
@@ -361,7 +394,10 @@ class CostBasisTracker:
                 t in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value)
                 and tx.get("income_category") == IncomeCategory.CAPITAL_REPAYMENT.value):
             self._capital_repayment(tx, h, in_year)
-        elif t == TxType.CORPORATE_ACTION.value and in_year:
+        elif t == TxType.CORPORATE_ACTION.value:
+            h.cost_known = False
+            h.history_gap = True
+            h.cost_notes.add("Ungeklärte Kapitalmaßnahme verändert möglicherweise Bestand und Anschaffungskosten")
             self.ctx.issue("Warnung", "Offene steuerliche Frage",
                            f"Kapitalmaßnahme {tx['isin']} – Auswirkung auf Bestand/Anschaffungskosten manuell prüfen",
                            self.ctx.tx_source(tx))
@@ -376,6 +412,10 @@ class CostBasisTracker:
             share = min(1.0, q / h.qty) if h.qty > EPS else 1.0
             h.cost -= h.cost * share
             h.qty = max(0.0, h.qty - q)
+            if h.qty <= EPS:
+                h.qty, h.cost, h.cost_known, h.history_gap = 0.0, 0.0, True, False
+                h.cost_notes.clear()
+                h.legacy = False
             return
         line = ctx.new_line("VK", CAT_GAIN, BUCKET_27_5, tx, gross=tx.get("amount_eur"), fees=tx.get("fees_eur") or 0)
         line.rate = ctx.rules.rate("RATE_27_5")
@@ -391,6 +431,12 @@ class CostBasisTracker:
         elif tc == TaxClass.UNGEKLAERT.value or not sec.get("tax_class_verified"):
             line.downgrade(PROVISIONAL)
             line.notes.append("Steuerliche Einstufung des Wertpapiers ungeprüft")
+        if tc == TaxClass.DERIVAT_VERBRIEFT.value:
+            ok = ctx.apply_rule(line, "SECURITIZED_DERIVATIVE") and ok
+            if not sec.get("tax_class_verified") or not sec.get("tax_class_source"):
+                line.status = MANUAL
+                line.notes.append("Verbriefung und öffentliches Angebot müssen durch Emittentenunterlagen bestätigt sein")
+                ok = False
         if h.qty + 1e-6 < q or h.history_gap:
             line.status = MANUAL
             line.notes.append(f"Bestand vor Verkauf {h.qty:g} < Verkaufsmenge {q:g} – Kaufhistorie unvollständig")
@@ -398,9 +444,15 @@ class CostBasisTracker:
                       f"Verkauf {tx['isin']} am {tx['trade_date']}: Anschaffungskosten unbekannt "
                       f"(Bestand {h.qty:g}, verkauft {q:g}). Fehlende Käufe/Depoteingänge erfassen.", ctx.tx_source(tx))
             ok = False
+        if h.legacy:
+            line.status = MANUAL
+            ok = False
+        if h.cost_notes:
+            line.downgrade(PROVISIONAL)
+            line.notes.extend(sorted(h.cost_notes))
         if not h.cost_known:
             line.status = MANUAL
-            line.notes.append("Anschaffungskosten unvollständig (Kauf ohne EUR-Betrag)")
+            line.notes.append("Anschaffungskosten unvollständig oder nicht eindeutig bestimmbar")
             ok = False
         if tx.get("amount_eur") is None:
             line.status = MANUAL
@@ -420,7 +472,11 @@ class CostBasisTracker:
                 f"Veräußerungserlös (ohne Abzug von Gebühren {line.fees:.2f} EUR): {tx['amount_eur']:.2f} EUR",
                 f"Ergebnis: {tx['amount_eur']:.2f} − {cost_sold:.2f} = {gain:.2f} EUR",
             ]
-            line.e1kv_key = ("gains_" if gain >= 0 else "losses_") + ("inland" if line.domestic else "ausland")
+            if tc == TaxClass.DERIVAT_VERBRIEFT.value:
+                prefix = "derivative_gains_" if gain >= 0 else "derivative_losses_"
+            else:
+                prefix = "gains_" if gain >= 0 else "losses_"
+            line.e1kv_key = prefix + ("inland" if line.domestic else "ausland")
         else:
             line.steps.append("Nicht berechnet – siehe Hinweise")
         self.lines.append(line)
@@ -429,6 +485,8 @@ class CostBasisTracker:
         h.qty = max(0.0, h.qty - q)
         if h.qty <= EPS:
             h.qty, h.cost, h.cost_known, h.history_gap = 0.0, 0.0, True, False
+            h.cost_notes.clear()
+            h.legacy = False
 
     def _capital_repayment(self, tx: dict, h: Holding, in_year: bool) -> None:
         ctx = self.ctx
@@ -441,7 +499,15 @@ class CostBasisTracker:
         r = ctx.rules.rule("CAPITAL_REPAYMENT", int(tx["trade_date"][:4]))
         if not r.computable:
             return
+        if not h.cost_known or h.history_gap or h.legacy:
+            if in_year:
+                line = ctx.new_line("KR", CAT_UNCLEAR, BUCKET_UNCLEAR, tx, gross=amt)
+                line.status = MANUAL
+                line.notes.append("Kapitalrückzahlung bei unbekannten/ungeklärten Anschaffungskosten – keine AK-Minderung oder Gewinnberechnung")
+                self.lines.append(line)
+            return
         before = h.cost
+        cost_notes = sorted(h.cost_notes)
         reduce = min(amt, max(h.cost, 0.0))
         h.cost -= reduce
         excess = amt - reduce
@@ -454,6 +520,7 @@ class CostBasisTracker:
             self.lines.append(line)
             if excess > 0.005:
                 g = ctx.new_line("KR", CAT_GAIN, BUCKET_27_5, tx, gross=excess, amount=round(excess, 2))
+                g.notes.extend(cost_notes)
                 g.rate = ctx.rules.rate("RATE_27_5")
                 ctx.apply_rule(g, "CAPITAL_REPAYMENT")
                 ctx.apply_rule(g, "RATE_27_5")
@@ -470,16 +537,52 @@ class CostBasisTracker:
         for (dep, isin), h in self.holdings.items():
             if isin == rep["isin"] and h.qty > EPS:
                 h.cost += corr * h.qty / fx
+                if rep.get("review_status") != "geprueft":
+                    h.cost_notes.add(f"Anschaffungskosten aus ungeprüfter Fondsmeldung #{rep['id']}")
+                if corr < 0 and h.cost < -EPS:
+                    h.cost_known = False
+                    h.cost_notes.add("Fondskorrektur führt zu negativen Anschaffungskosten – manuell prüfen")
 
     def _nmf_ak(self, p: dict) -> None:
         r = self.ctx.rules.rule("NICHTMELDEFONDS_PAUSCHAL", int(p["tax_year"]))
         if not r.computable or p.get("first_price") is None or p.get("last_price") is None:
+            for (dep, isin), h in self.holdings.items():
+                if isin == p["isin"] and h.qty > EPS:
+                    h.cost_known = False
+                    h.cost_notes.add(f"Historische Nichtmeldefonds-Pauschale {p['tax_year']} nicht ermittelbar")
             return
         per_unit = nmf_per_unit(self.ctx.rules, p["first_price"], p["last_price"])
         fx = p.get("fx_rate_last") or 1.0
         for (dep, isin), h in self.holdings.items():
             if isin == p["isin"] and h.qty > EPS:
+                if p.get("currency", "EUR") != "EUR" and not p.get("fx_rate_last"):
+                    h.cost_known = False
+                    h.cost_notes.add("Historische Nichtmeldefonds-Pauschale ohne Devisenkurs")
+                    continue
                 h.cost += per_unit * h.qty / fx
+                if p.get("review_status") != "geprueft":
+                    h.cost_notes.add(f"Historische Nichtmeldefonds-Kurse {p['tax_year']} ungeprüft")
+
+    def _check_fund_history(self, year: int) -> None:
+        for (dep, isin), h in self.holdings.items():
+            if h.qty <= EPS:
+                continue
+            sec = self.ctx.securities.get(isin, {})
+            status = sec.get("fund_status")
+            missing = False
+            if status == FundStatus.MELDEFONDS.value:
+                reports = [r for r in self.ctx.reports if r["isin"] == isin
+                           and int(r["report_date"][:4]) == year]
+                missing = not reports or any(r.get("ak_correction_per_unit") is None for r in reports)
+            elif status == FundStatus.NICHTMELDEFONDS.value:
+                missing = (isin, year) not in self.ctx.nmf
+            elif sec.get("security_type") in [s.value for s in FUND_SECURITY_TYPES]:
+                missing = True
+            if missing:
+                h.cost_known = False
+                note = f"Historische Fondsdaten/AK-Korrekturen für {isin} {year} fehlen"
+                h.cost_notes.add(note)
+                self.ctx.issue("Fehler", "Fehlende Daten", note, f"Depot #{dep}")
 
 
 def nmf_per_unit(rules: TaxRules, first: float, last: float) -> float:
@@ -551,7 +654,8 @@ class IncomeClassifier:
         country = tx.get("withholding_country") or sec.get("country")
         line.rule_ids.append("FOREIGN_TAX_CREDIT")
         rule = ctx.rule("FOREIGN_TAX_CREDIT")
-        dba = ctx.rules.dba_rate(country)
+        # Dividend treaty caps do not establish the rate for bank/bond interest.
+        dba = ctx.rules.dba_rate(country) if tx["tx_type"] in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value) else None
         gross = line.gross or 0.0
         if not country:
             line.unclear_tax = wht
@@ -567,7 +671,7 @@ class IncomeClassifier:
                       ctx.tx_source(tx))
             line.downgrade(PROVISIONAL)
         else:
-            rate_at = ctx.rules.rate("RATE_27_5")
+            rate_at = line.rate or ctx.rules.rate("RATE_27_5")
             cap_dba = gross * dba["rate"]
             cap_at = gross * rate_at
             cred = min(wht, cap_dba, cap_at)
@@ -612,6 +716,9 @@ class IncomeClassifier:
         line.rate = ctx.rules.rate("RATE_27_5")
         ok = self._base_checks(line, tx) and ctx.apply_rule(line, "RATE_27_5")
         tc = sec.get("tax_class") or TaxClass.UNGEKLAERT.value
+        if tc == TaxClass.DERIVAT_VERBRIEFT.value:
+            self._unclear(tx, "Derivate-Cashflow: nur Verkauf/Rückzahlung eines belegten Long-Bestands wird unterstützt")
+            return
         if stype in (SecurityType.REIT.value, SecurityType.BDC.value):
             # Keine automatische Regel: Berechnung nur, weil die Ertragsart je Buchung bestätigt wurde.
             line.rule_ids.append("REIT_BDC")
@@ -1102,7 +1209,10 @@ def e1kv_rows(result_lines: list[CalcLine], rules: TaxRules, year: int) -> list[
         if l.kest_at:
             targets.append(("kest_inland" if l.domestic else None, l.kest_at))
         if l.creditable_tax_max and l.bucket == BUCKET_27_5:
-            targets.append(("foreign_tax_27_5", l.creditable_tax_max))
+            key = "foreign_tax_27_5_inland" if l.domestic else "foreign_tax_27_5"
+            targets.append((key, l.creditable_tax_max))
+        elif l.creditable_tax_max and l.bucket == BUCKET_25:
+            targets.append(("foreign_tax_25_inland" if l.domestic else "foreign_tax_25_ausland", l.creditable_tax_max))
         for key, val in targets:
             if not key or key not in agg:
                 continue
@@ -1115,19 +1225,20 @@ def e1kv_rows(result_lines: list[CalcLine], rules: TaxRules, year: int) -> list[
     for key in keys:
         f = fields.get(key) or ref_fields.get(key) or {}
         a = agg[key]
-        verified_kz = key in fields
+        verified_kz = key in fields and f.get("status") != "nicht_verifiziert"
         kz_status = f.get("status", "nicht_verifiziert") if verified_kz else "nicht_verifiziert"
         hints = []
         if not verified_kz:
-            hints.append(f"Kennzahl für {year} nicht verifiziert – Wert aus Formular {ref_year} nur als Hinweis")
+            hints.append(f"Kennzahl für {year} nicht verifiziert – vorgeschlagene Zuordnung"
+                         + (f" aus Formular {ref_year}" if ref_year else "") + " nur als Hinweis")
         if kz_status == "sekundaer":
             hints.append("Kennzahl nur über Sekundärquelle belegt – im Formular prüfen")
         if key.endswith("_inland"):
             hints.append("Inländische (KESt-abzugspflichtige) Einkünfte sind grundsätzlich endbesteuert – nur bei "
                          "Verlustausgleichs-/Regelbesteuerungsoption angeben")
-        if key == "foreign_tax_27_5":
+        if key.startswith("foreign_tax_"):
             hints.append("Höchstbetrag vor Verlustausgleich; das Finanzamt begrenzt die Anrechnung im Bescheid")
-        if key.startswith("losses_"):
+        if key.startswith(("losses_", "derivative_losses_")):
             hints.append("Verluste mit negativem Vorzeichen eintragen")
         amount = round(a["amount"], 2)
         rows.append({
@@ -1172,7 +1283,8 @@ def positions_snapshot(ctx: Context, tracker: CostBasisTracker) -> list[dict]:
                      "Name": sec.get("name"), "Bestand 31.12.": round(h.qty, 6),
                      "Steuerliche AK gesamt EUR": cost,
                      "AK je Stück EUR": round(h.cost / h.qty, 6) if h.cost_known and h.qty else None,
-                     "AK vollständig": "ja" if h.cost_known and not h.history_gap else "nein",
+                     "AK vollständig": "ja" if h.cost_known and not h.history_gap and not h.cost_notes else "nein",
+                     "AK-Prüfhinweise": "; ".join(sorted(h.cost_notes)),
                      "Kurs 31.12.": price["close"] if price else None,
                      "Kurswährung": price["currency"] if price else None,
                      "Kursdatum": price["price_date"] if price else None,

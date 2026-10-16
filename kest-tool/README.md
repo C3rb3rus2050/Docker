@@ -20,6 +20,8 @@ erkannte Dubletten werden nicht erneut gebucht. Manuelle Sonderimporte sind opti
 
 ---
 
+Quellenstand und Änderungen vom 16.10.2026: [Verifikationsbericht](docs/VERIFIKATION-2026-10-16.md).
+
 ## Inhalt
 
 1. [Installation unter Windows 11](#installation-unter-windows-11)
@@ -251,7 +253,7 @@ Gestaltung:
 |---|---|
 | CSV (`;` `,` Tab `\|`, UTF-8/UTF-16/Windows-1252, deutsche und englische Zahlen- und Datumsformate) | getestet mit synthetischen Dateien |
 | Excel `.xlsx` | getestet |
-| PDF-Abrechnungen (Kauf, Verkauf, Dividende, Ausschüttung, Zinsen, Kapitalrückzahlung) | getestet **nur mit synthetischen Muster-PDFs** und nachgebildeten Layouts (Trade-Republic-Positionszeile, Baader/Scalable „STK“ und „EUR 126,30“, Quellensteuer „für US-Emittent“, Devisenkurs „EUR/USD“) – keine echten Abrechnungen |
+| PDF-Abrechnungen (Kauf, Verkauf, Dividende, Ausschüttung, Zinsen, Kapitalrückzahlung) | getestet mit synthetischen Muster-PDFs, nachgebildeten Layouts und unveränderten öffentlichen Broker-Textauszügen (Trade-Republic-Positionszeile, Baader/Scalable „STK“ und „EUR 126,30“, Quellensteuer „für US-Emittent“, Devisenkurs „EUR/USD“) – Original-PDF-Extraktion echter Kundendokumente weiterhin offen |
 | Jahressteuerbescheinigungen, sonstige Belege | werden abgelegt und als „prüfen“ markiert, aber nicht automatisch in Buchungen zerlegt |
 | OeKB-Fondsdaten CSV/Excel | getestet mit eigenem Beispielformat ([sample_data](sample_data)); Spalten frei zuordenbar |
 | OeKB-PDF | heuristische Extraktion mit Bestätigungsformular, getestet nur mit Muster-PDF |
@@ -293,17 +295,17 @@ Umgesetzt:
   abgezogen (§ 27a Abs 4 Z 2, § 20 Abs 2 EStG), sondern nur ausgewiesen. Realisierte Gewinne und Verluste,
   Dividenden brutto, Splits.
 - **Quellensteuer:** getrennt gespeichert. Anrechenbar ist höchstens der DBA-Satz und höchstens die österreichische
-  Steuer. Nicht anrechenbare und ungeklärte Beträge werden getrennt ausgewiesen. Bisher ist nur der DBA-Satz für
-  die **USA** als verifiziert hinterlegt; für andere Länder bleibt die Anrechnung „ungeklärt“, bis Sie den Satz
-  geprüft eintragen.
+  Steuer. Nicht anrechenbare und ungeklärte Beträge werden getrennt ausgewiesen. Für gewöhnliche Dividenden natürlicher Personen sind die DBA-Höchstsätze für
+  **USA, Deutschland, Schweiz, Niederlande und Kanada** mit amtlichen Quellen hinterlegt. Andere Länder und
+  Sonderfälle bleiben zur Prüfung offen. Dividendensätze gelten nicht automatisch für Zinsen.
 - **Inländische KESt:** Depots mit KESt-Abzug durch den Broker gelten als „inländisch“. Die einbehaltene KESt wird
   ausgewiesen (KZ 899) und nicht doppelt besteuert.
 - **Meldefonds:** ausschüttungsgleiche Erträge, steuerpflichtiger Teil der Ausschüttung, anrechenbare Steuer und
   AK-Korrektur laut OeKB-Meldung, jeweils für den Bestand zum Meldedatum. Ausschüttungen ohne Meldung werden voll,
   aber vorläufig angesetzt. Eine manuell gebuchte AgE neben einer Meldung wird nicht doppelt gezählt.
-- **Nichtmeldefonds:** Pauschale (90 % der Differenz, mindestens 10 % des letzten Rücknahmepreises) **nur für 2022
-  und 2023** (sekundär belegt). Ab 2024 wurde § 186 InvFG geändert und der neue Inhalt nicht verifiziert, deshalb
-  erfolgt keine Berechnung, nur eine Prüfposition.
+- **Nichtmeldefonds:** Pauschale (90 % der Differenz, mindestens 10 % des letzten Rücknahmepreises) **für 2022–2026**; die Fassung ab 2024 wurde anhand des RIS-Volltexts bestätigt.
+  Fehlende Kurse oder Devisenkurse verhindern die Berechnung. Selbstnachweise und unterjährige Sonderfälle
+  bleiben manuell zu prüfen.
 - **REITs/BDCs:** keine Einstufung über den Namen. Ohne je Buchung bestätigte Ertragsart wird der Betrag „ungeklärt“
   und nicht berechnet.
 - **Kapitalrückzahlungen:** Mit bestätigtem Beleg mindern sie die Anschaffungskosten, ein Überschuss gilt als
@@ -314,8 +316,9 @@ Umgesetzt:
 - **Steuerjahre:** Jede Regel hat einen Status je Jahr. Für nicht hinterlegte Jahre (z. B. 2019) lehnt das Tool die
   Berechnung ab.
 - **E 1kv:** Kennzahlen 2022–2024 aus Auszügen der amtlichen Formulare (862/863, 897/898, 936/937, 981/994, 891/892,
-  899). KZ 998 sowie 860/861 sind nur sekundär belegt. Für **2025/2026 sind die Kennzahlen nicht verifiziert**: Die
-  Beträge erscheinen mit dem Vorjahreswert als „(863?)“ und dem Hinweis, das Formular zu prüfen.
+  899). KZ 998 sowie 860/861 sind nur sekundär belegt. Für **2025 wurden Kennzahlen und Spalten am amtlichen Originalformular verifiziert**, einschließlich
+  der getrennten Quellensteuer-Kennzahlen 984/998 und der Derivate-Kennzahlen. Für **2026 fehlt ein abrufbares
+  amtliches Formular**; Kennzahlen 2025 erscheinen ausschließlich als unverifizierte Planungshinweise „(863?)“.
 
 ## OeKB-Daten
 
@@ -385,7 +388,9 @@ Datenbanktabellen:
 .venv\Scripts\python -m pytest -q
 ```
 
-`tests/` enthält 93 Tests. Sie decken unter anderem ab:
+`tests/` enthält automatisierte Regressionen; die aktuelle Anzahl zeigt `python -m pytest -q`.
+Zusätzlich prüft `python scripts/validate_broker_corpus.py tests/public_layout_manifest.json --public`
+fünf unveränderte öffentliche Broker-Textauszüge anhand festgelegter Quellen und Prüfsummen. Sie decken unter anderem ab:
 
 - CSV mit deutschem Dezimalkomma und erneuten Import
 - Brokerzuordnung, Dubletten und Gebühren
@@ -398,14 +403,15 @@ Datenbanktabellen:
 
 ## Einschränkungen
 
-- **Verifikation:** BMF, RIS, Findok und OeKB waren aus der Entwicklungsumgebung nicht direkt abrufbar. Regeln wurden
-  über Suchauszüge offizieller Dokumente bzw. Sekundärquellen belegt und entsprechend gekennzeichnet. Vor der
-  Verwendung bitte die Quellen in [docs/STEUERREGELN.md](docs/STEUERREGELN.md) selbst prüfen.
-- **E 1kv 2025/2026:** Kennzahlen nicht verifiziert.
-- **Nichtmeldefonds ab 2024:** keine Berechnung.
-- **DBA-Sätze:** nur USA verifiziert.
+- **Verifikation:** E 1kv 2025, die Nichtmeldefonds-Regel ab 2024 und zusätzliche DBA-Sätze wurden am
+  16.10.2026 im amtlichen Volltext geprüft. Der Quellenstatus anderer Regeln bleibt unverändert.
+  Details und verbleibende Grenzen: [Verifikationsbericht](docs/VERIFIKATION-2026-10-16.md).
+- **E 1kv 2026:** amtliches Formular nicht abrufbar; keine bestätigten Kennzahlen. 2025 ist verifiziert.
+- **Nichtmeldefonds:** jährliche Pauschale auch 2024–2026; Sonderfälle und fehlende Daten bleiben prüfpflichtig.
+- **DBA-Sätze:** USA, DE, CH, NL und CA für gewöhnliche Privatdividenden; übrige Länder/Sonderfälle offen.
 - **Nicht implementiert:**
-  - Regelbesteuerungsoption, Derivate, Kryptowährungen, Anleihen-Stückzinsen, Altbestand vor 1.4.2012
+  - Regelbesteuerungsoption, unverbriefte Derivate/Shorts, Kryptowährungen, Anleihen-Stückzinsen,
+    vollständige Berechnung gemischter Alt-/Neubestände
   - pauschale Anschaffungskosten (§ 93 Abs 4), Wegzug/Schenkung, Kapitalmaßnahmen außer Split
     (werden als Prüfhinweis gemeldet)
   - Immobilienfonds, Betriebsvermögen
@@ -417,7 +423,18 @@ Datenbanktabellen:
   Ersatz durch Börsenkurse.
 - **Fremdwährungen:** Kurs aus Beleg, Eingabe oder automatisch als EZB-Referenzkurs. Der Download wurde nur gegen eine
   Datei im EZB-Format getestet, weil die EZB aus der Entwicklungsumgebung nicht erreichbar war.
-- **PDF-Erkennung:** nur mit synthetischen PDFs getestet. Echte Abrechnungen von Trade Republic und Scalable Capital
-  können anders aufgebaut sein; dann erscheinen fehlende Felder im Prüfformular.
+- **PDF-Erkennung:** synthetische PDF-Tests und reproduzierbarer Abgleich unveränderter öffentlicher
+  Broker-Textauszüge. Original-PDF-Extraktion/OCR mit echten Kundendokumenten ist weiterhin nicht verifiziert.
+  Der lokale Korpus-Runner erlaubt den Abgleich eigener anonymisierter PDFs ohne Dokumentupload.
 - **Windows:** `start.bat`/`install.bat` wurden in einer Linux-Umgebung erstellt und nicht unter Windows ausgeführt.
-  Die Python-Teile sind plattformunabhängig getestet (Python 3.12 und 3.13).
+  Python-Tests werden jetzt auch unter Windows ausgeführt; CI prüft Linux und Windows mit Python 3.12.
+  Die Batch-Installation selbst bleibt separat zu testen.
+
+
+## Ergänzungen vom 16.10.2026
+
+- Öffentlich begebene verbriefte Derivate: Long-Verkäufe/Rückzahlungen nach explizit geprüfter Einstufung mit Emittentenquelle, eigene E-1kv-Kennzahlen für 2025. Unverbriefte Derivate bleiben manuell.
+- Historische Erwerbe und ungeklärte Kapitalmaßnahmen sperren abhängige Verkaufsberechnungen. Keine automatische Annahme einer Steuerbefreiung.
+- Bei Käufen/Verkäufen am selben Tag unter **Buchungen → Weitere Spalten anzeigen → Reihenfolge am Tag** die tatsächliche Ausführungsreihenfolge je Depot/ISIN eintragen. Ohne eindeutige Reihenfolge wird kein Verkaufsgewinn geraten.
+- Fehlende historische Fondskorrekturen und ungeprüfte AK-Quellen bleiben in Verkäufen und Beständen sichtbar.
+- Formelzeichen aus importierten Texten bleiben in Excel Text; CSV-Exporte neutralisieren entsprechende Präfixe.

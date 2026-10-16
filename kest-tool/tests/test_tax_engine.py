@@ -100,9 +100,9 @@ def test_dividend_with_withholding_tax(repo, depot):
 
 
 def test_withholding_tax_unverified_country_is_unclear(repo, depot):
-    stock(repo, isin="CH0038863350", name="Nestlé", country="CH")
-    add_tx(repo, depot, TxType.DIVIDEND, "2024-04-20", isin="CH0038863350", amount=100, withholding_tax=35,
-           withholding_country="CH")
+    stock(repo, isin="FR0000120271", name="TotalEnergies", country="FR")
+    add_tx(repo, depot, TxType.DIVIDEND, "2024-04-20", isin="FR0000120271", amount=100, withholding_tax=35,
+           withholding_country="FR")
     res = compute(repo, 2024)
     d = one(res.lines, CAT_DIVIDEND)
     assert d.creditable_tax_max == 0 and d.unclear_tax == pytest.approx(35)
@@ -125,10 +125,10 @@ def test_meldefonds_vs_nichtmeldefonds(repo, depot):
     assert any("keine passende OeKB-Meldung" in i.message for i in r23.issues)
     # Nichtmeldefonds 2023: Ausschüttung voll steuerpflichtig (sekundär belegt)
     assert dist[NMF_FUND].amount == 30 and "NICHTMELDEFONDS_DISTRIBUTIONS" in dist[NMF_FUND].rule_ids
-    # 2024: Regel für Nichtmeldefonds nicht verifiziert → keine Berechnung
+    # 2024: Volltext bestätigt volle Steuerpflicht tatsächlicher Ausschüttungen
     r24 = compute(repo, 2024)
     nmf24 = [l for l in r24.lines if l.category == CAT_FUND_DIST and l.isin == NMF_FUND][0]
-    assert nmf24.amount is None and nmf24.status == MANUAL
+    assert nmf24.amount == 30
 
 
 def test_meldefonds_age(repo, depot):
@@ -344,8 +344,8 @@ def test_unsupported_year_refused(repo, depot):
 
 def test_e1kv_unverified_year_marks_kennzahlen(repo, depot):
     stock(repo)
-    add_tx(repo, depot, TxType.DIVIDEND, "2025-05-10", isin=APPLE, amount=100)
-    res = compute(repo, 2025)
+    add_tx(repo, depot, TxType.DIVIDEND, "2026-05-10", isin=APPLE, amount=100)
+    res = compute(repo, 2026)
     row = [r for r in res.e1kv if "863" in r["Kennzahl"]][0]
     assert row["Kennzahl"] == "(863?)"
     assert row["Kennzahl-Status"] == "nicht verifiziert"
@@ -365,15 +365,15 @@ def test_nichtmeldefonds_pauschal_2023(repo, depot):
     assert nmf.status == PROVISIONAL
 
 
-def test_nichtmeldefonds_unverified_year_not_computed(repo, depot):
+def test_nichtmeldefonds_current_rule_computed(repo, depot):
     fund(repo, NMF_FUND, FundStatus.NICHTMELDEFONDS)
     add_tx(repo, depot, TxType.BUY, "2024-02-01", isin=NMF_FUND, quantity=10, amount=1000)
     repo.upsert_nmf_price(NMF_FUND, 2024, 100.0, "2024-01-02", 130.0, "2024-12-30", source="Testkurse")
     res = compute(repo, 2024)
     nmf = one(res.lines, CAT_NMF)
-    assert nmf.amount is None and nmf.status == MANUAL
-    assert res.summary["Nichtmeldefonds pauschal"] == 0
-    assert any("nicht verifiziert" in i.message and NMF_FUND in i.message for i in res.issues)
+    assert nmf.amount == pytest.approx(270)
+    assert res.summary["Nichtmeldefonds pauschal"] == pytest.approx(270)
+    assert "INVFG_186_2024" in load_rules().rule("NICHTMELDEFONDS_PAUSCHAL", 2024).sources
 
 
 def test_nichtmeldefonds_missing_prices(repo, depot):
@@ -407,5 +407,5 @@ def test_rules_catalog_has_sources():
     for row in rules.catalog():
         assert row["Status"]
     r = rules.rule("NICHTMELDEFONDS_PAUSCHAL", 2025)
-    assert not r.computable
+    assert r.computable
     assert rules.rule("RATE_27_5", 2024).status == "offiziell_auszug"

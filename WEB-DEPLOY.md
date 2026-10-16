@@ -9,8 +9,8 @@ Die Anwendung verarbeitet vertrauliche Finanz- und Steuerdaten. Ohne Anmeldung d
 ## Einrichtung
 
 ```bash
-git clone https://github.com/C3rb3rus2050/Docker.git
-cd Docker
+git clone https://github.com/C3rb3rus2050/Steuer-Tool.git
+cd Steuer-Tool
 mkdir -p data/kest
 sudo chown -R 10001:10001 data/kest
 docker compose config -q
@@ -55,3 +55,32 @@ Die Wiederherstellung lässt den eingebundenen Datenordner bestehen. Vorherige D
 liegen anschließend unter `data/kest/backups/vor_Wiederherstellung_*`.
 Vorhandene Backup-Dateien und API-Schlüssel bleiben erhalten. Während der
 Wiederherstellung darf keine andere Sitzung Änderungen vornehmen.
+
+## Server aktualisieren
+
+Im bestehenden Repository auf dem Linux-Server ausführen (als root oder mit Zugriff auf Docker und die Datenablage):
+
+```bash
+git pull --ff-only origin main
+bash scripts/update-server.sh
+```
+
+Das Skript validiert Compose und baut zuerst das Image. Erst danach stoppt es die Container,
+sichert `data/kest` einschließlich Datenbank, Konfiguration und Schlüsseln in ein privates
+Archiv unter `../Steuer-Tool-Backups/` und startet das Deployment mit Gesundheitsprüfung.
+Bei einem Fehler während der Sicherung werden die vorhandenen Container wieder gestartet.
+Mit `KEST_BACKUP_DIR=/sicherer/pfad` lässt sich das Backup-Ziel ändern. Auf einem anderen
+Volume eingebundene Daten erfordern eine passend angepasste Sicherung; dieses Skript gilt
+für die unveränderte `compose.yaml` mit `./data/kest`.
+
+Zusätzliche Kontrolle (Port gegebenenfalls an `PORTAL_PORT` anpassen):
+
+```bash
+curl --fail http://127.0.0.1:8080/steuer/_stcore/health
+docker compose logs --tail=80 kest-tool
+```
+
+Version 1.1.0 ergänzt automatisch Datenbankschema 4. Ältere Exporte werden nicht neu geschrieben.
+Nach dem Update Steuerberechnung erneut öffnen, neue Prüfhinweise bearbeiten und benötigte
+Exporte neu erzeugen. Taggleiche Bestandsänderungen benötigen gegebenenfalls eine tatsächliche
+Ausführungsreihenfolge unter **Buchungen → Weitere Spalten anzeigen**.

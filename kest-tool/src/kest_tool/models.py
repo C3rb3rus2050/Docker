@@ -58,6 +58,7 @@ class TaxClass(str, Enum):
     INVESTMENTFONDS = "investmentfonds"                      # § 186/188 InvFG 2011
     IMMOBILIENFONDS = "immobilienfonds"                      # ImmoInvFG – nicht implementiert
     FORDERUNGSWERTPAPIER = "forderungswertpapier"            # Anleihe
+    DERIVAT_VERBRIEFT = "derivat_verbrieft_oeffentlich"
     DERIVAT = "derivat"                                      # nicht implementiert
     SONSTIGE = "sonstige"
     UNGEKLAERT = "ungeklaert"
@@ -69,6 +70,7 @@ TAX_CLASS_LABELS = {
     TaxClass.IMMOBILIENFONDS: "Immobilienfonds (ImmoInvFG) – manuelle Prüfung",
     TaxClass.FORDERUNGSWERTPAPIER: "Forderungswertpapier (Anleihe)",
     TaxClass.DERIVAT: "Derivat/Zertifikat – manuelle Prüfung",
+    TaxClass.DERIVAT_VERBRIEFT: "Öffentlich begebenes verbrieftes Derivat (Long-Bestand; mit Emittentenbeleg)",
     TaxClass.SONSTIGE: "Sonstige – manuelle Prüfung",
     TaxClass.UNGEKLAERT: "ungeklärt",
 }
@@ -136,12 +138,13 @@ def isin_checksum_ok(isin: str) -> bool:
 class TransactionIn(BaseModel):
     """Validierte Buchung vor dem Speichern."""
 
-    model_config = ConfigDict(use_enum_values=False, str_strip_whitespace=True)
+    model_config = ConfigDict(use_enum_values=False, str_strip_whitespace=True, allow_inf_nan=False)
 
     depot_id: int
     tx_type: TxType
     trade_date: date
     value_date: Optional[date] = None
+    execution_order: Optional[int] = Field(default=None, gt=0)
     isin: Optional[str] = None
     security_name: Optional[str] = None
     quantity: Optional[float] = None

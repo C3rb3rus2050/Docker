@@ -410,7 +410,7 @@ def _apply_broker_tables(ex: Extraction, text: str) -> None:
         f['price_currency'] = Field(_currency(units.group(3)), .95, 'Baader transaction statement')
     # Trade Republic booking row supplies the final settlement after the earlier overview total.
     booking = re.search(rf"(?im)^(?:VERRECHNUNGSKONTO|CLEARING ACCOUNT)[^\n]*(?:BETRAG|AMOUNT)\s*\n"
-                        rf"[A-Z]{{2}}[A-Z0-9]+[ \t]+({DATE})[ \t]+({NUM})[ \t]+({CUR})[ \t]*$", text)
+                        rf"[A-Z]{{2}}[A-Z0-9*+]+[ \t]+({DATE})[ \t]+({NUM})[ \t]+({CUR})[ \t]*$", text)
     if booking:
         day = _date(booking.group(1))
         bank_total = abs(_num(booking.group(2)))
@@ -942,7 +942,9 @@ def _run_checks(ex: Extraction, text: str) -> None:
     # Deutsche Abzugsteuern (bei österreichischer Ansässigkeit nicht vorgesehen)
     german_text = "\n".join(line for line in text.splitlines() if not re.search(r"österreich|austria", line, re.I))
     german = [g for g in _all_labeled_amounts(german_text, GERMAN_TAX_LABELS) if g[0]]
-    german = [g for g in german if g[0] != 0]
+    # A second tax-treatment page often repeats the settlement's tax amounts.
+    # This is a review hint, never an imported tax booking or an inferred total.
+    german = list(dict.fromkeys(g for g in german if g[0] != 0))
     if german:
         names = ", ".join(sorted({g[2] for g in german}))
         ex.check("Deutsche Steuer", "error", f"Deutsche Abzugsteuer einbehalten ({names}: "
