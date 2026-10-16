@@ -16,16 +16,9 @@ def document_cards(repo, docs: list[dict], *, key: str, messages: dict | None = 
     if not docs:
         st.info('Keine offenen Belege in dieser Ansicht.')
         return
-    st.caption('Original links, Werte rechts. Fehlende Angaben ergänzen und direkt am Beleg speichern.')
-    pages = (len(docs) + 4) // 5
-    page_key = f'{key}_page'
-    if st.session_state.get(page_key, 1) > pages:
-        st.session_state[page_key] = pages
-    page = st.number_input('Seite der Belege', min_value=1, max_value=max(1, pages),
-                           value=1, step=1, key=page_key) if pages > 1 else 1
-    st.caption(f'Belege {(page-1)*5+1}–{min(page*5, len(docs))} von {len(docs)}')
-    for doc in docs[(page-1)*5:page*5]:
-        _card(repo, doc, f'{key}_{doc["id"]}', (messages or {}).get(doc['id']))
+    from .review_pager import review_item
+    doc = review_item(docs, key=key, identity='id', label='Beleg')
+    _card(repo, doc, f'{key}_{doc["id"]}', (messages or {}).get(doc['id']))
 
 
 def _card(repo, doc: dict, key: str, message: str | None) -> None:
@@ -42,7 +35,7 @@ def _card(repo, doc: dict, key: str, message: str | None) -> None:
             try:
                 data = repo.document_path(doc).read_bytes()
                 if doc['file_type'] == 'pdf':
-                    st.pdf(data, height=720, key=f'{key}_pdf')
+                    st.pdf(data, height=500, key=f'{key}_pdf')
                 else:
                     from ..importers.automatic import automatic_tables
                     for frame in automatic_tables(data, doc['original_filename']):

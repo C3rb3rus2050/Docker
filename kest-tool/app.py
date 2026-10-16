@@ -36,7 +36,11 @@ def admin_page(key: str, render):
     """Apply the same header and layout to every page without changing its logic."""
     def page() -> None:
         render_page_header(key)
-        render()
+        if key in ('wertpapiere', 'dokumente'):
+            with st.container(key=f'compact_review_{key}'):
+                render()
+        else:
+            render()
     return page
 
 
@@ -68,26 +72,18 @@ with st.sidebar:
                 '<small>DEINE STEUERZENTRALE</small></div></div>',
                 unsafe_allow_html=True)
     C.YEAR_LOCATION = st.container(key='navigation_year')
-    search = st.text_input('Menü durchsuchen', placeholder='Menü durchsuchen …',
-                           label_visibility='collapsed', key='navigation_search')
     icons = {"dashboard": "dashboard", "import": "upload_file", "dokumente": "fact_check",
              "transaktionen": "receipt_long", "wertpapiere": "monitoring", "fonds": "folder_open",
              "depots": "account_balance", "steuer": "calculate", "exporte": "download", "einstellungen": "settings"}
     menu_groups = {'ARBEITSPLATZ': ['dashboard', 'import', 'dokumente', 'transaktionen'],
                    'VERWALTUNG': ['depots', 'wertpapiere', 'fonds'],
                    'AUSWERTUNG': ['steuer', 'exporte'], 'SYSTEM': ['einstellungen']}
-    found = False
     for group, keys in menu_groups.items():
-        visible = [key for key in keys if search.casefold().strip() in P[key].title.casefold()]
-        if visible:
-            st.markdown(f'<div class="kest-nav-group">{group}</div>', unsafe_allow_html=True)
-            for key in visible:
-                active = '_active' if nav.url_path == P[key].url_path else ''
-                with st.container(key=f'nav_{key}{active}'):
-                    st.page_link(P[key], label=P[key].title, icon=f':material/{icons[key]}:')
-                found = True
-    if not found:
-        st.caption('Kein Menüpunkt gefunden. Suchfeld leeren, um alle Seiten zu sehen.')
+        st.markdown(f'<div class="kest-nav-group">{group}</div>', unsafe_allow_html=True)
+        for key in keys:
+            active = '_active' if nav.url_path == P[key].url_path else ''
+            with st.container(key=f'nav_{key}{active}'):
+                st.page_link(P[key], label=P[key].title, icon=f':material/{icons[key]}:')
     st.divider()
     st.caption('Darstellung: oben rechts ⋮ → Light (Hell), Dark (Dunkel) oder System wählen.')
     st.markdown(f'<div class="kest-sidebar-caption">Version {__version__} · Private Verwaltung</div>',

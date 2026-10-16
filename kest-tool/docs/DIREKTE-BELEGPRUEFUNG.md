@@ -1,6 +1,6 @@
 # Belege direkt prüfen – Version 1.2.0
 
-Die Ergebnisliste nach dem Upload und **Belege & Prüfung** zeigen Original und bearbeitbare Werte direkt nebeneinander. Keine Zeile markieren, kein einzelnes Dokument aus einer Auswahlliste öffnen, kein separates Fenster. Die Standardansicht ist **Direkt bearbeiten**; Suche/Filter sind optional eingeklappt. Je Seite werden bis zu fünf Belege angezeigt.
+Die Ergebnisliste nach dem Upload und **Belege & Prüfung** zeigen Original und bearbeitbare Werte direkt nebeneinander. Keine Zeile markieren, kein einzelnes Dokument aus einer Auswahlliste öffnen, kein separates Fenster. Die Standardansicht ist **Direkt bearbeiten**; Suche/Filter sind optional eingeklappt. Ab Version 1.5 wird ein Beleg pro Seite angezeigt; Zurück / Weiter wechselt direkt zum nächsten. Änderungen vor dem Wechsel speichern.
 
 1. Original links lesen; Stückzahl, Brutto, Datum, ISIN, Währung und Steuern rechts ergänzen.
 2. Das Depot wird bei eindeutiger Zuordnung vorausgewählt. Mehrdeutige Depots oder unbekannte Buchungsarten benötigen eine bewusste Zuordnung.
@@ -9,7 +9,7 @@ Die Ergebnisliste nach dem Upload und **Belege & Prüfung** zeigen Original und 
 
 Leere Pflichtfelder bleiben leer. Eine manuell vervollständigte, bestätigte Buchung kann abgeschlossen werden, obwohl der Parser ursprünglich Werte nicht erkannt hat. Die ursprüngliche Extraktion bleibt als Beleg erhalten; die manuelle Prüfung und alle Änderungen werden separat protokolliert. Exakte Dubletten werden abgewiesen, mögliche Dubletten benötigen einen ausdrücklichen Abgleich. Ein erneuter Klick auf eine veraltete Übernahmekarte erzeugt keine zweite Buchung.
 
-**Beleg erneut bestimmen** liest nur diesen Beleg neu, bei Bedarf mit lokaler Tesseract-OCR. **Erkennung für diese Ansicht aktualisieren** verarbeitet alle Belege im aktuellen Filter, nicht nur die fünf sichtbaren Karten. Für den gesamten offenen Bestand die Ansicht **Zu prüfen** ohne weitere Filter verwenden. Bestehende finanzielle Buchungswerte werden bei der automatischen Neuanalyse nicht überschrieben; Abweichungen erscheinen zur Prüfung.
+**Beleg erneut bestimmen** liest nur diesen Beleg neu, bei Bedarf mit lokaler Tesseract-OCR. **Erkennung für diese Ansicht aktualisieren** verarbeitet alle Belege im aktuellen Filter, nicht nur die gerade sichtbare Karte. Für den gesamten offenen Bestand die Ansicht **Zu prüfen** ohne weitere Filter verwenden. Bestehende finanzielle Buchungswerte werden bei der automatischen Neuanalyse nicht überschrieben; Abweichungen erscheinen zur Prüfung.
 
 Informationsdokumente, Steuerberichte und Kapitalmaßnahmen werden nicht zu erfundenen Einzelbuchungen. Eine falsch erkannte Dokumentart kann unmittelbar in der Karte korrigiert werden. „Keine zusätzliche Buchung“ muss ausdrücklich mit Begründung bestätigt werden.
 

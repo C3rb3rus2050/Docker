@@ -1,8 +1,13 @@
 # KESt-Tool – Österreichische Kapitalertragsteuer für Wertpapierdepots
 
-Ab Version 1.4: einheitliche Oberfläche im OrangeHRM-Stil mit heller Seitenleiste,
-Menüsuche, orangefarbener Kopfzeile und Schnellzugriff auf offene Aufgaben.
+Einheitliche Oberfläche im OrangeHRM-Stil mit kompakter Seitenleiste,
+orangefarbener Kopfzeile und Schnellzugriff auf offene Aufgaben.
 Belege bleiben direkt neben dem Original bearbeitbar. Die Gestaltung wird lokal geladen, ohne externe Schriftarten.
+
+Ab Version 1.5: **Wertpapiere** und **Belege & Prüfung** zeigen jeweils einen Eintrag mit
+**Zurück / Weiter**. Wertpapierangaben direkt in der Karte ergänzen und einzeln speichern;
+Quellen und zugehörige Originalbelege stehen daneben. Offene Einträge erscheinen zuerst.
+Die Menüsuche entfällt. [Wertpapierprüfung](docs/WERTPAPIERPRUEFUNG.md).
 
 **Darstellung (ab 1.4.1):** Oben rechts im Menü **⋮** zwischen
 **Light (Hell)**, **Dark (Dunkel)** und **System** wechseln.

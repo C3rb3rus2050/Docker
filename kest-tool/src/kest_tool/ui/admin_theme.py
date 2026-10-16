@@ -11,7 +11,7 @@ SECTIONS = {
     "import": ("1 · Dateien & Prüfung", "Dateien hinzufügen", "PDF-, ZIP- und Tabellendateien sicher einlesen"),
     "dokumente": ("1 · Dateien & Prüfung", "Belege & Prüfung", "Belege prüfen, klassifizieren und verwalten"),
     "transaktionen": ("1 · Dateien & Prüfung", "Buchungen", "Buchungen kontrollieren und bearbeiten"),
-    "wertpapiere": ("Stammdaten", "Wertpapiere", "Wertpapier-Stammdaten und Zuordnungen verwalten"),
+    "wertpapiere": ("Stammdaten", "Wertpapiere", "Quellen vergleichen und Wertpapiere direkt in der Karte prüfen"),
     "fonds": ("Stammdaten", "Fonds & OeKB", "Fondsdaten und steuerliche Meldungen verwalten"),
     "depots": ("Stammdaten", "Broker & Depots", "Brokerkonten und Depots organisieren"),
     "steuer": ("Steuern & Berichte", "Steuerberechnung", "Steuerliche Ergebnisse berechnen und überprüfen"),

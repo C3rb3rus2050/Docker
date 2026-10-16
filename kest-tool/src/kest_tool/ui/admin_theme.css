@@ -63,13 +63,24 @@
 [data-testid="stTabs"] [aria-selected="true"] { color: var(--kest-primary); }
 [data-testid="stButton"] button, [data-testid="stFormSubmitButton"] button,
 [data-testid="stDownloadButton"] button { border-radius: 24px; min-height: 40px; font-size: .82rem; font-weight: 600; padding: .45rem 1.2rem; }
-[data-testid="stButton"] button[kind="primary"], [data-testid="stFormSubmitButton"] button[kind="primary"] { background: #c64d08; border-color: #c64d08; color: white; }
-[data-testid="stButton"] button[kind="primary"]:hover, [data-testid="stFormSubmitButton"] button[kind="primary"]:hover { background: #a43e05; border-color: #a43e05; }
+[data-testid="stButton"] button[kind^="primary"], [data-testid="stFormSubmitButton"] button[kind^="primary"] { background: #c64d08; border-color: #c64d08; color: white; }
+[data-testid="stButton"] button[kind^="primary"]:hover, [data-testid="stFormSubmitButton"] button[kind^="primary"]:hover { background: #a43e05; border-color: #a43e05; }
 [data-testid="stButton"] button:disabled { opacity: .5; }
 [data-testid="stMain"] a:focus-visible, button:focus-visible { outline: 3px solid #b44708; outline-offset: 3px; }
 [data-testid="stFileUploaderDropzone"] { background: light-dark(#fffaf5, #27231f); border: 1px dashed light-dark(#e8b68e, #926340); border-radius: 16px; }
 [data-testid="stAlert"] { border-radius: 14px; }
 [data-testid="stMain"] [data-testid="stPageLink"] a { color: var(--kest-primary); font-weight: 600; }
+/* Compact review workspace: one card, shorter menus and tighter form spacing. */
+[data-testid="stSidebarUserContent"] { padding-top: .4rem; }
+[data-testid="stSidebarUserContent"] [data-testid="stVerticalBlock"] { gap: .1rem; }
+[data-testid="stSidebar"] [data-testid="stPageLink"] a { min-height: 34px; padding: .35rem .85rem; }
+.kest-admin-brand { padding-bottom: .75rem; }
+.kest-nav-group { padding-top: .5rem; }
+.kest-page-heading { min-height: 90px; padding-top: 1.1rem; padding-bottom: .8rem; }
+[class*="st-key-work_card_security_"] [data-testid="stVerticalBlock"],
+[class*="st-key-document_card_"] [data-testid="stVerticalBlock"] { gap: .45rem; }
+[class*="st-key-work_card_security_"] [data-testid="stForm"] { padding: .8rem; }
+[class*="st-key-compact_review_"] { gap: .6rem; }
 @media (max-width: 900px) {
   [data-testid="stMainBlockContainer"] { padding: 2.75rem 1.25rem 3rem; }
   .kest-page-heading { margin: -2.75rem -1.25rem .5rem; padding: 1.7rem 1.25rem 1rem; }

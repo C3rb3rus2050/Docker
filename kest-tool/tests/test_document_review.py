@@ -104,7 +104,7 @@ def test_import_results_stay_editable_across_widget_reruns(tmp_path, monkeypatch
         context.close()
 
 
-def test_document_page_opens_all_visible_cards_without_selection(tmp_path, monkeypatch):
+def test_document_page_opens_one_card_and_moves_to_next_without_selector(tmp_path, monkeypatch):
     from streamlit.testing.v1 import AppTest
     from pathlib import Path
     from kest_tool.config import load_settings
@@ -125,6 +125,12 @@ def test_document_page_opens_all_visible_cards_without_selection(tmp_path, monke
             break
     at.run()
     assert not at.exception, [e.value for e in at.exception]
+    assert at.number_input(key=f'documents_direct_{second["id"]}_amount').value is None
+    at.button(key='documents_direct_next').click().run()
+    assert not at.exception, [e.value for e in at.exception]
     assert at.number_input(key=f'documents_direct_{first["id"]}_amount').value is None
+    assert not at.button(key='documents_direct_previous').disabled
+    assert at.button(key='documents_direct_next').disabled
+    at.button(key='documents_direct_previous').click().run()
     assert at.number_input(key=f'documents_direct_{second["id"]}_amount').value is None
     assert not any(s.label == 'Ausgewählten Beleg öffnen' for s in at.selectbox)

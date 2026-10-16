@@ -16,11 +16,8 @@ from ..models import (
     DOC_TYPES,
     TAX_CLASS_LABELS,
     FundReportIn,
-    FundStatus,
     IncomeCategory,
     ReviewStatus,
-    SecurityIn,
-    SecurityType,
     TaxClass,
     TransactionIn,
     TxType,
@@ -30,162 +27,39 @@ from .record_tables import record_grid, document_grid, document_preview
 
 
 # --------------------------------------------------------------------------- #
-TC_LABEL = {TaxClass.KAPITALGESELLSCHAFT.value: "Aktie/Kapitalgesellschaft", TaxClass.INVESTMENTFONDS.value:
-            "Investmentfonds", TaxClass.IMMOBILIENFONDS.value: "Immobilienfonds (manuell)",
-            TaxClass.FORDERUNGSWERTPAPIER.value: "Anleihe", TaxClass.DERIVAT.value: "Derivat/Zertifikat (manuell)",
-            TaxClass.SONSTIGE.value: "Sonstige (manuell)", TaxClass.UNGEKLAERT.value: "ungeklärt"}
-FS_LABEL = {FundStatus.NO_FUND.value: "kein Fonds", FundStatus.MELDEFONDS.value: "Meldefonds",
-            FundStatus.NICHTMELDEFONDS.value: "Nichtmeldefonds", FundStatus.UNKNOWN.value: "unbekannt"}
-TC_VALUE = {v: k for k, v in TC_LABEL.items()}
-FS_VALUE = {v: k for k, v in FS_LABEL.items()}
-
-
-def _suggest_type(name: str | None) -> str:
-    """Nur ein Vorschlag für die Wertpapierart (nicht für die steuerliche Einstufung)."""
-    n = (name or "").lower()
-    if any(k in n for k in ("etf", "ucits", "ishares", "xtrackers", "vanguard", "amundi", "lyxor", "spdr")):
-        return SecurityType.ETF_ACC.value if any(k in n for k in ("acc", "thes")) else SecurityType.ETF_DIST.value \
-            if any(k in n for k in ("dist", "aussch")) else SecurityType.ETF_ACC.value
-    if "reit" in n or "realty" in n:
-        return SecurityType.REIT.value
-    return SecurityType.STOCK.value
-
-
-def _bulk_classify(repo) -> None:
-    open_secs = repo.db.query(
-        "SELECT * FROM securities WHERE isin IS NOT NULL AND (tax_class_verified=0 OR security_type='Sonstige' OR "
-        "(security_type IN ('ETF ausschüttend','ETF thesaurierend','Investmentfonds (AT)','Investmentfonds (Ausland)')"
-        " AND fund_status IN ('unbekannt','kein_fonds'))) ORDER BY name")
-    if not open_secs:
-        st.success("Alle Wertpapiere sind vollständig eingestuft.")
-        return
-    with st.container(border=True):
-        st.subheader(f"Offene Wertpapiere ergänzen ({len(open_secs)})")
-        st.caption("Vorschläge (Art aus dem Namen, Sitzstaat aus dem ISIN-Länderkürzel) sind nur Hilfen. Eine Zeile "
-                   "gilt erst als **geprüft**, wenn Sie eine **Quelle** eintragen (z. B. „Factsheet“, „my.oekb.at "
-                   "Abfrage 03/2025“, „Jahressteuerbescheinigung“). REITs/BDCs werden nie automatisch eingestuft.")
-        rows = []
-        for sec in open_secs:
-            stype = sec["security_type"] if sec["security_type"] != "Sonstige" else _suggest_type(sec["name"])
-            is_fund = stype in [t.value for t in (SecurityType.ETF_ACC, SecurityType.ETF_DIST, SecurityType.FUND_AT,
-                                                  SecurityType.FUND_FOREIGN)]
-            tc = sec["tax_class"]
-            if tc == TaxClass.UNGEKLAERT.value and stype != SecurityType.REIT.value and stype != SecurityType.BDC.value:
-                tc = TaxClass.INVESTMENTFONDS.value if is_fund else TaxClass.KAPITALGESELLSCHAFT.value
-            fs = sec["fund_status"]
-            if is_fund and fs == FundStatus.NO_FUND.value:
-                fs = FundStatus.UNKNOWN.value
-            rows.append({"ISIN": sec["isin"], "Name": sec["name"] or "", "Wertpapierart": stype,
-                         "Steuerliche Einstufung": TC_LABEL[tc], "Meldefondsstatus": FS_LABEL[fs],
-                         "Sitzstaat": sec["country"] or sec["isin"][:2], "Quelle (Pflicht für „geprüft“)":
-                             sec["tax_class_source"] or ""})
-        edited = st.data_editor(pd.DataFrame(rows), hide_index=True, width="stretch", key="bulk_sec",
-                                column_config={
-                                    "ISIN": st.column_config.TextColumn(disabled=True),
-                                    "Wertpapierart": st.column_config.SelectboxColumn(
-                                        options=[t.value for t in SecurityType], required=True),
-                                    "Steuerliche Einstufung": st.column_config.SelectboxColumn(
-                                        options=list(TC_LABEL.values()), required=True),
-                                    "Meldefondsstatus": st.column_config.SelectboxColumn(
-                                        options=list(FS_LABEL.values()), required=True),
-                                    "Sitzstaat": st.column_config.TextColumn(max_chars=2),
-                                })
-        if st.button("Alle Änderungen speichern", type="primary"):
-            saved, problems = 0, []
-            for _, r in edited.iterrows():
-                src = str(r["Quelle (Pflicht für „geprüft“)"] or "").strip()
-                try:
-                    repo.upsert_security(SecurityIn(
-                        isin=r["ISIN"], name=r["Name"] or None, country=(r["Sitzstaat"] or "").upper() or None,
-                        security_type=SecurityType(r["Wertpapierart"]),
-                        tax_class=TaxClass(TC_VALUE[r["Steuerliche Einstufung"]]),
-                        tax_class_source=src or None, tax_class_verified=bool(src),
-                        fund_status=FundStatus(FS_VALUE[r["Meldefondsstatus"]]), fund_status_source=src or None,
-                        fund_status_verified=bool(src) and FS_VALUE[r["Meldefondsstatus"]] != FundStatus.UNKNOWN.value),
-                        reason="Tabelle „Offene Wertpapiere ergänzen“")
-                    saved += 1
-                except ValidationError as exc:
-                    problems.append((r["ISIN"], exc))
-            C.invalidate_results()
-            st.success(f"{saved} Wertpapier(e) gespeichert. Ohne Quelle bleiben sie als „ungeprüft“ markiert.")
-            for isin, exc in problems:
-                st.markdown(f"**{isin}:**")
-                C.form_error(exc)
-
-
 def securities() -> None:
+    from ..security_review import review_reasons
+    from .security_review import security_cards, security_form
     repo = C.ctx().repo
     C.year_selector()
     st.title("Wertpapiere")
-    st.caption("Wertpapierart und steuerliche Einstufung sind getrennte Felder. Eine Einstufung gilt nur als geprüft, "
-               "wenn eine belastbare Quelle angegeben ist (z. B. Emittentenangabe, OeKB-Meldung, Steuerbescheinigung). "
-               "Die Einstufung wird nie aus Ticker, Name oder der Bezeichnung REIT/BDC abgeleitet.")
-    _bulk_classify(repo)
-    st.subheader("Alle Wertpapiere")
-    q = st.text_input("Suche (ISIN, Name, Ticker, WKN)")
-    rows = repo.securities(q or None)
-    C.df([{"ISIN": s["isin"], "Name": s["name"] or "", "Art": s["security_type"],
-           "Steuerliche Einstufung": TC_LABEL.get(s["tax_class"], s["tax_class"]),
-           "Einstufung geprüft": "✅" if s["tax_class_verified"] else "–",
-           "Meldefondsstatus": FS_LABEL.get(s["fund_status"], s["fund_status"]),
-           "Quelle": s["tax_class_source"] or "", "Sitzstaat": s["country"] or "",
-           "Ticker": s["ticker"] or ""} for s in rows])
-    isins = ["(neues Wertpapier)"] + [s["isin"] for s in rows]
-    sel = st.selectbox("Bearbeiten", isins)
-    cur = repo.security_by_isin(sel) if sel != "(neues Wertpapier)" else {}
-    cur = cur or {}
-    with st.form("sec_form"):
-        cols = st.columns(4)
-        isin = cols[0].text_input("ISIN", cur.get("isin", ""), disabled=bool(cur))
-        name = cols[1].text_input("Name", cur.get("name") or "")
-        ticker = cols[2].text_input("Ticker", cur.get("ticker") or "")
-        wkn = cols[3].text_input("WKN", cur.get("wkn") or "")
-        cols = st.columns(3)
-        stypes = [t.value for t in SecurityType]
-        stype = cols[0].selectbox("Wertpapierart", stypes, index=stypes.index(cur.get("security_type", "Sonstige")))
-        country = cols[1].text_input("Sitzstaat Emittent (ISO-2, für Quellensteuer)", cur.get("country") or "",
-                                     max_chars=2)
-        currency = cols[2].text_input("Handelswährung", cur.get("currency") or "")
-        st.markdown("**Steuerliche Einstufung**")
-        cols = st.columns(3)
-        tcs = [t.value for t in TaxClass]
-        tc = cols[0].selectbox("Einstufung", tcs, index=tcs.index(cur.get("tax_class", "ungeklaert")),
-                               format_func=lambda v: TAX_CLASS_LABELS[TaxClass(v)])
-        tc_src = cols[1].text_input("Quelle der Einstufung", cur.get("tax_class_source") or "")
-        tc_ver = cols[2].checkbox("Einstufung geprüft", bool(cur.get("tax_class_verified")))
-        cols = st.columns(3)
-        fss = [f.value for f in FundStatus]
-        fs = cols[0].selectbox("Meldefondsstatus", fss, index=fss.index(cur.get("fund_status", "kein_fonds")),
-                               format_func=lambda v: FS_LABEL.get(v, v))
-        fs_src = cols[1].text_input("Quelle Meldefondsstatus (z. B. OeKB-Suche vom …)", cur.get("fund_status_source")
-                                    or "")
-        fs_ver = cols[2].checkbox("Status geprüft", bool(cur.get("fund_status_verified")))
-        psym = st.text_input("Kurssymbol beim Kursdienst (leer = automatisch per ISIN, z. B. EUNL.XETRA)",
-                             cur.get("price_symbol") or "")
-        notes = st.text_area("Notizen", cur.get("notes") or "")
-        review = st.selectbox("Prüfstatus", ["ungeprueft", "geprueft", "pruefen"],
-                              index=["ungeprueft", "geprueft", "pruefen"].index(cur.get("review_status", "ungeprueft")))
-        if st.form_submit_button("Speichern"):
-            try:
-                sec = SecurityIn(isin=cur.get("isin") or isin, name=name or None, ticker=ticker or None,
-                                 wkn=wkn or None, currency=currency or None, country=country.upper() or None,
-                                 security_type=SecurityType(stype), tax_class=TaxClass(tc),
-                                 tax_class_source=tc_src or None, tax_class_verified=tc_ver,
-                                 fund_status=FundStatus(fs), fund_status_source=fs_src or None,
-                                 fund_status_verified=fs_ver, notes=notes or None)
-                repo.upsert_security(sec, reason="manuelle Pflege")
-                if (psym or None) != cur.get("price_symbol"):
-                    repo.db.execute("UPDATE securities SET price_symbol=? WHERE isin=?", (psym.strip() or None, sec.isin))
-                    repo.audit("security", sec.isin, "Kurssymbol gesetzt", {"symbol": psym.strip() or None})
-                repo.set_security_review(sec.isin, review)
-                C.invalidate_results()
-                st.success("Gespeichert")
-                st.rerun()
-            except ValidationError as exc:
-                C.form_error(exc)
-    if cur:
-        with st.expander("Änderungshistorie"):
-            C.df([a for a in repo.audit_entries() if a["entity"] == "security" and a["entity_id"] == cur["isin"]])
+    notice = st.session_state.pop('security_review_saved', None)
+    if notice:
+        st.success(notice)
+    rows = repo.securities()
+    open_rows = [s for s in rows if review_reasons(s)]
+    st.caption(f'{len(rows)} Wertpapiere · {len(open_rows)} zu prüfen · {len(rows)-len(open_rows)} geprüft')
+    views, filters = st.columns([3, 2], vertical_alignment='bottom')
+    view = views.segmented_control('Ansicht', ['Zu prüfen', 'Alle Wertpapiere', 'Geprüft'],
+        default='Zu prüfen' if open_rows else 'Alle Wertpapiere', required=True, key='securities_view')
+    with filters.expander('Suchen und filtern'):
+        query = st.text_input('Wertpapiere durchsuchen', placeholder='ISIN, Name, Ticker oder WKN', key='securities_search')
+        types = ['Alle'] + sorted({s['security_type'] for s in rows})
+        kind = st.selectbox('Wertpapierart', types, key='securities_filter_type')
+    words = query.casefold().split()
+    visible = [s for s in rows if all(w in ' '.join(str(s.get(k) or '') for k in
+        ('isin', 'name', 'ticker', 'wkn')).casefold() for w in words)
+        and (kind == 'Alle' or s['security_type'] == kind)
+        and (view == 'Alle Wertpapiere' or bool(review_reasons(s)) == (view == 'Zu prüfen'))]
+    visible.sort(key=lambda s: ((s.get('name') or '').casefold(), s['isin']))
+    security_cards(repo, visible)
+    with st.expander('Neues Wertpapier anlegen'):
+        security_form(repo, {}, 'security_new')
+    with st.expander('Kompakte Stammdatenübersicht'):
+        C.df([{'ISIN': s['isin'], 'Name': s['name'] or '', 'Art': s['security_type'],
+               'Einstufung': TAX_CLASS_LABELS[TaxClass(s['tax_class'])],
+               'Quelle': s['tax_class_source'] or '',
+               'Prüfung': 'Zu prüfen' if review_reasons(s) else 'Geprüft'} for s in visible])
 
 
 # --------------------------------------------------------------------------- #
