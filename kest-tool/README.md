@@ -4,6 +4,12 @@ Ab Version 1.4: einheitliche Oberfläche im OrangeHRM-Stil mit heller Seitenleis
 Menüsuche, orangefarbener Kopfzeile und Schnellzugriff auf offene Aufgaben.
 Belege bleiben direkt neben dem Original bearbeitbar. Die Gestaltung wird lokal geladen, ohne externe Schriftarten.
 
+**Darstellung (ab 1.4.1):** Oben rechts im Menü **⋮** zwischen
+**Light (Hell)**, **Dark (Dunkel)** und **System** wechseln.
+Die Auswahl gilt pro Browser; System folgt den Geräteeinstellungen automatisch. Karten,
+Seitenleiste, Eingaben, Tabellen und Dialoge wechseln gemeinsam. Auch die Portal-Startseite
+hat eine Darstellungsauswahl; ihre Einstellung wird separat im Browser gespeichert.
+
 Lokale Python-Webanwendung (Streamlit, SQLite) für Windows 11. Sie konsolidiert die steuerlich relevanten Daten
 mehrerer Depots (Trade Republic, Scalable Capital, weitere Broker), berechnet sie nachvollziehbar nach
 österreichischen Regeln und bereitet sie als **Arbeitshilfe** für die Einkommensteuererklärung (Beilage E 1kv) auf.

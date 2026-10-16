@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kest-tool"
-version = "1.4.0"
+version = "1.4.1"
 description = "Lokales KESt-Tool (Österreich) zur Aufbereitung von Kapitaleinkünften aus Wertpapierdepots"
 readme = "README.md"
 requires-python = ">=3.12"

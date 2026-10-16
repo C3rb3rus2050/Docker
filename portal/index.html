@@ -10,10 +10,13 @@ main{max-width:1080px;margin:36px auto;padding:0 24px}.welcome{padding:40px;back
 .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin:24px 0}.step{padding:26px;border:1px solid #e6e8eb;background:#fff;border-radius:20px}.step small{display:inline-grid;place-items:center;width:36px;height:36px;border-radius:12px;background:#fff0df;color:#a7430b;font-weight:700}.step h2{font-size:1rem;margin:16px 0 8px}.step p{color:#647080;font-size:.88rem;margin:0}
 a{display:inline-flex;align-items:center;padding:12px 24px;background:#c64d08;color:white;border-radius:28px;text-decoration:none;font-weight:650}a:hover{background:#a43e05}a:focus-visible{outline:3px solid #a43e05;outline-offset:4px}footer{margin:36px 0;font-size:.77rem;color:#647080;border-top:1px solid #e6e8eb;padding-top:20px}
 @media(max-width:650px){main{margin:20px auto;padding:0 16px}.welcome{padding:28px 24px}.steps{grid-template-columns:1fr;gap:12px}.step{padding:22px}}
+:root{color-scheme:light dark;--bg:light-dark(#f5f5f5,#15191f);--surface:light-dark(#fff,#202630);--text:light-dark(#39424e,#e6eaf0);--muted:light-dark(#647080,#abb5c3);--border:light-dark(#e6e8eb,#3a4350)}
+body{background:var(--bg);color:var(--text)}header,.step{background:var(--surface);border-color:var(--border)}header span{color:light-dark(#bf4b08,#ffad70)}.step p,footer{color:var(--muted)}footer{border-color:var(--border)}
+.appearance{margin-left:auto;display:flex;gap:8px;align-items:center;font-size:12px;font-weight:500}.appearance select{font:inherit;padding:8px;border:1px solid var(--border);border-radius:12px;background:var(--surface);color:var(--text)}@media(max-width:450px){.appearance label{display:none}}
 </style>
 </head>
 <body>
-<header><div class="brand" aria-hidden="true">K</div><div>KESt<span>Manager</span></div></header>
+<header><div class="brand" aria-hidden="true">K</div><div>KESt<span>Manager</span></div><div class="appearance"><label for="appearance">Darstellung</label><select id="appearance" aria-label="Darstellung"><option value="system">System</option><option value="light">Hell</option><option value="dark">Dunkel</option></select></div></header>
 <main>
 <section class="welcome"><div class="eyebrow">DEIN STEUERARBEITSPLATZ · ÖSTERREICH</div>
 <h1>Belege im Griff.<br>Steuern im Blick.</h1>
@@ -26,4 +29,16 @@ a{display:inline-flex;align-items:center;padding:12px 24px;background:#c64d08;co
 <a href="/steuer/">Arbeitsplatz öffnen →</a>
 <footer>Arbeitshilfe zur Vorbereitung der Steuererklärung. Keine automatische Übermittlung an FinanzOnline.</footer>
 </main>
+<script>
+const picker = document.getElementById('appearance');
+function applyAppearance(mode) {
+  picker.value = ['light', 'dark'].includes(mode) ? mode : 'system';
+  document.documentElement.style.colorScheme = picker.value === 'system' ? 'light dark' : picker.value;
+}
+try { applyAppearance(localStorage.getItem('kest-portal-appearance')); } catch { applyAppearance('system'); }
+picker.addEventListener('change', () => {
+  applyAppearance(picker.value);
+  try { localStorage.setItem('kest-portal-appearance', picker.value); } catch {}
+});
+</script>
 </body></html>

@@ -89,6 +89,7 @@ with st.sidebar:
     if not found:
         st.caption('Kein Menüpunkt gefunden. Suchfeld leeren, um alle Seiten zu sehen.')
     st.divider()
+    st.caption('Darstellung: oben rechts ⋮ → Light (Hell), Dark (Dunkel) oder System wählen.')
     st.markdown(f'<div class="kest-sidebar-caption">Version {__version__} · Private Verwaltung</div>',
                 unsafe_allow_html=True)
     st.caption(C.DISCLAIMER)
