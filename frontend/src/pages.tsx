@@ -13,7 +13,28 @@ import {
   euro,
   useResource,
 } from "./components";
-import { Documents, choice, defaults, num, objectSchema, str } from "./review";
+import {
+  Documents,
+  choice,
+  defaults,
+  mayNavigate,
+  num,
+  objectSchema,
+  str,
+} from "./review";
+
+const fundEditFields = [
+  "fund_name",
+  "currency",
+  "fx_rate",
+  "distribution_per_unit",
+  "age_per_unit",
+  "taxable_distribution_per_unit",
+  "creditable_tax_per_unit",
+  "ak_correction_per_unit",
+  "kest_per_unit",
+  "notes",
+];
 
 export function Dashboard({
   year,
@@ -66,7 +87,7 @@ export function Dashboard({
                     <button
                       className="task"
                       key={d.id}
-                      onClick={() => go("dokumente")}
+                      onClick={() => go("dokumente?beleg=" + d.id)}
                     >
                       <span className="file-icon">▤</span>
                       <span>
@@ -317,7 +338,10 @@ export function Funds({
               ["age_per_unit", "AgE / Anteil"],
               ["review_status", "Prüfung"],
             ]}
-            onSelect={setSelected}
+            canSelect={(r) => !!r.active}
+            onSelect={(r) => {
+              if (mayNavigate()) setSelected(r);
+            }}
           />
         )}
         <details open={!!selected} key={selected?.id || "new"}>
@@ -327,16 +351,27 @@ export function Funds({
               : "Meldung manuell erfassen"}
           </summary>
           {selected && (
-            <button onClick={() => setSelected(null)}>Neue Meldung</button>
+            <button
+              onClick={() => {
+                if (mayNavigate()) setSelected(null);
+              }}
+            >
+              Neue Meldung
+            </button>
           )}
           <Editor
             schema={schema}
+            keys={
+              selected
+                ? [...fundEditFields, "review_status", "reason"]
+                : Object.keys(meta.schemas.fund.properties)
+            }
             initial={selected || defaults(meta.schemas.fund)}
             onSave={async (v) => {
               if (selected)
                 await api("/funds/" + selected.id, "PATCH", {
                   values: {
-                    ...editable(meta.schemas.fund, v),
+                    ...Object.fromEntries(fundEditFields.map((k) => [k, v[k]])),
                     review_status: v.review_status || "ungeprueft",
                   },
                   reason: v.reason || "",
@@ -399,8 +434,12 @@ export function Funds({
           <h2>Nichtmeldefonds-Kurse {year}</h2>
           <Action
             onClick={async () => {
-              await api("/prices/" + year, "POST");
+              if (!mayNavigate()) return false;
+              const results = await api("/prices/" + year, "POST");
               refresh();
+              return results.length
+                ? `${results.length} Kurspositionen geprüft. Offene Hinweise in der Berechnung beachten.`
+                : "Keine fehlenden Kurse zu ergänzen.";
             }}
           >
             Kurse ergänzen
@@ -504,6 +543,9 @@ export function Brokers({
                 broker_id: {
                   type: "integer",
                   enum: meta.brokers.map((b: Row) => b.id),
+                  optionLabels: Object.fromEntries(
+                    meta.brokers.map((b: Row) => [b.id, b.name]),
+                  ),
                 },
                 name: str(),
                 account_ref: str(),
@@ -588,7 +630,20 @@ export function Tax({ year, go }: { year: number; go: (p: string) => void }) {
     rules_used: ["Regeln und Quellen", []],
     fees: ["Gebühren", []],
   };
-  const rows = data?.[tab] || [];
+  const rows = (data?.[tab] || []).map((row: Row) =>
+    tab === "loss_offsets"
+      ? {
+          ...row,
+          offsets: row.offsets
+            .map(
+              ([id, category, amount]: [string, string, number]) =>
+                `${category}: ${euro(amount)} (${id})`,
+            )
+            .join("; "),
+          reasons: row.reasons.join(" · "),
+        }
+      : row,
+  );
   const columns = tabs[tab][1].length
     ? tabs[tab][1]
     : Object.keys(rows[0] || {});
@@ -686,6 +741,15 @@ export function Tax({ year, go }: { year: number; go: (p: string) => void }) {
                       gross: "Ausgangsbetrag EUR",
                       amount: "Steuerlicher Betrag EUR",
                       status: "Status",
+                      loss_line: "Verlustposition",
+                      tax_year: "Steuerjahr",
+                      depot: "Depot",
+                      isin: "ISIN",
+                      original_loss: "Ursprünglicher Verlust EUR",
+                      offsets: "Verrechnete Erträge",
+                      offset_total: "Verrechnet EUR",
+                      remaining: "Verbleibender Verlust EUR",
+                      reasons: "Hinweise",
                     } as Row
                   )[k] || k,
                 ])}
@@ -696,6 +760,7 @@ export function Tax({ year, go }: { year: number; go: (p: string) => void }) {
                       ? setLine
                       : undefined
                 }
+                canSelect={(r) => tab !== "issues" || !!r.page}
               />
             </div>
             {line && tab === "lines" && (
@@ -812,7 +877,9 @@ export function Settings({ changed }: { changed: () => void }) {
           <button
             key={k}
             className={tab === k ? "selected" : ""}
-            onClick={() => setTab(k)}
+            onClick={() => {
+              if (mayNavigate()) setTab(k);
+            }}
           >
             {t}
           </button>
@@ -828,6 +895,7 @@ export function Settings({ changed }: { changed: () => void }) {
               <>
                 <h2>Dokumentenerkennung</h2>
                 <Editor
+                  key="recognition"
                   schema={objectSchema({
                     ocr_enabled: { type: "boolean" },
                     auto_fetch: { type: "boolean" },
@@ -856,6 +924,7 @@ export function Settings({ changed }: { changed: () => void }) {
                   jeweiligen Beleg.
                 </p>
                 <Editor
+                  key="assistant"
                   schema={objectSchema(
                     {
                       enabled: { type: "boolean" },
@@ -891,7 +960,11 @@ export function Settings({ changed }: { changed: () => void }) {
                 </p>
                 <Editor
                   schema={objectSchema({
-                    key: { type: "string", format: "password" },
+                    key: {
+                      type: "string",
+                      format: "password",
+                      label: "EODHD-API-Schlüssel",
+                    },
                   })}
                   initial={{ key: "" }}
                   submit="Schlüssel ersetzen"
@@ -997,10 +1070,12 @@ function ReferenceUpload({
         accept={kind === "fx" ? ".csv,.zip" : ".csv"}
         disabled={busy}
         onChange={async (e) => {
-          const file = e.target.files?.[0];
+          const input = e.currentTarget;
+          const file = input.files?.[0];
           if (!file) return;
           setBusy(true);
           setError(null);
+          setMessage("");
           const form = new FormData();
           form.append("file", file);
           form.append("redemption", String(redemption));
@@ -1012,6 +1087,7 @@ function ReferenceUpload({
             setError(e);
           } finally {
             setBusy(false);
+            input.value = "";
           }
         }}
       />
@@ -1049,6 +1125,7 @@ function RestoreBox({ changed }: { changed: () => void }) {
         lassen.
       </label>
       <Action
+        disabled={!file || !confirmed}
         onClick={async () => {
           if (!file || !confirmed)
             throw Error(

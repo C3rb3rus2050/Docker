@@ -1,7 +1,13 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { BASE } from "./api";
-import { ErrorBox, Loading, Row, useResource } from "./components";
+import {
+  ErrorBox,
+  Loading,
+  Row,
+  ScreenBoundary,
+  useResource,
+} from "./components";
 import { Documents, Securities, Transactions, mayNavigate } from "./review";
 import {
   Brokers,
@@ -30,6 +36,7 @@ function readPage() {
   return location.pathname.replace(/^\/steuer\/?/, "").split("/")[0];
 }
 function App() {
+  const currentUrl = useRef(location.pathname + location.search);
   const [page, setPage] = useState(readPage),
     [revision, setRevision] = useState(0),
     [year, setYear] = useState<number | null>(null),
@@ -44,7 +51,15 @@ function App() {
   });
   const { data: meta, error, loading } = useResource<Row>("/meta", revision);
   useEffect(() => {
-    const update = () => setPage(readPage());
+    const update = () => {
+      if (!mayNavigate()) {
+        history.pushState({}, "", currentUrl.current);
+        return;
+      }
+      currentUrl.current = location.pathname + location.search;
+      setPage(readPage());
+      setMobile(false);
+    };
     window.addEventListener("popstate", update);
     return () => window.removeEventListener("popstate", update);
   }, []);
@@ -86,7 +101,8 @@ function App() {
   function go(p: string) {
     if (!mayNavigate()) return;
     history.pushState({}, "", BASE + p);
-    setPage(p);
+    currentUrl.current = location.pathname + location.search;
+    setPage(readPage());
     setMobile(false);
     window.scrollTo(0, 0);
   }
@@ -98,10 +114,14 @@ function App() {
     ? {
         "": <Dashboard key={y + ":" + revision} year={y} go={go} />,
         import: <Upload year={y} meta={meta} changed={changed} />,
-        dokumente: <Documents meta={meta} changed={changed} />,
-        transaktionen: <Transactions year={y} meta={meta} changed={changed} />,
+        dokumente: (
+          <Documents key={location.search} meta={meta} changed={changed} />
+        ),
+        transaktionen: (
+          <Transactions key={y} year={y} meta={meta} changed={changed} />
+        ),
         wertpapiere: <Securities meta={meta} changed={changed} />,
-        fonds: <Funds year={y} meta={meta} changed={changed} />,
+        fonds: <Funds key={y} year={y} meta={meta} changed={changed} />,
         depots: <Brokers meta={meta} year={y} changed={changed} />,
         steuer: <Tax key={y + ":" + revision} year={y} go={go} />,
         exporte: <Exports key={y} year={y} />,
@@ -196,7 +216,7 @@ function App() {
         </nav>
         <div className="sidebar-foot">
           <span className="local-dot" /> Eigene Daten · Eigener Server
-          <small>Version {meta?.version || "2.0.0"}</small>
+          <small>Version {meta?.version || "2.0.2"}</small>
         </div>
       </aside>
       {mobile && (
@@ -233,12 +253,14 @@ function App() {
                 </div>
               </div>
             )}
-            {screens[page] || (
-              <div className="empty">
-                Diese Seite wurde nicht gefunden.{" "}
-                <button onClick={() => go("")}>Zur Übersicht</button>
-              </div>
-            )}
+            <ScreenBoundary key={page + ":" + y}>
+              {screens[page] || (
+                <div className="empty">
+                  Diese Seite wurde nicht gefunden.{" "}
+                  <button onClick={() => go("")}>Zur Übersicht</button>
+                </div>
+              )}
+            </ScreenBoundary>
           </>
         )}
         <footer>

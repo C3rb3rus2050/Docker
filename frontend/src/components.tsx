@@ -1,6 +1,30 @@
 import React, { useEffect, useState } from "react";
 import { api } from "./api";
 export type Row = Record<string, any>;
+export class ScreenBoundary extends React.Component<
+  { children: React.ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? (
+      <div className="notice error" role="alert">
+        <p>
+          Diese Ansicht konnte nicht dargestellt werden. Die gespeicherten Daten
+          bleiben erhalten.
+        </p>
+        <button type="button" onClick={() => location.reload()}>
+          Ansicht neu laden
+        </button>
+      </div>
+    ) : (
+      this.props.children
+    );
+  }
+}
 export const labels: Record<string, string> = {
   isin: "ISIN",
   name: "Name",
@@ -108,6 +132,7 @@ export const statusLabels: Record<string, string> = {
   sonstige_ausschuettung: "Sonstige Ausschüttung",
   kapitalrueckzahlung: "Kapitalrückzahlung",
   bestehend_behalten: "Bestehenden Wert behalten",
+  verworfen: "Verworfen",
   neu_uebernommen: "Neuen Wert übernehmen",
   Unclassified: "Nicht erkannt",
 };
@@ -141,9 +166,11 @@ export function useResource<T = any>(path: string, revision = 0) {
     setLoading(true);
     setError(null);
     api<T>(path, "GET", undefined, controller.signal)
-      .then(setData)
+      .then((result) => {
+        if (!controller.signal.aborted) setData(result);
+      })
       .catch((e) => {
-        if (e.name !== "AbortError") setError(e);
+        if (!controller.signal.aborted && e.name !== "AbortError") setError(e);
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -192,10 +219,12 @@ export function Table({
   rows,
   columns,
   onSelect,
+  canSelect = () => true,
 }: {
   rows: Row[];
   columns: [string, string][];
   onSelect?: (r: Row) => void;
+  canSelect?: (r: Row) => boolean;
 }) {
   const [page, setPage] = useState(0);
   const pages = Math.max(1, Math.ceil(rows.length / 30));
@@ -250,9 +279,15 @@ export function Table({
                 ))}
                 {onSelect && (
                   <td>
-                    <button className="small" onClick={() => onSelect(row)}>
-                      Öffnen
-                    </button>
+                    {canSelect(row) && (
+                      <button
+                        type="button"
+                        className="small"
+                        onClick={() => onSelect(row)}
+                      >
+                        Öffnen
+                      </button>
+                    )}
                   </td>
                 )}
               </tr>
@@ -327,13 +362,16 @@ export function SchemaFields({
       {(keys || Object.keys(schema.properties)).map((key) => {
         let prop = schema.properties[key];
         if (!prop) return null;
-        const nullable = prop.anyOf?.some((p: any) => p.type === "null");
         let p = prop.anyOf?.find((p: any) => p.type !== "null") || prop;
         if (p.$ref) p = { ...definitions[p.$ref.split("/").pop()], ...p };
         const options =
           key === "depot_id"
             ? depots.map((d) => ({ value: d.id, label: d.name }))
-            : p.enum?.map((v: any) => ({ value: v, label: display(v) }));
+            : p.enum?.map((v: any) => ({
+                value: v,
+                label: p.optionLabels?.[v] || display(v),
+              }));
+        const label = p.label || labels[key] || p.title || key;
         const v = value[key] ?? "";
         const set = (v: any) => onChange({ ...value, [key]: v });
         const required = schema.required?.includes(key);
@@ -356,20 +394,22 @@ export function SchemaFields({
             }
           >
             <span>
-              {labels[key] || key}
+              {label}
               {required ? " *" : ""}
             </span>
             {options ? (
               <select
-                aria-label={labels[key] || key}
+                aria-label={label}
                 title={display(v)}
                 value={v}
                 required={required}
                 onChange={(e) =>
                   set(
-                    key === "depot_id" || p.type === "integer"
-                      ? Number(e.target.value)
-                      : e.target.value || null,
+                    e.target.value === ""
+                      ? null
+                      : key === "depot_id" || p.type === "integer"
+                        ? Number(e.target.value)
+                        : e.target.value || null,
                   )
                 }
               >
@@ -383,20 +423,20 @@ export function SchemaFields({
             ) : p.type === "boolean" ? (
               <input
                 type="checkbox"
-                aria-label={labels[key] || key}
+                aria-label={label}
                 checked={Boolean(v)}
                 onChange={(e) => set(e.target.checked)}
               />
             ) : key === "notes" ? (
               <textarea
-                aria-label={labels[key] || key}
+                aria-label={label}
                 value={v}
                 rows={2}
                 onChange={(e) => set(e.target.value || null)}
               />
             ) : (
               <input
-                aria-label={labels[key] || key}
+                aria-label={label}
                 value={v}
                 type={
                   p.format === "password"
@@ -482,7 +522,10 @@ export function Editor({
         <SchemaFields
           schema={schema}
           value={value}
-          onChange={setValue}
+          onChange={(next) => {
+            setValue(next);
+            setSaved(false);
+          }}
           keys={keys}
           depots={depots}
         />
@@ -506,27 +549,30 @@ export function Action({
   onClick,
   children,
   className = "",
+  disabled = false,
 }: {
   onClick: () => Promise<any>;
   children: React.ReactNode;
   className?: string;
+  disabled?: boolean;
 }) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<unknown>(null),
-    [done, setDone] = useState(false);
+    [done, setDone] = useState("");
   return (
     <div className="action">
       <button
         type="button"
         className={className}
-        disabled={busy}
+        disabled={busy || disabled}
         onClick={async () => {
           setBusy(true);
           setError(null);
-          setDone(false);
+          setDone("");
           try {
-            await onClick();
-            setDone(true);
+            const result = await onClick();
+            if (result !== false)
+              setDone(typeof result === "string" ? result : "Erledigt.");
           } catch (e) {
             setError(e);
           } finally {
@@ -539,7 +585,7 @@ export function Action({
       <ErrorBox error={error} />
       {done && (
         <span role="status" className="muted">
-          Erledigt.
+          {done}
         </span>
       )}
     </div>

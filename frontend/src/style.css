@@ -841,6 +841,11 @@ tr:last-child td {
 }
 .download strong {
   color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.download > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .loading {
   display: flex;
@@ -1048,6 +1053,14 @@ input.sr-only {
   }
 }
 @media (max-width: 480px) {
+  .download {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .action [role="status"] {
+    overflow-wrap: anywhere;
+  }
   .form-grid {
     grid-template-columns: minmax(0, 1fr);
     gap: 14px;

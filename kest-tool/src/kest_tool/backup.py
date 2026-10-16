@@ -42,7 +42,9 @@ def create_backup(db: Database, store: DocumentStore, target_dir: Path | None = 
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     target = store.unique_target(target_dir, f"KESt-Tool_Backup_{stamp}.zip")
     manifest = {"created_at": datetime.now().isoformat(timespec="seconds"), "app": "KESt-Tool", "files": {}}
-    with tempfile.TemporaryDirectory() as tmpd:
+    # Keep the database snapshot in the writable backup area. Host/service
+    # accounts may not have a usable system temporary directory.
+    with tempfile.TemporaryDirectory(prefix=".backup-", dir=target_dir) as tmpd:
         db_copy = Path(tmpd) / "kest_tool.db"
         db.backup_to(db_copy)
         tmp_zip = target.with_suffix(".part")
