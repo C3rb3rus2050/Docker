@@ -220,7 +220,27 @@ export function Table({
             {rows.slice(safePage * 30, safePage * 30 + 30).map((row, i) => (
               <tr key={row.id ?? i}>
                 {columns.map(([k]) => (
-                  <td key={k}>
+                  <td
+                    key={k}
+                    className={
+                      typeof row[k] === "number"
+                        ? "cell-number"
+                        : typeof row[k] === "string" &&
+                            /^\d{4}-\d{2}-\d{2}$/.test(row[k])
+                          ? "cell-date"
+                          : [
+                                "security_name",
+                                "fund_name",
+                                "depot_name",
+                                "message",
+                                "original_filename",
+                                "notes",
+                                "name",
+                              ].includes(k)
+                            ? "cell-text"
+                            : undefined
+                    }
+                  >
                     {k === "review_status" || k === "status" ? (
                       <Badge value={row[k]} />
                     ) : (
@@ -320,7 +340,20 @@ export function SchemaFields({
         return (
           <label
             key={key}
-            className={key === "notes" || key.includes("source") ? "wide" : ""}
+            className={
+              p.type === "boolean"
+                ? "field-check wide"
+                : key === "notes" ||
+                    key.includes("source") ||
+                    [
+                      "tax_class",
+                      "name",
+                      "security_name",
+                      "fund_name",
+                    ].includes(key)
+                  ? "wide"
+                  : ""
+            }
           >
             <span>
               {labels[key] || key}
@@ -328,6 +361,8 @@ export function SchemaFields({
             </span>
             {options ? (
               <select
+                aria-label={labels[key] || key}
+                title={display(v)}
                 value={v}
                 required={required}
                 onChange={(e) =>
@@ -348,17 +383,20 @@ export function SchemaFields({
             ) : p.type === "boolean" ? (
               <input
                 type="checkbox"
+                aria-label={labels[key] || key}
                 checked={Boolean(v)}
                 onChange={(e) => set(e.target.checked)}
               />
             ) : key === "notes" ? (
               <textarea
+                aria-label={labels[key] || key}
                 value={v}
                 rows={2}
                 onChange={(e) => set(e.target.value || null)}
               />
             ) : (
               <input
+                aria-label={labels[key] || key}
                 value={v}
                 type={
                   p.format === "password"
@@ -477,8 +515,9 @@ export function Action({
     [error, setError] = useState<unknown>(null),
     [done, setDone] = useState(false);
   return (
-    <>
+    <div className="action">
       <button
+        type="button"
         className={className}
         disabled={busy}
         onClick={async () => {
@@ -503,6 +542,6 @@ export function Action({
           Erledigt.
         </span>
       )}
-    </>
+    </div>
   );
 }

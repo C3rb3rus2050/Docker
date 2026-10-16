@@ -51,7 +51,7 @@ def test_deployment_prefix_health_spa_and_unknown_api(env):
     assert 'React test shell' in client.get('/steuer/wertpapiere').text
     assert client.get('/steuer/assets/app.js').status_code == 200
     assert client.get('/steuer/api/not-real').status_code == 404
-    assert client.get('/steuer/api/meta').json()['version'] == '2.0.0'
+    assert client.get('/steuer/api/meta').json()['version'] == '2.0.1'
 
 
 def test_browser_boundary_rejects_cross_site_writes(env):
