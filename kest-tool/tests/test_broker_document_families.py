@@ -202,3 +202,34 @@ def test_refresh_of_supplemental_statement_does_not_flag_linked_trades(repo):
     result = process_documents(repo, [doc['id']], reextract=True)[0]
     assert result.status == 'uebersprungen'
     assert repo.transaction(tid)['review_status'] == 'ungeprueft'
+
+
+def test_overview_execution_negative_cash_booking_and_distinct_value_date():
+    # Synthetic reproduction of the supplied layout; no account details or
+    # original user transaction values are included in the published fixture.
+    ex = parse_text('''Trade Republic
+WERTPAPIERABRECHNUNG
+ÜBERSICHT
+Limit-Order Kauf am 13.02.2024, um 14:37 Uhr (Europe/Berlin) an der Lang & Schwarz Exchange.
+Der Kontrahent der Transaktion ist Lang & Schwarz TradeCenter AG & Co. KG.
+POSITION ANZAHL KURS BETRAG
+Muster Aktie 3 Stk. 42,50 EUR 127,50 EUR
+Registered Shares o.N.
+ISIN: US0378331005
+GESAMT 127,50 EUR
+ABRECHNUNG
+POSITION BETRAG
+Fremdkostenzuschlag -1,00 EUR
+GESAMT -128,50 EUR
+BUCHUNG
+VERRECHNUNGSKONTO VALUTA BETRAG
+DE00000000000000000000 15.02.2024 -128,50 EUR
+Diese Abrechnung wird maschinell erstellt und daher nicht unterschrieben.
+Sofern keine Umsatzsteuer ausgewiesen ist, handelt es sich um eine umsatzsteuerfreie Leistung.''')
+    assert ex.complete, ex.warnings
+    assert ex.doc_type == 'Kaufabrechnung'
+    assert ex.value('trade_date') == date(2024, 2, 13)
+    assert ex.value('value_date') == date(2024, 2, 15)
+    assert ex.value('quantity') == 3
+    assert ex.value('price') == 42.5 and ex.value('amount') == 127.5
+    assert ex.value('fees') == 1.0

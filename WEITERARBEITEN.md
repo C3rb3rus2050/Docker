@@ -1,5 +1,15 @@
 # Hier weiterarbeiten – Steuer-Tool
 
+## Architekturwechsel auf 2.0.0
+
+Die reguläre Anwendung wurde auf React/TypeScript/Vite und FastAPI umgebaut, analog zum Mealplanner.
+Siehe `docs/ARCHITEKTUR.md`. SQLite-Datenbank und Datenvolume bleiben bestehen. Root-Dockerfile,
+Compose-Buildkontext `.`, interner Port 8000, Healthcheck `/steuer/api/health`.
+Die nachfolgenden Angaben zu Version 1.5.0 und Streamlit-WebSockets sind historischer Kontext.
+Die neue Oberfläche benötigt keine dauerhafte WebSocket-Verbindung. Der Domainzugang auf dem privaten
+Server muss nach dem Deployment weiterhin geprüft werden. Serverordner `/root/Steuer-Tool`, Compose-Projekt `kest`.
+Kein zusätzliches Ollama auf dem Steuer-Server starten; vorhandenen KI-Server über Einstellungen anbinden.
+
 Stand: 16.10.2026 · Anwendungsversion **1.5.0**
 
 ## Sofortiger Einstieg

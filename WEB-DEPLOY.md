@@ -1,3 +1,32 @@
+# Architektur ab Version 2.0.0
+
+Die reguläre Oberfläche verwendet jetzt React und FastAPI. Der Root-`Dockerfile` baut beide Teile.
+Intern hört `kest-tool` auf Port **8000**; Caddy reicht `/steuer/` dorthin weiter.
+Der neue Healthcheck ist **`/steuer/api/health`**. Streamlit-WebSocket-Einstellungen aus älteren
+Anleitungen sind für diese Version nicht mehr nötig. Der Portal-Port 8080 und die Ablage `data/kest`
+bleiben erhalten. Lokale Anpassungen der Portbindung in `compose.yaml` beim Aktualisieren erhalten.
+
+Update im aktuellen Serverordner:
+
+```bash
+cd /root/Steuer-Tool
+git status --short
+git pull --ff-only origin main
+export COMPOSE_PROJECT_NAME=kest
+export COMPOSE_FILE=compose.yaml
+bash scripts/update-server.sh
+curl -f http://127.0.0.1:8080/steuer/api/health
+```
+
+Bei einem Git-Konflikt durch eine lokal angepasste Compose-Datei nicht mit `reset --hard` fortfahren.
+Portanpassung erhalten und die neue Build-Konfiguration (Kontext `.`; kein Streamlit-Command) übernehmen.
+Der Update-Befehl baut zuerst und sichert vor dem Umschalten die vorhandenen Daten. Ein separater
+KI-Server wird weiterhin über die Einstellungen angebunden; kein zusätzliches Ollama-Overlay nötig.
+
+Danach Browser mit Strg+F5 neu laden. [Architektur](docs/ARCHITEKTUR.md).
+
+---
+
 # KESt-Steuertool – Docker-Deployment ohne Anmeldung
 
 **Status:** KESt-Steuertool ohne Login-Maske. Der Caddy-Proxy verwendet keine HTTP-Basic-Authentifizierung.
@@ -76,7 +105,7 @@ für die unveränderte `compose.yaml` mit `./data/kest`.
 Zusätzliche Kontrolle (Port gegebenenfalls an `PORTAL_PORT` anpassen):
 
 ```bash
-curl --fail http://127.0.0.1:8080/steuer/_stcore/health
+curl --fail http://127.0.0.1:8080/steuer/api/health
 docker compose logs --tail=80 kest-tool
 ```
 
