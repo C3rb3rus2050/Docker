@@ -75,37 +75,26 @@ def year_selector(location=st.sidebar) -> int:
     return int(y)
 
 
-def show_process_results(results) -> None:
-    """Zeigt das Ergebnis der Dokumentverarbeitung je Datei mit Status und „Was tun?“."""
+def show_process_results(results, *, inline: bool = True, key: str = 'process') -> None:
+    """Keep the import result editable in place across Streamlit reruns."""
     if not results:
-        st.info("Keine offenen PDF-Dokumente.")
         return
-    icons = {"angelegt": "✅", "dublette": "🔁", "beleg": "📎", "pruefen": "🟡", "uebersprungen": "⏭️", "fehler": "🔴"}
-    labels = {"angelegt": "Buchung angelegt", "dublette": "schon vorhanden", "beleg": "als Beleg abgelegt",
-              "pruefen": "bitte prüfen", "uebersprungen": "übersprungen", "fehler": "Fehler"}
-    n_ok = sum(1 for r in results if r.status == "angelegt")
-    n_rev = sum(1 for r in results if r.status in ("pruefen", "fehler"))
-    parts = [f"{n_ok} Buchung(en) angelegt"]
-    if n_rev:
-        parts.append(f"{n_rev} Dokument(e) brauchen Ihre Prüfung")
-    if any(r.status == "dublette" for r in results):
-        parts.append(f"{sum(1 for r in results if r.status == 'dublette')} bereits vorhanden")
-    (st.success if not n_rev else st.warning)(" · ".join(parts))
-    for r in results:
-        if r.status in ("pruefen", "fehler"):
-            with st.container(border=True):
-                st.markdown(f"{icons[r.status]} **{r.filename}** – {labels[r.status]}  \n{r.message}")
-                if getattr(r, "action", ""):
-                    st.markdown(f"**Was tun?** {r.action}")
-    done = [r for r in results if r.status not in ("pruefen", "fehler")]
-    if done:
-        with st.expander(f"Erfolgreich verarbeitet ({len(done)})", expanded=len(done) <= 10):
-            for r in done:
-                st.markdown(f"{icons.get(r.status, '')} **{r.filename}** – {labels.get(r.status, r.status)}: "
-                            f"{r.message}" + (f"  \n→ {r.action}" if getattr(r, "action", "") else ""))
-    if n_rev:
-        link("dokumente", "Zu prüfende Dokumente öffnen und Werte ergänzen")
-    invalidate_results()
+    from .document_review import document_cards, OPEN
+    repo = ctx().repo
+    pending = []
+    for result in results:
+        doc = repo.document(result.document_id)
+        if doc and doc['status'] in OPEN and doc['id'] not in {d['id'] for d in pending}:
+            pending.append(doc)
+    st.info(f"{len(results)} Datei(en) geprüft · {len(pending)} noch offen")
+    if inline and pending:
+        document_cards(repo, pending, key=key, messages={r.document_id: r.message for r in results})
+    elif inline:
+        notice = st.session_state.pop('document_review_saved', None)
+        if notice:
+            st.success(notice)
+    with st.expander('Verarbeitungsprotokoll'):
+        df([{'Datei': r.filename, 'Status': r.status, 'Ergebnis': r.message} for r in results])
 
 
 def tax_result(y: int, force: bool = False) -> TaxResult | None:
@@ -253,8 +242,6 @@ def status_panel(y: int, key: str) -> None:
             if cols[1].button(f"{len(pdf_open)} offene PDF(s) erneut verarbeiten", key=f"proc_{key}"):
                 results = process_documents(c.repo, [d["id"] for d in pdf_open], deps.get(dflt))
                 after_processing(results)
-        if "last_process_results" in st.session_state:
-            show_process_results(st.session_state.pop("last_process_results"))
 
 
 def after_processing(results) -> None:

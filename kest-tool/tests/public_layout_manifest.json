@@ -63,5 +63,124 @@
       "currency": "EUR",
       "complete": true
     }
+  },
+  {
+    "url": "https://raw.githubusercontent.com/portfolio-performance/portfolio/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Dividende17.txt",
+    "sha256": "245016fa9eda12605c488c74b8267dcc2cfe6a8d929bdd6f27a457bce9aeddc9",
+    "expected": {
+      "tx_type": "Dividende",
+      "isin": "US0378331005",
+      "quantity": 1.92086,
+      "amount": 0.48,
+      "currency": "USD",
+      "trade_date": "2024-05-16",
+      "withholding_tax": 0.07
+    }
+  },
+  {
+    "url": "https://raw.githubusercontent.com/portfolio-performance/portfolio/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Dividende18.txt",
+    "sha256": "5a5a11ff64e857211a5c9e663559bb207e022f749d269f70c5cb6d09713d71d7",
+    "expected": {
+      "tx_type": "Dividende",
+      "isin": "NL0011683594",
+      "quantity": 90.537929,
+      "amount": 78.77,
+      "currency": "EUR",
+      "trade_date": "2024-06-12",
+      "withholding_tax": 11.82
+    }
+  },
+  {
+    "url": "https://raw.githubusercontent.com/portfolio-performance/portfolio/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Dividende21.txt",
+    "sha256": "68699177b90dcde3e7b5cc6077ccf7cc605e953bc344e8c6680fb852ce89f7b6",
+    "expected": {
+      "tx_type": "Dividende",
+      "isin": "DE000ETFL482",
+      "quantity": 206.651869,
+      "amount": 99.19,
+      "currency": "EUR",
+      "trade_date": "2024-06-10",
+      "complete": false
+    }
+  },
+  {
+    "url": "https://raw.githubusercontent.com/portfolio-performance/portfolio/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Dividende26.txt",
+    "sha256": "a866645b5ad052207dd39506f785cf2a5164118779b988d33d42ab1b6619d80a",
+    "expected": {
+      "tx_type": "Ausschüttung",
+      "isin": "LU1875395870",
+      "quantity": 1.580925,
+      "amount": 0.51,
+      "currency": "EUR",
+      "trade_date": "2024-01-01"
+    }
+  },
+  {
+    "url": "https://raw.githubusercontent.com/portfolio-performance/portfolio/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Dividende27.txt",
+    "sha256": "84fddb22ad10d85d305a1603484a83b54c8d2744287b0e885dbc7bc56e39f94c",
+    "expected": {
+      "tx_type": "Dividende",
+      "isin": "US5949181045",
+      "quantity": 0.561914,
+      "amount": 0.42,
+      "currency": "USD",
+      "trade_date": "2024-06-13",
+      "withholding_tax": 0.06
+    }
+  },
+  {
+    "url": "https://raw.githubusercontent.com/portfolio-performance/portfolio/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/traderepublic/Dividende29.txt",
+    "sha256": "eb24ac6bbf92fad8d840e8121940d31abb6b0ffd0b04e3691aa4c0815a3fc06b",
+    "expected": {
+      "tx_type": "Dividende",
+      "isin": "US67066G1040",
+      "quantity": 4.171585,
+      "amount": 0.04,
+      "currency": "USD",
+      "trade_date": "2025-07-03",
+      "withholding_tax": 0.01
+    }
+  },
+  {
+    "url": "https://raw.githubusercontent.com/portfolio-performance/portfolio/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/scalablecapital/Dividende08.txt",
+    "sha256": "7b3cd31969e43913c7620b97cdeefea8722db454e0bac64be1936b8837feea35",
+    "expected": {
+      "tx_type": "Dividende",
+      "isin": "US7134481081",
+      "quantity": 1.588739,
+      "amount": 1.93,
+      "currency": "EUR",
+      "trade_date": "2026-01-09",
+      "withholding_tax": 0.29,
+      "complete": false
+    }
+  },
+  {
+    "url": "https://raw.githubusercontent.com/portfolio-performance/portfolio/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/scalablecapital/Dividende09.txt",
+    "sha256": "0a2f043ed84d6a7c56e296369e0ef620d79ea1e3efca922de57f7fa7944f544a",
+    "expected": {
+      "tx_type": "Kapitalrückzahlung",
+      "isin": "CH0114405324",
+      "quantity": 6,
+      "amount": 4.58,
+      "currency": "EUR",
+      "trade_date": "2026-01-08",
+      "value_date": "2025-12-31",
+      "complete": false
+    }
+  },
+  {
+    "url": "https://raw.githubusercontent.com/portfolio-performance/portfolio/f84ff1a432ec9ba61c17aa2ae4191c8b068643a7/name.abuchen.portfolio.tests/src/name/abuchen/portfolio/datatransfer/pdf/scalablecapital/Dividende10.txt",
+    "sha256": "6106c32bf7ce03fce18a2f3ddce8991f7534f98bcaeae427563d2112ed05f012",
+    "expected": {
+      "tx_type": "Dividende",
+      "isin": "NL0011683594",
+      "quantity": 2.769834,
+      "amount": 2.49,
+      "currency": "EUR",
+      "trade_date": "2025-06-03",
+      "value_date": "2025-06-11",
+      "withholding_tax": 0.37
+    }
   }
 ]

@@ -96,7 +96,7 @@ def upload_box(y: int, key: str, expanded: bool = True) -> None:
                 "duplicates": res.duplicates}
             C.after_processing(results) if results else st.rerun()
     if "last_process_results" in st.session_state:
-        C.show_process_results(st.session_state.pop("last_process_results"))
+        C.show_process_results(st.session_state["last_process_results"], key=f"upload_results_{key}")
     notes = st.session_state.pop("upload_notes", None)
     if notes:
         if notes["duplicates"]:

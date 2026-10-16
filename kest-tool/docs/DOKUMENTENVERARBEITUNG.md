@@ -16,6 +16,10 @@ Für die gemeinsame Änderung von Dokumentmetadaten gibt es unter Dokumente eine
 
 ## Fehlerdiagnose
 
+Version 1.2.0 ergänzt die [direkte Bearbeitung mit Originalvorschau](DIREKTE-BELEGPRUEFUNG.md) in der Ergebnisliste
+und unter Belege & Prüfung. Die Recherche wurde um weitere öffentliche Layoutfälle erweitert; 14 unveränderte
+Referenzfälle sind mit festen Erwartungen und Prüfsummen automatisiert nachprüfbar.
+
 Unter **Einstellungen → Diagnose und Fehlerbericht** können Sie einen ZIP-Bericht erzeugen. Er enthält Versionsangaben, Fehlerkennungen, Zeitpunkte und Fehlertypen, jedoch keine PDF-Inhalte, Kontodaten, Zugangsdaten oder vollständigen Stacktraces. Fehler bei der PDF-Verarbeitung werden nach Möglichkeit einzeln erfasst, damit die übrigen Dokumente weiterbearbeitet werden.
 
 ## Serverseitige Ordner (optional)

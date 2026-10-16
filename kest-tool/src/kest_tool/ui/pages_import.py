@@ -206,121 +206,105 @@ def _csv_import(y: int, deps: dict) -> None:
 
 
 # --------------------------------------------------------------------------- #
-def pdf_review_form(doc: dict, extraction: dict, depot_id: int | None, key: str) -> None:
-    """Prüfformular für eine PDF-Extraktion. Erst nach Bestätigung wird eine Buchung angelegt."""
-    c = C.ctx()
-    repo = c.repo
-    f = extraction.get("fields", {})
-
-    def v(name, default=None):
-        fld = f.get(name)
-        return fld["value"] if fld and fld.get("value") is not None else default
-
-    def conf(name):
-        fld = f.get(name)
-        confidence = fld.get("confidence") if isinstance(fld, dict) else None
-        return f" (Konfidenz {confidence:.0%})" if isinstance(confidence, (int, float)) else " (nicht gefunden)"
-
-    broker = {"TradeRepublic": "Trade Republic", "ScalableCapital": "Scalable Capital", "OeKB": "OeKB"}.get(
-        extraction.get("broker"), "nicht erkannt")
-    st.write(f"Erkannter Broker: **{broker}** · Dokumenttyp: **{extraction.get('doc_type')}**"
-             + (f" · {extraction['status_text']}" if extraction.get("status_text") else ""))
-    from .guide import show_check_report
+def pdf_review_form(doc: dict, extraction: dict, depot_id: int | None, key: str,
+                    transaction: dict | None = None) -> None:
+    """Edit the booking beside its original, including previously missing parser fields."""
+    from ..document_review import save_review
+    from ..processing import resolve_depot
     from ..importers.pdf_importer import FIELD_LABELS
-    with st.expander("Alle erkannten Angaben und ihre Quellen"):
-        C.df([{"Angabe": FIELD_LABELS.get(name, name), "Wert": str(field.get("value", "")),
-               "Konfidenz": f"{field.get('confidence', 0):.0%}", "Quelle": field.get("source", "")}
-              for name, field in f.items()])
-        if extraction.get("text_excerpt"):
-            st.caption("Textauszug aus dem Dokument (maximal 4.000 Zeichen)")
-            st.text(extraction["text_excerpt"])
-    if v("fx_source"):
-        st.caption(f"Umrechnung: {v('fx_source')}")
-    if extraction.get("checks"):
-        show_check_report(extraction["checks"])
-    else:
-        if extraction.get("missing"):
-            st.error("Fehlende Pflichtwerte: " + ", ".join(extraction["missing"]))
-        for w in extraction.get("warnings", []):
-            st.warning(w)
-    if not extraction.get("creates_transaction", True):
-        st.info("Dieses Dokument erzeugt keine einzelne Buchung. Es bleibt als Beleg abgelegt und kann Buchungen "
-                "zugeordnet werden (unten auf der Seite Dokumente).")
-        return
-    st.caption("Felder mit Konfidenz unter 80 % bzw. „nicht gefunden“ bitte mit dem Original vergleichen. Erst mit "
-               "„Als Buchung übernehmen“ wird gebucht.")
+    repo = C.ctx().repo
+    fields = extraction.get('fields', {})
+
+    def value(name, default=None):
+        if transaction is not None:
+            return transaction.get(name, default)
+        return fields.get(name, {}).get('value', default)
+
+    def day(name):
+        raw = value(name)
+        return date.fromisoformat(raw) if isinstance(raw, str) and raw else raw
+
+    with st.expander('Erkennung und Prüfhinweise', expanded=False):
+        from .guide import show_check_report
+        show_check_report(extraction.get('checks', []))
+        C.df([{'Angabe': FIELD_LABELS.get(name, name), 'Wert': str(field.get('value', '')),
+               'Quelle': field.get('source', ''), 'Sicherheit': f"{field.get('confidence', 0):.0%}"}
+              for name, field in fields.items()])
+        if extraction.get('text_excerpt'):
+            st.text(extraction['text_excerpt'])
+    if not extraction.get('creates_transaction', True) and transaction is None:
+        st.info(f"Erkannt: {extraction.get('doc_type', 'Unbekannt')}. Keine bestätigte Einzelabrechnung.")
+        if not st.checkbox('Im Original liegt doch eine einzelne Buchung vor – manuell erfassen', key=f'{key}_override'):
+            return
     deps = C.depot_options()
     if not deps:
-        st.warning("Noch kein Depot vorhanden. Legen Sie zuerst ein Depot an, um eine Buchung zu übernehmen.")
-        C.link("depots", "Broker und Depots verwalten")
+        st.warning('Für die Übernahme zuerst ein Depot anlegen.')
         return
-    with st.form(f"pdfform_{key}"):
-        dl = list(deps)
-        di = list(deps.values()).index(depot_id) if depot_id in deps.values() else 0
-        st.markdown("#### 1. Depot und Buchungsart")
-        depot_label = st.selectbox("Depot", dl, index=di, help="Wählen Sie das Depot, dem diese Abrechnung zugeordnet wird.")
-        cols = st.columns(2)
-        types = [t.value for t in TxType]
-        t = cols[0].selectbox("Buchungsart", types, index=types.index(extraction.get("tx_type"))
-                              if extraction.get("tx_type") in types else 0)
-        d_raw = v("trade_date")
-        d_val = date.fromisoformat(d_raw) if isinstance(d_raw, str) else (d_raw or date.today())
-        trade_date = cols[1].date_input("Buchungsdatum" + conf("trade_date"), value=d_val, format="DD.MM.YYYY")
-        isin = st.text_input("ISIN" + conf("isin"), value=v("isin", "") or "", placeholder="12-stellige ISIN")
-        name = st.text_input("Wertpapiername" + conf("security_name"), value=v("security_name", "") or "")
-        st.markdown("#### 2. Wertpapier und Beträge")
-        cols = st.columns(2)
-        qty = cols[0].number_input("Stückzahl" + conf("quantity"), value=float(v("quantity", 0) or 0), format="%.6f")
-        price = cols[1].number_input("Kurs" + conf("price"), value=float(v("price", 0) or 0), format="%.4f")
-        amount = cols[0].number_input("Bruttobetrag" + conf("amount"), value=float(v("amount", 0) or 0),
-                                      format="%.2f")
-        fees = cols[1].number_input("Gebühren" + conf("fees"), value=float(v("fees", 0) or 0), format="%.2f")
-        st.markdown("#### 3. Währung und Steuern")
-        cols = st.columns(2)
-        curs = list(dict.fromkeys(C.ctx().settings.currencies + ([v("currency")] if v("currency") else [])))
-        cur = cols[0].selectbox("Währung", curs, index=curs.index(v("currency", "EUR")) if v("currency", "EUR") in curs
-                                else 0)
-        fx = cols[1].number_input("Devisenkurs (Währung je EUR)", value=float(v("fx_rate", 0) or 0), format="%.6f")
-        wht = cols[0].number_input("Quellensteuer" + conf("withholding_tax"),
-                                   value=float(v("withholding_tax", 0) or 0), format="%.2f")
-        country = cols[1].text_input("Quellenstaat", value=v("withholding_country", "") or "", max_chars=2)
-        kest = cols[0].number_input("Österr. KESt (EUR)" + conf("kest_at_eur"), value=float(v("kest_at_eur", 0) or 0),
-                                    format="%.2f")
-        checked = st.checkbox("Ich habe die Werte mit dem Originaldokument abgeglichen")
-        submitted = st.form_submit_button("Geprüfte Buchung übernehmen", type="primary", use_container_width=True)
-    if submitted:
+    broker = extraction.get('broker')
+    if broker not in ('TradeRepublic', 'ScalableCapital'):
+        broker = doc.get('source')
+    selected = transaction.get('depot_id') if transaction else resolve_depot(repo, doc, broker, depot_id)
+    if selected is None and len(deps) == 1 and broker not in ('TradeRepublic', 'ScalableCapital') and not doc.get('broker_id'):
+        selected = next(iter(deps.values()))
+    labels = ['— Depot zuordnen —'] + list(deps)
+    index = next((i for i, name in enumerate(labels) if deps.get(name) == selected), 0)
+    # Widget keys preserve the draft even when another control reruns the page.
+    with st.container():
+        a, b = st.columns(2)
+        dep = a.selectbox('Depot', labels, index=index, key=f'{key}_depot')
+        types = ['— Buchungsart bestimmen —'] + [t.value for t in TxType]
+        current_type = transaction['tx_type'] if transaction else extraction.get('tx_type')
+        typ = b.selectbox('Buchungsart', types, index=types.index(current_type) if current_type in types else 0,
+                         key=f'{key}_type')
+        a, b = st.columns(2)
+        trade_day = a.date_input('Buchungsdatum', value=day('trade_date'), format='DD.MM.YYYY', key=f'{key}_date')
+        isin = b.text_input('ISIN', value=value('isin', '') or '', key=f'{key}_isin')
+        name = st.text_input('Wertpapiername', value=value('security_name', '') or '', key=f'{key}_name')
+        a, b, c = st.columns(3)
+        qty = a.number_input('Stückzahl', min_value=0.0, value=value('quantity'), format='%.6f', key=f'{key}_quantity')
+        gross = b.number_input('Bruttobetrag', min_value=0.0, value=value('amount'), format='%.2f', key=f'{key}_amount')
+        currencies = list(dict.fromkeys(C.ctx().settings.currencies + ([value('currency')] if value('currency') else [])))
+        currency_options = ['— Währung —'] + currencies
+        currency = c.selectbox('Währung', currency_options,
+            index=currency_options.index(value('currency')) if value('currency') in currencies else 0, key=f'{key}_currency')
+        a, b = st.columns(2)
+        wht = a.number_input('Quellensteuer', min_value=0.0, value=float(value('withholding_tax', 0) or 0), format='%.2f', key=f'{key}_wht')
+        country = b.text_input('Quellenstaat', value=value('withholding_country', '') or '', max_chars=2, key=f'{key}_country')
+        # Always visible: foreign-currency corrections need no extra view or rerun.
+        a, b = st.columns(2)
+        fx = a.number_input('Devisenkurs (Währung je EUR)', min_value=0.0, value=value('fx_rate'), format='%.6f', key=f'{key}_fx')
+        fees = b.number_input('Gebühren', min_value=0.0, value=float(value('fees', 0) or 0), format='%.2f', key=f'{key}_fees')
+        with st.expander('Weitere Angaben'):
+            a, b = st.columns(2)
+            price = a.number_input('Stückkurs', min_value=0.0, value=value('price'), format='%.6f', key=f'{key}_price')
+            kest = b.number_input('Österreichische KESt (EUR)', min_value=0.0, value=float(value('kest_at_eur', 0) or 0), format='%.2f', key=f'{key}_kest')
+            a, b = st.columns(2)
+            valuta = a.date_input('Valuta', value=day('value_date'), format='DD.MM.YYYY', key=f'{key}_valuta')
+            ratio = b.number_input('Split-Verhältnis neu/alt', min_value=0.0, value=value('ratio'), format='%.6f', key=f'{key}_ratio')
+            order = st.number_input('Reihenfolge am Tag', min_value=1, value=value('execution_order'), step=1, key=f'{key}_order')
+            separate = st.checkbox('Mögliche Dubletten verglichen: dies ist eine eigenständige Buchung', key=f'{key}_duplicate')
+        reason = st.text_input('Prüfnotiz' + (' / Änderungsgrund (Pflicht)' if transaction else ' (optional)'), key=f'{key}_reason')
+        checked = st.checkbox('Ich habe die Werte mit dem Original abgeglichen', key=f'{key}_confirmed')
+        save = st.button('Änderungen speichern' if transaction else 'Geprüfte Buchung speichern',
+                         key=f'{key}_save', type='primary', use_container_width=True)
+    if save:
         try:
-            tx = TransactionIn(depot_id=deps[depot_label], tx_type=TxType(t), trade_date=trade_date,
-                               isin=isin or None, security_name=name or None, quantity=qty or None,
-                               price=price or None, amount=amount or None, fees=fees, currency=cur,
-                               fx_rate=fx or None, fx_source=v("fx_source") if fx == v("fx_rate") else "manuell erfasst/geändert",
-                               value_date=date.fromisoformat(v("value_date")) if isinstance(v("value_date"), str) else v("value_date"),
-                               withholding_tax=wht, withholding_country=country or None,
-                               kest_at_eur=kest, source_type="pdf", source_ref=doc["original_filename"],
-                               document_id=doc["id"],
-                               review_status=ReviewStatus.CHECKED if checked and extraction.get("complete")
-                               else ReviewStatus.TO_REVIEW)
-        except ValidationError as exc:
+            if dep not in deps or typ not in [t.value for t in TxType] or currency not in currencies or trade_day is None:
+                raise ValueError('Depot, Buchungsart, Datum und Währung bitte vollständig zuordnen.')
+            values = dict(transaction or {})
+            values.update(depot_id=deps[dep], tx_type=typ, trade_date=trade_day, isin=isin or None,
+                security_name=name or None, quantity=qty, amount=gross, currency=currency, price=price,
+                fees=fees, fx_rate=fx or None, fx_source=value('fx_source') if fx == value('fx_rate') else 'manuell geprüft',
+                withholding_tax=wht, withholding_country=country or None, kest_at_eur=kest,
+                value_date=valuta, ratio=ratio or None, execution_order=order)
+            tid = save_review(repo, doc['id'], values, confirmed=checked,
+                transaction_id=transaction['id'] if transaction else None, reason=reason,
+                duplicate_confirmed=separate)
+            C.invalidate_results()
+            st.session_state['document_review_saved'] = f"Buchung #{tid} gespeichert und geprüft."
+            st.rerun()
+        except (ValueError, OSError) as exc:
             C.form_error(exc)
-            return
-        dup = repo.find_duplicates(tx)
-        if dup["exact"]:
-            st.error(f"Identische Buchung existiert bereits (IDs {[r['id'] for r in dup['exact']]}). Nicht übernommen.")
-            return
-        run = repo.start_import("PDF", doc["id"], tx.depot_id)
-        tid = repo.add_transaction(tx, import_run_id=run)
-        if dup["possible"]:
-            repo.update_transaction(tid, {"review_status": "pruefen"},
-                                    reason=f"Dublettenverdacht zu {[r['id'] for r in dup['possible']]}")
-            repo.log_import(run, "WARNUNG", f"Dublettenverdacht zu {[r['id'] for r in dup['possible']]}")
-        status = "verarbeitet" if extraction.get("complete") and checked else "teilweise"
-        repo.finish_import(run, "abgeschlossen", rows_total=1, rows_imported=1,
-                           message=f"Buchung #{tid} aus PDF ({'vollständig' if status == 'verarbeitet' else 'prüfen'})")
-        new_year = trade_date.year
-        repo.update_document(doc["id"], status=status, tax_year=new_year, doc_type=extraction.get("doc_type") or
-                             doc["doc_type"])
-        C.invalidate_results()
-        st.success(f"Buchung #{tid} angelegt (Dokumentstatus: {status}).")
 
 
 def _store_pdf(data: bytes, name: str, y: int, depot_id: int | None, method: str) -> tuple[dict, dict, bool]:
@@ -373,19 +357,13 @@ def _pdf_import(y: int, deps: dict) -> None:
         st.error(f"„{name}“: {error}")
     results = st.session_state.get("pdf_import_results", [])
     if results:
-        C.show_process_results(results)
+        C.show_process_results(results, inline=False)
     ids = st.session_state.get("pdf_import_ids", [])
-    for did in ids:
-        doc = repo.document(did)
-        if not doc or repo.transactions_for_document(did):
-            continue
-        try:
-            exd = extraction_for(repo, doc, **C.document_analysis_options())
-        except (PdfError, OSError, ValueError) as exc:
-            st.error(f"PDF „{doc['original_filename']}“ konnte nicht analysiert werden: {exc}")
-            continue
-        st.subheader(f"Prüfen: {doc['original_filename']}")
-        pdf_review_form(doc, exd, default_depot, key=doc["sha256"][:12])
+    from .document_review import document_cards, OPEN
+    docs = [repo.document(did) for did in ids]
+    docs = [d for d in docs if d and d['status'] in OPEN]
+    if docs:
+        document_cards(repo, docs, key='pdf_import_direct')
 
 
 def _doc_only_import(y: int) -> None:

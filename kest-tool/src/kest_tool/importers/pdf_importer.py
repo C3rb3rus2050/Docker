@@ -22,7 +22,7 @@ from .parsing import parse_number
 
 log = logging.getLogger(__name__)
 
-PARSER_VERSION = 6
+PARSER_VERSION = 7
 MAX_PAGES = 30
 MAX_FUND_PAGES = 250
 MAX_PDF_BYTES = 50 * 1024 * 1024
@@ -88,7 +88,7 @@ def extract_text(data: bytes, engine: str = "auto") -> tuple[str, str]:
 NUM = r"[+-]?(?:\d{1,3}(?:[.,' ]\d{3})+(?:[.,]\d+)?|\d+(?:[.,]\d+)?)-?(?![\d.,])"
 CUR = r"EUR|USD|CHF|GBP|CAD|JPY|DKK|SEK|NOK|AUD|NZD|HKD|SGD|PLN|CZK|HUF|CNY|ZAR|€|\$"
 DATE = r"\d{4}-\d{2}-\d{2}|\d{1,2}[./]\d{1,2}[./]\d{4}"
-UNIT = r"(?:Stk\.?|Stück(?:e)?|Pcs?\.?|Shares?|Units?|Anteile?)"
+UNIT = r"(?:Stk\.?|Stück(?:e)?|Pcs?\.?|Shares?|Units?\.?|Anteile?|titre\(s\)|titres?)"
 ISIN_RX = re.compile(r"\b([A-Z]{2}[A-Z0-9]{9}[0-9])\b")
 
 TRADE_DATE_LABELS = ["Schlusstag", "Handelstag", "Ausführungstag", "Ausführungsdatum", "Ausführung", "Trade Date", "Execution Date", "Execution"]
@@ -101,9 +101,9 @@ GROSS_LABELS_INCOME = ["Bruttobetrag", "Brutto", "Dividende brutto", "Ausschütt
                        "Zinsbetrag brutto", "Gross Dividend", "Gross Amount", "Gross Income", "Ertrag", "Dividende", "Ausschüttung", "Zinsen"]
 TOTAL_LABELS = ["Endbetrag", "Ausmachender Betrag", "Zu Lasten", "Zu Gunsten", "Amount debited to account", "Amount credited to account", "Debit", "Credit", "Betrag zu Ihren Lasten",
                 "Betrag zu Ihren Gunsten", "Settlement Amount", "Net Amount", "Nettobetrag", "Netto",
-                "Gesamtbetrag", "Gesamt", "Total", "Gutschrift", "Belastung"]
+                "Gesamtbetrag", "Gesamt", "Total", "Totaal", "Gutschrift", "Belastung"]
 WHT_LABELS = ["Quellensteuer", "Ausländische Quellensteuer", "US-Quellensteuer", "Withholding Tax",
-              "Withholding Tax Amount"]
+              "Withholding Tax Amount", "Impôt à la source pour les émetteurs américains", "Buitenlandse bronbelasting"]
 KEST_LABELS = ["Kapitalertragsteuer Österreich", "KESt Österreich", "KESt"]
 GERMAN_TAX_LABELS = ["Kapitalertragsteuer", "Kapitalertragssteuer", "Solidaritätszuschlag", "Kirchensteuer", "Capital gains tax", "Solidarity surcharge"]
 
@@ -310,6 +310,8 @@ def _currency(value: str) -> str:
 def _normalize_text(text: str) -> str:
     from .text_patterns import normalize_document_text
     text = normalize_document_text(text)
+    # Some PDF text layers concatenate currency and ISIN ("EURDE000ETFL482").
+    text = re.sub(rf'({CUR})(?=[A-Z]{{2}}[A-Z0-9]{{9}}[0-9]\b)', r'\1 ', text)
     lines = [re.sub(r"[ \t]+", " ", line).strip() for line in text.splitlines()]
     amount_labels = FEE_LABELS + GROSS_LABELS_TRADE + GROSS_LABELS_INCOME + TOTAL_LABELS + WHT_LABELS + KEST_LABELS
     date_labels = TRADE_DATE_LABELS + INCOME_DATE_LABELS + GENERIC_DATE_LABELS + ["Ex-Tag", "Settlement Date"]
@@ -388,6 +390,25 @@ def _apply_broker_tables(ex: Extraction, text: str) -> None:
     """Read explicit booking table columns; never treat a net payment as gross income."""
     f = ex.fields
     _apply_interest_layout(ex, text)
+    if ex.broker == 'TradeRepublic' and ex.tx_type in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value):
+        # Only the gross overview section, before billing/settlement, may supply this total.
+        # ISIN, quantity and unit income can occupy separate lines in older layouts.
+        overview = re.search(r'(?ims)^POSITION (?:ANZAHL|QUANTITY|QUANTITÉ) (?:ERTRAG|INCOME|REVENU|TAUX) (?:BETRAG|AMOUNT|MONTANT)\s*\n(.*?)(?=^(?:ABRECHNUNG|BILLING|DÉTAIL|RELEVÉ|BUCHUNG|BOOKING|RÉSERVATION|RÉGLEMENT)\s*$|\Z)', text)
+        if overview:
+            total = re.search(rf'(?im)^(?:GESAMT|TOTAL)\s+({NUM})\s+({CUR})\s*$', overview.group(1))
+            if total:
+                f['amount'] = Field(abs(_num(total.group(1))), .95, 'Bruttosumme der Positionsübersicht vor Abrechnung/Steuern')
+                f['currency'] = Field(_currency(total.group(2)), .95, 'Positionsübersicht')
+            units = list(re.finditer(rf'(?im)(?<![\w.,])({NUM})\s*{UNIT}\s+({NUM})\s+({CUR})\s*(?:({NUM})\s+({CUR}))?\s*$', overview.group(1)))
+            if len(units) == 1:
+                row = units[0]
+                f['quantity'] = Field(abs(_num(row.group(1))), .95, 'Stückzahl der Positionsübersicht')
+                f['income_per_unit'] = Field(_num(row.group(2), rate=True), .95, 'Ertrag je Anteil in der Positionsübersicht')
+                f['income_per_unit_currency'] = Field(_currency(row.group(3)), .95, 'Positionsübersicht')
+                f['price'] = Field(_num(row.group(2), rate=True), .95, 'Ertrag je Anteil (Abgleich Stück × Ertrag)')
+                f['price_currency'] = Field(_currency(row.group(3)), .95, 'Positionsübersicht')
+            elif len(units) > 1:
+                ex.check('Positionen eindeutig', 'warn', 'Mehrere Ertragspositionen in derselben Übersicht.', 'Einzelpositionen getrennt prüfen.')
     english_positions = re.search(r'(?im)^(?:Type Security Quantity Price Amount|POSITION QUANTITY (?:AVERAGE RATE|PRICE|RATE) AMOUNT)\s*$', text)
     if english_positions and ex.tx_type in (TxType.BUY.value, TxType.SELL.value):
         rows = list(re.finditer(rf'(?im)^(.+?)\s+({NUM})\s+{UNIT}\s+({NUM})\s+({CUR})\s+({NUM})\s+({CUR})\s*$', text))
@@ -409,7 +430,7 @@ def _apply_broker_tables(ex: Extraction, text: str) -> None:
         f['price'] = Field(abs(parse_number(units.group(4), '.')), .95, 'Price in Baader transaction statement')
         f['price_currency'] = Field(_currency(units.group(3)), .95, 'Baader transaction statement')
     # Trade Republic booking row supplies the final settlement after the earlier overview total.
-    booking = re.search(rf"(?im)^(?:VERRECHNUNGSKONTO|CLEARING ACCOUNT)[^\n]*(?:BETRAG|AMOUNT)\s*\n"
+    booking = re.search(rf"(?im)^(?:VERRECHNUNGSKONTO|CLEARING ACCOUNT|COMPTE-ESPÈCES|COMPTE DE RÈGLEMENT)[^\n]*(?:BETRAG|AMOUNT|MONTANT)\s*\n"
                         rf"[A-Z]{{2}}[A-Z0-9*+]+[ \t]+({DATE})[ \t]+({NUM})[ \t]+({CUR})[ \t]*$", text)
     if booking:
         day = _date(booking.group(1))
@@ -432,14 +453,15 @@ def _apply_broker_tables(ex: Extraction, text: str) -> None:
         if trade:
             f["trade_date"] = Field(_date(trade.group(1)), 0.95, "Handelsdatum in der Ausführungstabelle")
             ex.warnings = [w for w in ex.warnings if w != "Buchungsdatum nur heuristisch ermittelt"]
-    if ex.broker != "ScalableCapital" or ex.tx_type not in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value):
+    if ex.broker != "ScalableCapital" or ex.tx_type not in (TxType.DIVIDEND.value, TxType.DISTRIBUTION.value, TxType.INTEREST.value, TxType.CAPITAL_REPAYMENT.value):
         return
-    header = re.search(r"(?im)^(?:Buchung Wertstellung Typ Betrag / Stk\. Berechtigte Anzahl Gesamt|"
-                       r"Booking Value date Type Amount / pcs\. Entitled quantity Total amount)\s*$", text)
+    header = re.search(r"(?im)^(?:Buchung Wertstellung Typ Betrag / Stk\. Berechtigte\s*Anzahl Gesamt|"
+                       r"Booking Value date Type Amount / pcs\. Entitled quantity Total amount|"
+                       r"Boeking Valutadatum Type Bedrag / st\. Rechthebbende hoeveelheid Totaalbedrag)\s*$", text)
     if not header:
         return
     tail = text[header.end():]
-    row_pattern = rf"(?im)^[ \t]*({DATE})[ \t]+({DATE})[ \t]+(?:Gutschrift|Credit)[ \t]+({NUM})[ \t]+({CUR})[ \t]+({NUM})[ \t]+({NUM})[ \t]+({CUR})[ \t]*$"
+    row_pattern = rf"(?im)^[ \t]*({DATE})[ \t]+({DATE})[ \t]+(?:Gutschrift|Credit|Krediet)[ \t]+({NUM})[ \t]+({CUR})[ \t]+({NUM})[ \t]+({NUM})[ \t]+({CUR})[ \t]*$"
     rows = list(re.finditer(row_pattern, tail))
     if len(rows) != 1:
         ex.check("Ertragstabelle", "warn", "Ertragstabelle enthält keine eindeutige Einzelbuchung.", "Buchungszeilen einzeln prüfen.")
@@ -452,7 +474,7 @@ def _apply_broker_tables(ex: Extraction, text: str) -> None:
     f["quantity"] = Field(_num(row.group(5)), 0.95, "Berechtigte Anzahl in der Ertragstabelle")
     f["amount"] = Field(abs(_num(row.group(6))), 0.95, "Brutto-Gutschrift vor den separat ausgewiesenen Steuern")
     f["currency"] = Field(_currency(row.group(7)), 0.95, "Währung der Brutto-Gutschrift")
-    name = re.search(r"(?im)^(?:Berechtigtes Wertpapier|Entitled security)[ \t]+(.+)$", text)
+    name = re.search(r"(?im)^(?:Berechtigtes\s*Wertpapier|Entitled security|Effect met recht)[ \t]+(.+)$", text)
     if name:
         f["security_name"] = Field(name.group(1).strip(), 0.95, "Berechtigtes Wertpapier")
     fx = re.search(rf"(?im)^([A-Z]{{3}}[ \t]*/[ \t]*[A-Z]{{3}})[ \t]+({NUM})[ \t]*$", tail)

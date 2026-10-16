@@ -658,45 +658,46 @@ def documents() -> None:
     y = C.year_selector()
     st.title("Belege & Prüfung")
     if "last_process_results" in st.session_state:
-        C.show_process_results(st.session_state.pop("last_process_results"))
+        C.show_process_results(st.session_state["last_process_results"], inline=False)
     all_docs = repo.documents()
     open_docs = _open_documents(repo)
-    counts = st.columns(3)
-    counts[0].metric('Belege gesamt', len(all_docs))
-    counts[1].metric('Offen / zu prüfen', len(open_docs))
-    counts[2].metric('Erledigt', sum(d['status'] in ('verarbeitet', 'ignoriert') for d in all_docs))
+    st.caption(f"{len(all_docs)} Belege · {len(open_docs)} offen · "
+               f"{sum(d['status'] in ('verarbeitet', 'ignoriert') for d in all_docs)} erledigt")
     C.link('import', 'Weitere Dateien hinzufügen')
     view = st.segmented_control('Ansicht', ['Zu prüfen', 'Alle Belege', 'Erledigt'],
                 default='Zu prüfen' if open_docs else 'Alle Belege', required=True, key='documents_view')
-    controls = st.columns([3, 1, 2, 2])
-    query = controls[0].text_input('Belege durchsuchen', placeholder='Dateiname, ISIN oder Notiz', key='documents_search')
-    years = sorted({int(d['tax_year']) for d in all_docs if d.get('tax_year')}, reverse=True)
-    fy = controls[1].selectbox('Jahr', ['alle'] + years, key='documents_year')
-    source = controls[2].selectbox('Broker / Quelle', ['alle'] + DOC_SOURCES, key='documents_source',
-                    format_func=lambda v: {'TradeRepublic': 'Trade Republic', 'ScalableCapital': 'Scalable Capital',
-                                          'Unclassified': 'Nicht erkannt', 'Other': 'Sonstige'}.get(v, v))
-    types = sorted({d['doc_type'] for d in all_docs})
-    dtype = controls[3].selectbox('Dokumentart', ['alle'] + types, key='documents_type')
+    with st.expander('Suchen und filtern'):
+        controls = st.columns([3, 1, 2, 2])
+        query = controls[0].text_input('Belege durchsuchen', placeholder='Dateiname, ISIN oder Notiz', key='documents_search')
+        years = sorted({int(d['tax_year']) for d in all_docs if d.get('tax_year')}, reverse=True)
+        fy = controls[1].selectbox('Jahr', ['alle'] + years, key='documents_year')
+        source = controls[2].selectbox('Broker / Quelle', ['alle'] + DOC_SOURCES, key='documents_source',
+                        format_func=lambda v: {'TradeRepublic': 'Trade Republic', 'ScalableCapital': 'Scalable Capital',
+                                              'Unclassified': 'Nicht erkannt', 'Other': 'Sonstige'}.get(v, v))
+        types = sorted({d['doc_type'] for d in all_docs})
+        dtype = controls[3].selectbox('Dokumentart', ['alle'] + types, key='documents_type')
     docs = repo.documents(None if fy == 'alle' else int(fy), None if source == 'alle' else source,
                            None if dtype == 'alle' else dtype, query.strip() or None)
     if view == 'Zu prüfen':
         docs = [d for d in docs if d['status'] in ('neu', 'pruefen', 'teilweise', 'fehlgeschlagen')]
     elif view == 'Erledigt':
         docs = [d for d in docs if d['status'] in ('verarbeitet', 'ignoriert')]
-    st.caption(f'{len(docs)} Belege in dieser Ansicht. Zeilen markieren, um Original und Prüfbericht zu öffnen.')
+    st.caption(f'{len(docs)} Belege in dieser Ansicht. Original und Werte direkt nebeneinander bearbeiten.')
     pending = [d for d in docs if d['status'] in ('neu', 'pruefen', 'teilweise', 'fehlgeschlagen')]
     pdf_ids = [d['id'] for d in docs if d['file_type'] == 'pdf']
     if (pdf_ids or pending) and st.button('Erkennung für diese Ansicht aktualisieren', key='documents_recheck',
                             help='PDFs erneut lesen, offene Tabellen prüfen und Abweichungen zu vorhandenen Buchungen markieren.'):
         from ..processing import process_tables
         with st.spinner('Belege werden erneut gelesen …'):
-            results = C.process_documents(repo, pdf_ids, reextract=True)
+            from ..processing import process_documents
+            results = process_documents(repo, pdf_ids, reextract=True, **{**C.document_analysis_options(), 'ocr_enabled': True})
             results.extend(process_tables(repo, [(d, d['doc_type'] == 'OeKB-Fondsmeldung') for d in pending
                         if d['file_type'] in ('csv', 'txt', 'xlsx')], **C.document_analysis_options()))
         C.after_processing(results)
-    selected = document_grid(repo, docs, 'document_list')
-    if selected:
-        did = selected[0] if len(selected) == 1 else st.selectbox('Ausgewählten Beleg öffnen', selected,
-                    format_func=lambda did: repo.document(did)['original_filename'], key='document_detail_selected')
-        st.divider()
-        _document_detail(repo, repo.document(did), y, review_first=True, prefix='document_')
+    layout = st.segmented_control('Darstellung', ['Direkt bearbeiten', 'Metadaten-Tabelle'],
+                                  default='Direkt bearbeiten', required=True, key='documents_layout')
+    if layout == 'Direkt bearbeiten':
+        from .document_review import document_cards
+        document_cards(repo, docs, key='documents_direct')
+    else:
+        document_grid(repo, docs, 'document_list')

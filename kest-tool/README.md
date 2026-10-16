@@ -18,6 +18,11 @@ unklare Brutto-/Nettobeträge, fehlende Währungen, beschädigte Tabellen und me
 mit Begründung zur Prüfung erhalten. Bereits vorhandene offene Tabellen können erneut hochgeladen werden;
 erkannte Dubletten werden nicht erneut gebucht. Manuelle Sonderimporte sind optional eingeklappt.
 
+**Neu in 1.2.0: direkt am Beleg bearbeiten.** Upload-Ergebnisse und **Belege & Prüfung** zeigen das Original
+links und bearbeitbare Werte rechts. Keine Belegauswahl und kein Fensterwechsel nötig. Fehlende Angaben bleiben
+leer; manuell ergänzte Werte lassen sich nach Originalabgleich abschließen. Vorhandene Buchungen werden an
+derselben Stelle korrigiert. [Bedienung und öffentliche Layouttests](docs/DIREKTE-BELEGPRUEFUNG.md).
+
 ---
 
 Quellenstand und Änderungen vom 16.10.2026: [Verifikationsbericht](docs/VERIFIKATION-2026-10-16.md).
