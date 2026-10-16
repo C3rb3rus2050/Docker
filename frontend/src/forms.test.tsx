@@ -63,3 +63,30 @@ it("uses a password input for credentials", () => {
   );
   expect(host.querySelector("input")!.type).toBe("password");
 });
+it("removes the saved confirmation when a fresh edit has not been saved", async () => {
+  await act(async () =>
+    root.render(
+      <Editor
+        schema={{ properties: { amount: { type: "number" } } }}
+        initial={{ amount: 123 }}
+        onSave={async () => {}}
+      />,
+    ),
+  );
+  await act(async () =>
+    host
+      .querySelector("form")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
+  );
+  expect(host.textContent).toContain("Gespeichert.");
+  await act(async () => {
+    const input = host.querySelector("input")!;
+    Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )!.set!.call(input, "124");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(host.textContent).not.toContain("Gespeichert.");
+  expect(host.querySelector("form")!.dataset.dirty).toBe("true");
+});

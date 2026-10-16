@@ -51,7 +51,7 @@ def test_deployment_prefix_health_spa_and_unknown_api(env):
     assert 'React test shell' in client.get('/steuer/wertpapiere').text
     assert client.get('/steuer/assets/app.js').status_code == 200
     assert client.get('/steuer/api/not-real').status_code == 404
-    assert client.get('/steuer/api/meta').json()['version'] == '2.0.1'
+    assert client.get('/steuer/api/meta').json()['version'] == '2.0.2'
 
 
 def test_browser_boundary_rejects_cross_site_writes(env):
@@ -301,3 +301,76 @@ def test_invalid_restore_never_closes_live_database(env):
     assert client.post('/steuer/api/backup/restore', data={'confirmed': 'true'},
                        files=[('file', ('bad.zip', b'not zip'))]).status_code == 422
     assert client.get('/steuer/api/health').status_code == 200
+
+
+def test_fund_correction_from_browser_fields_and_audit(env):
+    client, c = env
+    client.post('/steuer/api/funds', json={'isin': 'IE00B4L5Y983', 'report_date': '2024-02-01', 'age_per_unit': 1})
+    report = client.get('/steuer/api/funds').json()[0]
+    values = {key: report[key] for key in ('fund_name', 'currency', 'fx_rate', 'distribution_per_unit',
+              'age_per_unit', 'taxable_distribution_per_unit', 'creditable_tax_per_unit',
+              'ak_correction_per_unit', 'kest_per_unit', 'notes')}
+    values.update(age_per_unit=2, review_status='geprueft')
+    response = client.patch(f'/steuer/api/funds/{report["id"]}', json={'values': values, 'reason': 'Original abgeglichen'})
+    assert response.status_code == 200, response.text
+    updated = client.get('/steuer/api/funds').json()[0]
+    assert updated['age_per_unit'] == 2 and updated['review_status'] == 'geprueft'
+    assert updated['version'] == report['version'] + 1
+    assert any(a['entity'] == 'fund_report' for a in c.repo.audit_entries())
+
+
+def test_reference_upload_and_repeated_upload_remain_usable(env):
+    client, c = env
+    content = b'ISIN;Datum;Kurs;Waehrung\nUS0378331005;2024-12-30;123.45;EUR\n'
+    for _ in range(2):
+        response = client.post('/steuer/api/reference-import/prices',
+                               files=[('file', ('MUSTER.csv', content, 'text/csv'))])
+        assert response.status_code == 200, response.text
+        assert 'Kurse importiert' in response.json()['message']
+    assert client.get('/steuer/api/health').status_code == 200
+
+
+def test_backup_uses_writable_store_instead_of_service_temp_directory(env, monkeypatch):
+    import io
+    import tempfile
+    import zipfile
+    client, c = env
+    monkeypatch.setattr(tempfile, 'tempdir', str(c.base_dir / 'unavailable-system-temp'))
+    response = client.post('/steuer/api/backup')
+    assert response.status_code == 200, response.text
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        assert 'database/kest_tool.db' in archive.namelist()
+    assert not list((c.base_dir / 'backups').glob('.backup-*'))
+
+
+@pytest.mark.parametrize('decision,expected', [('bestehend_behalten', 1), ('neu_uebernommen', 2)])
+def test_fund_conflict_decisions_from_browser(env, decision, expected):
+    import re
+    client, c = env
+    values = {'isin': 'IE00B4L5Y983', 'report_date': '2024-02-01', 'age_per_unit': 1}
+    client.post('/steuer/api/funds', json=values)
+    client.post('/steuer/api/funds', json={**values, 'age_per_unit': 2})
+    conflict = client.get('/steuer/api/conflicts').json()[0]
+    response = client.post('/steuer/api/conflicts/fund', json={
+        'existing_id': int(re.search(r':(\d+)', conflict['existing_ref'])[1]),
+        'new_id': int(re.search(r':(\d+)', conflict['new_ref'])[1]),
+        'decision': decision, 'note': 'Original verglichen'})
+    assert response.status_code == 200, response.text
+    assert not client.get('/steuer/api/conflicts').json()
+    active = [r for r in client.get('/steuer/api/funds').json() if r['active']]
+    assert len(active) == 1 and active[0]['age_per_unit'] == expected
+
+
+@pytest.mark.parametrize('take_new,expected', [(False, 11), (True, 12)])
+def test_nmf_conflict_decisions_from_browser(env, take_new, expected):
+    client, c = env
+    values = {'isin': 'IE00B4L5Y983', 'tax_year': 2024, 'first_price': 10,
+              'last_price': 11, 'source': 'MUSTER'}
+    client.post('/steuer/api/nmf-prices', json=values)
+    client.post('/steuer/api/nmf-prices', json={**values, 'last_price': 12})
+    conflict = client.get('/steuer/api/conflicts').json()[0]
+    response = client.post(f'/steuer/api/conflicts/{conflict["id"]}/nmf', json={
+        'values': {'take_new': take_new}, 'reason': 'Original verglichen'})
+    assert response.status_code == 200, response.text
+    assert not client.get('/steuer/api/conflicts').json()
+    assert client.get('/steuer/api/nmf-prices?year=2024').json()[0]['last_price'] == expected

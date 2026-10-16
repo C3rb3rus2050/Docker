@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { api, editable, original } from "./api";
 import {
   Action,
@@ -123,7 +123,8 @@ export function Documents({
   changed: () => void;
   initialIds?: number[];
 }) {
-  const [view, setView] = useState("open"),
+  const focusId = Number(new URLSearchParams(location.search).get("beleg"));
+  const [view, setView] = useState(focusId ? "all" : "open"),
     [q, setQ] = useState(""),
     [index, setIndex] = useState(0),
     [rev, setRev] = useState(0);
@@ -135,6 +136,14 @@ export function Documents({
     (d) => !initialIds || initialIds.includes(d.id),
   );
   const current = rows[Math.min(index, rows.length - 1)];
+  const [focused, setFocused] = useState(false);
+  useEffect(() => {
+    if (!focused && resource.data) {
+      const target = rows.findIndex((d) => d.id === focusId);
+      if (target >= 0) setIndex(target);
+      setFocused(true);
+    }
+  }, [resource.data, focused, focusId]);
   const refresh = () => {
     setRev((r) => r + 1);
     changed();
@@ -174,7 +183,12 @@ export function Documents({
           }}
         />
         <Action
+          disabled={resource.loading || !rows.length}
           onClick={async () => {
+            if (!mayNavigate())
+              throw Error(
+                "Analyse abgebrochen. Ungespeicherte Eingaben bleiben erhalten.",
+              );
             await api("/documents/process", "POST", {
               ids: rows.map((d) => d.id),
             });
@@ -697,8 +711,12 @@ export function Transactions({
         </select>
         <Action
           onClick={async () => {
-            await api("/fx/" + year, "POST");
+            if (!mayNavigate()) return false;
+            const results = await api("/fx/" + year, "POST");
             refresh();
+            return results.length
+              ? `${results.filter((r: Row) => r.status === "gesetzt").length} Devisenkurse ergänzt; ${results.filter((r: Row) => r.status !== "gesetzt").length} ohne verfügbaren Kurs.`
+              : "Keine fehlenden Devisenkurse zu ergänzen.";
           }}
         >
           EZB-Kurse ergänzen
@@ -730,11 +748,16 @@ export function Transactions({
           id={selected}
           meta={meta}
           changed={refresh}
+          deleted={() => {
+            setSelected(null);
+            refresh();
+          }}
         />
       )}
       <details>
         <summary>Buchung manuell hinzufügen</summary>
         <Editor
+          key={year}
           schema={meta.schemas.transaction}
           keys={fields.transaction}
           initial={{
@@ -755,10 +778,12 @@ function TransactionCard({
   id,
   meta,
   changed,
+  deleted,
 }: {
   id: number;
   meta: Row;
   changed: () => void;
+  deleted: () => void;
 }) {
   const { data, error, loading } = useResource("/transactions/" + id);
   if (error) return <ErrorBox error={error} />;
@@ -804,7 +829,7 @@ function TransactionCard({
                 reason: v.reason,
                 revision: data.revision,
               });
-              changed();
+              deleted();
             }}
           />
         </details>

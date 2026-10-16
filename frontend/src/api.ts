@@ -36,11 +36,16 @@ export async function api<T = any>(
       "Server nicht erreichbar. Verbindung prüfen; Eingaben bleiben im Formular.",
     );
   }
-  const data = await response
-    .json()
-    .catch(() => ({
-      detail: "Ungültige Serverantwort. Serverprotokoll prüfen.",
-    }));
+  let data: any;
+  try {
+    data = await response.json();
+  } catch (e) {
+    if ((e as Error).name === "AbortError") throw e;
+    throw new ApiError(
+      response.status,
+      "Ungültige Serverantwort. Serverprotokoll prüfen.",
+    );
+  }
   if (!response.ok) {
     const detail = Array.isArray(data.detail)
       ? data.detail
