@@ -500,7 +500,7 @@ def process_tables(repo: Repository, documents: list, **analysis_options) -> lis
             if broker:
                 _ensure_broker_depot(repo, broker)
                 repo.update_document(doc['id'], source=broker)
-            depot_id = resolve_depot(repo, doc, broker, None)
+            depot_id = resolve_depot(repo, doc, broker, analysis_options.get('default_depot'))
             if not broker and len(repo.depots(active_only=True)) == 1:
                 depot_id = repo.depots(active_only=True)[0]['id']
             imported = duplicates = pending = 0

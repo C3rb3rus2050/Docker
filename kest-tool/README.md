@@ -1,5 +1,10 @@
 # KESt-Tool – Österreichische Kapitalertragsteuer für Wertpapierdepots
 
+**Ab Version 2.0.0 ist die reguläre Oberfläche React/FastAPI.** Installation und Start erfolgen
+im Repository-Hauptordner mit `scripts/setup.ps1` und `scripts/start.ps1`, Docker verwendet den
+Root-`Dockerfile`. Siehe [Architektur](../docs/ARCHITEKTUR.md). Die nachfolgenden Streamlit-Befehle
+beschreiben die erhaltene frühere Oberfläche und sind nicht mehr der Docker-Startweg.
+
 Einheitliche Oberfläche im OrangeHRM-Stil mit kompakter Seitenleiste,
 orangefarbener Kopfzeile und Schnellzugriff auf offene Aufgaben.
 Belege bleiben direkt neben dem Original bearbeitbar. Die Gestaltung wird lokal geladen, ohne externe Schriftarten.

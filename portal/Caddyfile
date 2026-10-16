@@ -1,7 +1,8 @@
 :8080 {
     encode gzip
+    redir /steuer /steuer/ 308
     handle /steuer/* {
-        reverse_proxy kest-tool:8501
+        reverse_proxy kest-tool:8000
     }
     handle {
         root * /srv
