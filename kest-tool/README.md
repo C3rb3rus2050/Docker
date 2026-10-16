@@ -11,6 +11,10 @@ mehrerer Depots (Trade Republic, Scalable Capital, weitere Broker), berechnet si
 
 PDFs, ZIP-Archive, CSV- und Excel-Dateien werden manuell heruntergeladen und direkt im Browser über **Dokumente hinzufügen** oder **Import** eingelesen. Ein automatischer Broker-Download ist nicht Bestandteil des Projekts.
 
+Unbekannte PDF-Layouts können optional mit einer **lokalen KI (Ollama)** untersucht werden.
+Belegbare Vorschläge lassen sich direkt neben dem Original prüfen und ins Formular übernehmen;
+sie werden nie automatisch gebucht. [Einrichtung und Grenzen](docs/LOKALE-KI.md).
+
 Der gemeinsame Upload startet direkt nach dem Hinzufügen der Dateien. Importtyp, erkannte Spalten und
 eindeutige Broker/Depots werden automatisch zugeordnet. CSV-Vorspann, wiederholte Tabellenabschnitte,
 mehrere Excel-Blätter und OeKB-Tabellen werden berücksichtigt. Eindeutige Bruttobuchungen werden übernommen;

@@ -1,0 +1,10 @@
+# Optional local inference, merged with the existing deployment using COMPOSE_FILE.
+services:
+  ollama:
+    image: ollama/ollama:0.40.5
+    restart: unless-stopped
+    volumes:
+      - ollama-models:/root/.ollama
+    # No published port: only other containers on this Compose network can connect.
+volumes:
+  ollama-models:

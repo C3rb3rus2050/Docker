@@ -45,6 +45,7 @@ DEFAULTS: dict[str, Any] = {
         "fuzzy_duplicate_tolerance": 0.005,
     },
     "pdf": {"engine": "auto", "ocr_enabled": False},  # auto = pdfplumber, Fallback PyMuPDF
+    "assistant": {"enabled": False, "endpoint": "http://ollama:11434", "model": "qwen2.5:7b"},
     "privacy": {"allow_external_services": False},
     "fx": {"auto_fetch": True},
     "prices": {"provider": "eodhd", "auto_fetch": True,

@@ -4,5 +4,5 @@ Die Anwendung ist eine Vorbereitungs- und Arbeitshilfe. Sie ersetzt keine Steuer
 übermittelt nichts an FinanzOnline.
 """
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 APP_NAME = "KESt-Tool"

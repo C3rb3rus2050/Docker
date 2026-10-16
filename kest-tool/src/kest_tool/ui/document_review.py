@@ -75,6 +75,8 @@ def _card(repo, doc: dict, key: str, message: str | None) -> None:
                     st.caption('Mehrere Buchungen zu diesem Beleg – Werte direkt in der Tabelle bearbeiten.')
                     record_grid(repo, linked, 'transaction', f'{key}_linked')
                 else:
+                    from .assisted_review import assistance
+                    assistance(repo, doc, key)
                     pdf_review_form(doc, extraction, None, key=key, transaction=linked[0] if linked else None)
             else:
                 st.info(doc.get('notes') or 'Die Tabellenwerte stehen links; die automatische Prüfung kann hier erneut gestartet werden.')

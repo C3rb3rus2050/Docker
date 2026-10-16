@@ -230,6 +230,23 @@ def settings_page() -> None:
         C.reset_context()
         st.rerun()
     st.caption("Nach Updates unter Dokumente → Alle erneut automatisch prüfen die offenen Originale neu auslesen. Bestehende Buchungen bleiben erhalten.")
+    with st.expander('Lokale KI für unbekannte Beleglayouts'):
+        st.caption('Optionaler Ollama-Dienst. Erst pro Beleg starten; keine automatische Buchung oder steuerliche Einstufung. '
+                   'Nur eine vertrauenswürdige Adresse verwenden: Der Dienst erhält Belegtext mit möglichen persönlichen Daten.')
+        with st.form('assistant_settings'):
+            enabled = st.checkbox('Lokale KI aktivieren', value=bool(c.settings.get('assistant.enabled', False)))
+            endpoint = st.text_input('Ollama-Basisadresse', value=c.settings.get('assistant.endpoint', 'http://ollama:11434'))
+            model = st.text_input('Installiertes Modell', value=c.settings.get('assistant.model', 'qwen2.5:7b'))
+            if st.form_submit_button('KI-Einstellungen speichern'):
+                from ..importers.assisted import endpoint_url, AssistanceError
+                try:
+                    endpoint_url(endpoint)
+                    c.settings.save_local({'assistant': {'enabled': enabled, 'endpoint': endpoint, 'model': model}})
+                    C.reset_context()
+                    st.success('KI-Einstellungen gespeichert.')
+                    st.rerun()
+                except AssistanceError as exc:
+                    st.error(str(exc))
     st.subheader("Devisenkurse (EZB-Referenzkurse)")
     from ..fx import ECB_URL, FxError, FxService
     fxs = FxService(c.store.base)
